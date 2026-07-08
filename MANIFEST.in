@@ -1,0 +1,6 @@
+include LICENSE
+include README.md
+include pyproject.toml
+recursive-include src *.py *.pyi
+recursive-include src/a3dasm/_src/knowledge *.md
+recursive-include docs *.md *.rst *.ipynb

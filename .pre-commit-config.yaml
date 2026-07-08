@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: sort_pyproject
+        name: sort_pyproject
+        entry: toml-sort -i --sort-table-keys --sort-inline-tables
+        language: python
+        files: ^pyproject\.toml$
+        additional_dependencies: ["toml-sort==0.23.1"]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.10  # aligned with the ruff>=0.14.10 floor in pyproject
+    hooks:
+      # Lint-only: check (and apply safe fixes), never auto-reformat.
+      - id: ruff-check
+        types_or: [python, pyi, jupyter, toml]
+        args: [--fix]

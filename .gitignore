@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# venvs / tooling
+.venv/
+.venv-*/
+.uv/
+uv.lock
+
+# tests / coverage
+.pytest_cache/
+.hypothesis/
+.coverage
+coverage_html_report/
+htmlcov/
+
+# docs build
+site/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

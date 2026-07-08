@@ -1,0 +1,8 @@
+model: claude-haiku-4-5-20251001
+backend: claude
+eval_budget: 200
+evaluator:
+  entrypoint: "workspace/evaluator.py:evaluate"
+  output_names: [y]
+# pipeline.ipynb is the single deliverable and is auto-required — its leading
+# markdown cells hold the writeup. List required_deliverables only for EXTRA files.

@@ -1,0 +1,94 @@
+theme:
+    name: material
+    features:
+        - navigation.sections
+        - toc.integrate
+        - header.autohide
+        - content.code.copy
+    palette:
+        - scheme: default
+          primary: white
+          accent: amber
+          toggle:
+             icon: material/weather-night
+             name: Switch to dark mode
+        - scheme: slate
+          primary: black
+          accent: amber
+          toggle:
+             icon: material/weather-sunny
+             name: Switch to light mode
+    icon:
+        repo: fontawesome/brands/github
+
+site_name: a3dasm
+site_description: The documentation for the a3dasm library.
+site_author: Elvis Aguero
+
+repo_url: https://github.com/bessagroup/a3dasm
+repo_name: bessagroup/a3dasm
+edit_uri: ""
+
+strict: true
+
+markdown_extensions:
+    - attr_list
+    - md_in_html
+    - pymdownx.arithmatex:
+        generic: true
+    - pymdownx.superfences
+    - pymdownx.details
+    - pymdownx.snippets:
+        base_path: docs
+    - admonition
+    - toc:
+        permalink: "#"
+        toc_depth: 4
+    - footnotes
+
+plugins:
+    - search
+    - include_exclude_files:
+        exclude:
+            - "_overrides"
+    - ipynb
+    - mkdocstrings:
+        handlers:
+            python:
+                paths: [src]
+                options:
+                    docstring_style: numpy
+                    force_inspection: true
+                    heading_level: 4
+                    inherited_members: true
+                    members_order: source
+                    show_bases: false
+                    show_if_no_docstring: true
+                    show_root_heading: true
+                    show_signature_annotations: true
+                    show_source: true
+                    show_symbol_type_heading: true
+                    show_symbol_type_toc: true
+                    filters:
+                        - "!^__.*__$"
+
+nav:
+    - 'index.md'
+    - Getting started:
+        - 'installation.md'
+        - 'concepts.md'
+        - 'Configuring the backend': 'backends.md'
+    - Tutorials:
+        - 'Quickstart': 'notebooks/quickstart.ipynb'
+        - 'Reading a run': 'reading-a-run.md'
+    - How the system works:
+        - 'Feature catalog': 'FEATURES.md'
+        - 'Backlog': 'BACKLOG.md'
+        - 'Authoring a study': 'authoring-a-study.md'
+    - API Reference:
+        - 'api/run.md'
+        - 'api/agents.md'
+        - 'api/graph.md'
+        - 'api/evaluator.md'
+    - License:
+        - 'license.md'

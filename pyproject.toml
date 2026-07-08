@@ -1,0 +1,124 @@
+[project]
+name = "a3dasm"
+version = "0.1.0"
+description = "a3dasm - Agentic Data-driven Design and Analysis of Structures and Materials"
+readme = "README.md"
+license = {text = "BSD-3-Clause"}
+requires-python = ">=3.10"
+authors = [
+  {email = "elvis_alexander_aguero_vera@brown.edu", name = "Elvis Aguero"}
+]
+maintainers = [
+  {email = "elvis_alexander_aguero_vera@brown.edu", name = "Elvis Aguero"}
+]
+classifiers = [
+  "License :: OSI Approved :: BSD License",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS"
+]
+# a3dasm depends on f3dasm as an external, pinned library. It carries NO copy of
+# f3dasm core. See PORTING.md for the two behaviours still to be re-homed on the
+# a3dasm side (to_numpy metadata-column drop, protected-store guard) and the pin
+# bump + import flip owed once bessagroup/f3dasm#351 lands.
+dependencies = [
+  "f3dasm>=2.2.3",
+  "claude-agent-sdk>=0.2.82,<1.0.0",
+  "pymupdf>=1.24.0",
+  "rank-bm25>=0.2.2",
+  "nbclient>=0.7",
+  "nbformat>=5.9",
+  "ipykernel>=6.0",
+  "semanticscholar>=0.8.0",
+  "arxiv>=2.1.0",
+  "langchain-community>=0.3.0,<1.0.0",
+  "langchain-core>=0.3.0",
+  "langchain-ollama>=0.2.0,<1.0.0",
+  "langchain-openai>=0.3.0,<1.0.0",
+  "langgraph>=0.6.11",
+  "langgraph-checkpoint-sqlite>=3.0.3",
+  "ollama>=0.4.0",
+  "requests>=2.28.0",
+  "psutil>=5.9.0"
+]
+
+[project.optional-dependencies]
+# Layout-aware PDF to Markdown via docling (pulls torch). Excluded on Intel
+# macOS, where the lean pymupdf path is used. Mirrors f3dasm's agentic-extra.
+extra = [
+  "docling>=2.0.0; sys_platform != 'darwin' or platform_machine == 'arm64'"
+]
+all = [
+  "a3dasm[extra]"
+]
+dev = [
+  "pre-commit>=4.4.0",
+  "ruff>=0.14.10"
+]
+docs = [
+  "mkdocs-gen-files>=0.5.0",
+  "mkdocs-include-exclude-files>=0.1.0",
+  "mkdocs-ipynb>=0.1.1",
+  "mkdocs-material>=9.6.20",
+  "mkdocstrings>=0.30.1",
+  "mkdocstrings-python>=1.18.2",
+  "pymdown-extensions>=10.16.1"
+]
+tests = [
+  "hypothesis>=6.138.0",
+  "pytest>=8.4.1",
+  "pytest-cov>=6.2.1"
+]
+
+[project.urls]
+Repository = "https://github.com/bessagroup/a3dasm"
+
+[project.scripts]
+# a3dasm is also runnable as `python -m a3dasm`.
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "if self.debug",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+  "if 0:",
+  "if __name__ == .__main__.:",
+  "@(abc\\.)?abstractmethod"
+]
+
+[tool.coverage.run]
+branch = true
+omit = ["tests/", "**/__init__.py"]
+source = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "--cov-report term --cov-report html --cov-config=.coveragerc --cov=a3dasm --cov-fail-under=85.00"
+markers = [
+  "smoke",
+  "requires_dependency(name): mark the test as it requires a certain dependency",
+  "ollama: marks tests that require a running Ollama server (skip with -m 'not ollama')",
+  "integration: wet tests that hit real LLMs and external APIs (skip with -m 'not integration')"
+]
+minversion = "6.0"
+pythonpath = [".", "src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.lint]
+exclude = ["__pycache__", "dist", "*.egg", ".git", "tests/*", "studies/*", "docs/*"]
+ignore = ["E226", "E3", "E501", "E731", "C901", "UP045", "B027", "B012"]
+select = ["E", "W", "F", "I", "B", "UP"]
+
+[tool.uv]
+package = true
