@@ -31,8 +31,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from filelock import FileLock
-
 from f3dasm import DataGenerator, ExperimentData, ExperimentSample
 
 # Not yet re-exported by the public f3dasm API. They exist in stock f3dasm,
@@ -41,6 +39,7 @@ from f3dasm import DataGenerator, ExperimentData, ExperimentSample
 from f3dasm._src.errors import EmptyFileError, ReachMaximumTriesError
 from f3dasm._src.experimentsample import JobStatus
 from f3dasm.design import Domain
+from filelock import FileLock
 
 #                                                         Authorship & Credits
 # ==========================================================================
@@ -1109,7 +1108,7 @@ def delegation_evals(store_root: Path | str, delegation_id: str) -> int:
 
 def load_experiments(
     store_root: Path | str | None = None,
-) -> dict[str, "ExperimentData"]:
+) -> dict[str, ExperimentData]:
     """Load EVERY experiment store of a run as a dict ``{name: ExperimentData}``.
 
     A namespaced run holds one clean ``ExperimentData`` per experiment at nested

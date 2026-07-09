@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import os
+import re
 import shlex
 import subprocess
 import time
@@ -148,7 +148,7 @@ def render_serve_script(spec: ServeSpec, cluster, base_url_port: int,
 
     sb = [
         "#!/bin/bash",
-        f"#SBATCH -J vllm-serve",
+        "#SBATCH -J vllm-serve",
         f"#SBATCH -p {partition}",
         f"#SBATCH -A {account}",
         "#SBATCH -N 1",
@@ -184,8 +184,6 @@ def render_serve_script(spec: ServeSpec, cluster, base_url_port: int,
 # unwise config — NOT a guarantee; measured tok/s from telemetry (tokens/wall)
 # refines the real numbers afterward.
 
-import re as _re
-
 # Peak HBM bandwidth (TB/s) per GPU. Extend as needed.
 _GPU_BW_TBPS: dict[str, float] = {
     "v100": 0.9, "a100": 2.0, "a100-80g": 2.0, "h100": 3.35, "h200": 4.8,
@@ -201,7 +199,7 @@ _TP_EFF = 0.85   # per-extra-GPU efficiency for tensor parallelism
 def parse_params_billions(model: str) -> float | None:
     """Best-effort model size in billions from the name (e.g. '...-27b' -> 27).
     Returns None if not parseable (caller should then require params_b in cfg)."""
-    m = _re.search(r"(\d+(?:\.\d+)?)\s*[bB]\b", model or "")
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[bB]\b", model or "")
     return float(m.group(1)) if m else None
 
 

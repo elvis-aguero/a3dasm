@@ -6,8 +6,8 @@ back into the same folder. This page is the **contract** — the exact files the
 runtime reads, the evaluator interface it expects, and the artifacts it
 produces — so you can prepare a folder that runs correctly the first time.
 
-For framework internals (architecture, tools, backends, HPC) see
-[`../../README-agentic.md`](../../README-agentic.md); this page is the narrow
+For framework internals (architecture, tools, backends, HPC) see the
+[core concepts](concepts.md); this page is the narrow
 "what must my folder contain" reference.
 
 ---
@@ -68,8 +68,8 @@ no budget, honor-system evaluator). Keys the runtime actually **reads**:
 | `required_deliverables` | list[str] | `[]` | EXTRA files that must exist before `Done()` is accepted (`pipeline.ipynb` is the single deliverable and is **always** required regardless — it is not listed here) |
 | `evaluator` | block | none → honor-system | declares the oracle — see below |
 
-> ⚠️ **`checkpoint_every` is a no-op.** It appears in `README-agentic.md`
-> examples and several shipped configs, but the runtime does **not** read it
+> ⚠️ **`checkpoint_every` is a no-op.** It appears in some older config
+> examples, but the runtime does **not** read it
 > today. Setting it does nothing. (Tracked as a doc/contract gap — see bottom.)
 
 ### `workspace/` — optional

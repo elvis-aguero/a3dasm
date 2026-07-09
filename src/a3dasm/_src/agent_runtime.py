@@ -357,14 +357,13 @@ def _ingest_precomputed_pool(
     """
     from datetime import datetime, timezone
 
-    from filelock import FileLock
-
     from f3dasm import ExperimentData, ExperimentSample
 
     # Not yet public; flip to `from f3dasm import ...` after bessagroup/f3dasm#351.
     from f3dasm._src.errors import EmptyFileError, ReachMaximumTriesError
     from f3dasm._src.experimentsample import JobStatus
     from f3dasm.design import Domain
+    from filelock import FileLock
 
     pool_project = study_dir / lookup_cfg["pool"]
     pool = ExperimentData.from_file(project_dir=pool_project)

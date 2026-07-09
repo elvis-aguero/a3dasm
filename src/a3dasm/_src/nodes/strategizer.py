@@ -803,11 +803,9 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         not a script doing "sneaky stuff" unrelated to validating the pipeline.
         """
         import json as _json
-        import os
         import re
         import shutil
         import subprocess
-        import sys
         import tempfile
 
         study_dir = (

@@ -1629,7 +1629,6 @@ def build_routing_tools(node) -> dict:
         turn open with no extra turns consumed.
 
         Returns the same text as GetStatus() once the delegation completes."""
-        import time as _time
         prefix = node._drain_notifications()
         with node._registry_lock:
             entry = node._registry.get(delegation_id)
@@ -2811,7 +2810,6 @@ def build_routing_tools(node) -> dict:
         debug instead of guessing (e.g. 'does hypotheses.json load? does h_dict
         populate?') rather than discovering a silent bug only at CheckDeliverable."""
         import json as _json
-        import os as _os
         import shutil as _shutil
         import subprocess as _sub
         import tempfile as _tempfile
@@ -2869,7 +2867,6 @@ def build_routing_tools(node) -> dict:
         localize a CheckDeliverable failure to one cell before editing, instead of
         re-running the binary gate blindly."""
         import json as _json
-        import os as _os
         import shutil as _shutil
         import subprocess as _sub
         import tempfile as _tempfile

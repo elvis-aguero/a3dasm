@@ -10,7 +10,9 @@ jobs:
   run-tests:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # a3dasm is POSIX/HPC-oriented (process-group reaping, signals, SLURM);
+        # Windows is not a supported target.
+        os: [ubuntu-latest, macos-latest]
         version: ["3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
     runs-on: ${{ matrix.os }}

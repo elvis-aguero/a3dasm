@@ -1,14 +1,5 @@
 [project]
-name = "a3dasm"
-version = "0.1.0"
-description = "a3dasm - Agentic Data-driven Design and Analysis of Structures and Materials"
-readme = "README.md"
-license = {text = "BSD-3-Clause"}
-requires-python = ">=3.10"
 authors = [
-  {email = "elvis_alexander_aguero_vera@brown.edu", name = "Elvis Aguero"}
-]
-maintainers = [
   {email = "elvis_alexander_aguero_vera@brown.edu", name = "Elvis Aguero"}
 ]
 classifiers = [
@@ -47,13 +38,17 @@ dependencies = [
   "requests>=2.28.0",
   "psutil>=5.9.0"
 ]
+description = "a3dasm - Agentic Data-driven Design and Analysis of Structures and Materials"
+license = {text = "BSD-3-Clause"}
+maintainers = [
+  {email = "elvis_alexander_aguero_vera@brown.edu", name = "Elvis Aguero"}
+]
+name = "a3dasm"
+readme = "README.md"
+requires-python = ">=3.10"
+version = "0.1.0"
 
 [project.optional-dependencies]
-# Layout-aware PDF to Markdown via docling (pulls torch). Excluded on Intel
-# macOS, where the lean pymupdf path is used. Mirrors f3dasm's agentic-extra.
-extra = [
-  "docling>=2.0.0; sys_platform != 'darwin' or platform_machine == 'arm64'"
-]
 all = [
   "a3dasm[extra]"
 ]
@@ -70,17 +65,20 @@ docs = [
   "mkdocstrings-python>=1.18.2",
   "pymdown-extensions>=10.16.1"
 ]
+# Layout-aware PDF to Markdown via docling (pulls torch). Excluded on Intel
+# macOS, where the lean pymupdf path is used. Mirrors f3dasm's agentic-extra.
+extra = [
+  "docling>=2.0.0; sys_platform != 'darwin' or platform_machine == 'arm64'"
+]
 tests = [
   "hypothesis>=6.138.0",
   "pytest>=8.4.1",
-  "pytest-cov>=6.2.1"
+  "pytest-cov>=6.2.1",
+  "tomli>=2.0; python_version < '3.11'"
 ]
 
 [project.urls]
 Repository = "https://github.com/bessagroup/a3dasm"
-
-[project.scripts]
-# a3dasm is also runnable as `python -m a3dasm`.
 
 [tool.coverage.report]
 exclude_lines = [

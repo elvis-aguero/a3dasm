@@ -223,7 +223,7 @@ def _render(out: str, spool: str, *, exit_code=None, interrupted=False,
 
 
 def _make_bash_tool(cwd: Path | None, nudge: Any = None,
-                    session: "_BashSession | None" = None) -> Any:
+                    session: _BashSession | None = None) -> Any:
     import subprocess
     import tempfile
 
@@ -289,7 +289,7 @@ def _make_bash_tool(cwd: Path | None, nudge: Any = None,
     return StructuredTool.from_function(bash, name="Bash")
 
 
-def _make_bashoutput_tool(session: "_BashSession") -> Any:
+def _make_bashoutput_tool(session: _BashSession) -> Any:
     from langchain_core.tools import StructuredTool
 
     def bash_output(bash_id: str) -> str:
@@ -317,7 +317,7 @@ def _make_bashoutput_tool(session: "_BashSession") -> Any:
     return StructuredTool.from_function(bash_output, name="BashOutput")
 
 
-def _make_killshell_tool(session: "_BashSession") -> Any:
+def _make_killshell_tool(session: _BashSession) -> Any:
     from langchain_core.tools import StructuredTool
 
     def kill_shell(bash_id: str) -> str:
