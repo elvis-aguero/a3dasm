@@ -47,5 +47,27 @@ def test_session_env_tolerates_missing_run_config(tmp_path):
         env = _build_session_env()
     finally:
         set_delegation_id(None)
-    assert env == {"F3DASM_DELEGATION_ID": "D001"}
+    assert env["F3DASM_DELEGATION_ID"] == "D001"
     assert "F3DASM_CANONICAL_STORE" not in env
+    # PATH is always injected (run interpreter prepended); see the dedicated
+    # test below. No other keys beyond delegation id + PATH here.
+    assert set(env) <= {"F3DASM_DELEGATION_ID", "PATH"}
+
+
+def test_session_env_prepends_run_interpreter_to_path():
+    """The agent's shell must use the SAME interpreter as the agent loop, so
+    `python` in Bash can import the framework + study deps. Regression for the
+    e2e finding where bash `python` resolved to a system Python without the
+    package, forcing off-ledger workarounds. The run interpreter's bin dir must
+    be prepended to PATH (not replace the inherited PATH)."""
+    import os
+    import sys
+
+    env = _build_session_env()
+    run_bin = os.path.dirname(sys.executable)
+    assert "PATH" in env
+    parts = env["PATH"].split(os.pathsep)
+    assert parts[0] == run_bin, f"run interpreter bin must be first: {parts[:2]}"
+    # inherited PATH preserved (not clobbered)
+    assert env["PATH"].endswith(os.environ.get("PATH", "")) or \
+        os.environ.get("PATH", "") in env["PATH"]

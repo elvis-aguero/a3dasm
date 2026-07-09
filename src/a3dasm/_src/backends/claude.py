@@ -228,12 +228,25 @@ def _build_session_env() -> dict:
       defaults to the wrong namespace and can overwrite another delegation's
       scratch data (audit run 20260624T021359, D005→D006 sim-dir clobber).
     """
+    import os
+    import sys
+
     from .base import (
         get_delegation_id,
         get_namespace,
         get_run_config_path,
     )
     env: dict = {}
+    # The agent's shell must run the SAME interpreter as the agent loop, so
+    # `python`/`uv run python` in Bash can import whatever the framework can
+    # (f3dasm, a3dasm, the study's deps). Without this, bash `python` resolves
+    # via the inherited PATH — which need not include the run's venv when the
+    # loop was launched by invoking the venv's python binary directly (no
+    # activation), leaving the agent unable to import the package and forced
+    # into off-ledger workarounds. Prepend the run interpreter's bin dir.
+    _bin = os.path.dirname(sys.executable)
+    if _bin:
+        env["PATH"] = _bin + os.pathsep + os.environ.get("PATH", "")
     did = get_delegation_id()
     if did:
         env["F3DASM_DELEGATION_ID"] = did
