@@ -84,9 +84,8 @@ Long autonomous runs need guardrails. a3dasm separates two kinds:
 ## What you provide, what you get
 
 You provide one file: `PROBLEM_STATEMENT.md` in a study directory (plus a
-`config.yaml` if you want to set the backend, budgets, or the oracle). You get
-back `pipeline.ipynb` (the reproducible answer) and, under the run directory, a
-full forensic trail: per-node retrospectives, the science monitor's diagnostics,
-the critic's reviews, and every delegation transcript. See
-[Authoring a study](authoring-a-study.md) to go deeper, and the
+`config.yaml` if you want to set the backend, budgets, or the evaluator). You get
+back `pipeline.ipynb` — the reproducible answer — alongside the run's evaluation
+record and logs. See [Authoring a study](authoring-a-study.md) to set one up,
+[Understanding a run's output](reading-a-run.md) for what comes back, and the
 [Quickstart](notebooks/quickstart.ipynb) to run one.

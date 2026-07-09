@@ -1,66 +1,60 @@
-# Reading a run
+# Understanding a run's output
 
-Every run writes a forensic trail under
-`studies/<study>/runs/<timestamp>/debug/`. When you want to understand what a run
-actually did (or why it did something surprising), read these in order. This is
-the analysis protocol; the first source is the highest signal.
+When a run finishes, look in the study folder. Two things tell you almost
+everything: the deliverable, and whether it passed review.
 
-## 1. `retrospectives.jsonl` — read this first
+## The deliverable: `pipeline.ipynb`
 
-Each node writes a first-person retrospective after the run closes. One JSON
-object per line, with a `text` field in four sections:
+`pipeline.ipynb`, at the study root, is the result. Open it: the opening cells
+are the write-up (what was tried, what was found, and why), and the code cells
+reproduce the headline number from the run's own evaluation record — so you can
+re-run the notebook and get the same answer, not take a claim on faith.
 
-- **CONSISTENCY** — rule contradictions the agent noticed in its own work.
-- **DECISION** — the most uncertain strategic choice it made, and why.
-- **FRICTION** — rules, APIs, or contracts that were counterintuitive or forced
-  guessing. A FRICTION entry often names the root cause of a bug that never shows
-  up in a traceback.
-- **BLOCKED** — capability gaps that stopped the agent doing its job.
+## Did it pass review? `run_status.json`
 
-```python
-import json
-from pathlib import Path
+Before a run is allowed to finish, an adversarial critic reviews the deliverable
+and the notebook is re-executed to confirm it reproduces its headline. The
+outcome is recorded in `runs/<timestamp>/run_status.json` (and mirrored in the
+notebook's metadata):
 
-debug = Path("studies/my_study/runs/<timestamp>/debug")
-for line in (debug / "retrospectives.jsonl").read_text().splitlines():
-    entry = json.loads(line)
-    print(entry["source_id"], entry["role"])
-    print(entry["text"])
+- **GATED** — passed. The result held up to the critic and reproduces.
+- **UNGATED** / **FAILED** — did not pass. Treat the result as unaudited.
+
+If you only check one thing, check this.
+
+## The run folder
+
+Each run writes a timestamped directory:
+
+```
+runs/<timestamp>/
+  run_status.json     the outcome above
+  run.log             a readable log of what happened
+  experiment_data/    every real evaluation, on the record
+  debug/              detailed traces (see below)
 ```
 
-These are ephemeral: a new run wipes `runs/`. Read them before launching the
-next run.
+`experiment_data/` is the authoritative evaluation record — every measured design
+and its result. It's what the notebook re-derives the answer from, and what the
+evaluation budget is counted against.
 
-## 2. `diagnostics.jsonl` — the science monitor's firings
+## When a result looks off
 
-Rule events like `UNLEDGERED_EVALS`, `UNSTAMPED_ROWS`, `BUDGET_WARN`,
-`HYPOTHESIS_*`. Cross-reference against the retrospectives: a monitor event with
-no matching FRICTION entry means the agent did not notice it, which is itself a
-finding.
+If a run came back UNGATED, or the answer surprises you, `runs/<timestamp>/debug/`
+holds the detail, in rough order of usefulness:
 
-## 3. `critic_reviews/call_NNN.md` — the gate attempts
+- **`retrospectives.jsonl`** — each agent's own end-of-run notes: the call it was
+  least sure about, and anything that tripped it up. Usually the fastest way to
+  see why a run went the way it did.
+- **`critic_reviews/`** — the critic's write-ups and verdicts. If a run was
+  UNGATED, this says what the critic objected to.
+- **`diagnostics.jsonl`** — automatic flags raised during the run (e.g. a claim
+  made without enough evidence).
+- **`delegations/`** — the full transcript of each task the hub handed to a
+  specialist. Open one only when the notes above point you at it.
 
-If the deliverable went through more than one gate attempt, read them in order.
-The sequence shows whether the agent was fixing real issues, the critic misfired,
-or the same problem was patched superficially and resurfaced.
+## Comparing runs over time
 
-## 4. Delegation transcripts, targeted
-
-`delegations/<ID>/` holds the full transcript for each delegation. Only open the
-ones the steps above flagged. Reading every transcript with no prior hypothesis
-produces surface-level, wrong diagnoses; a transcript is evidence for a question
-you already have.
-
-## KPIs
-
-For run-over-run comparison, `studies/run_ledger.csv` records one row per run:
-gate outcome, evaluations used vs budget, wall-clock, and the headline value. A
-change that improves no KPI without degrading another is noise, not progress.
-
-## The deliverable itself
-
-`studies/<study>/pipeline.ipynb` is the scientific output. The reproduction gate
-proves it runs and reproduces its headline; it cannot prove the science is good.
-Read it as a skeptical peer would: does it explain *why* the result holds
-(mechanism tested against the run's own evidence), and is every number and claim
-grounded in the run's data?
+`studies/run_ledger.csv` appends one row per run — its outcome, how many
+evaluations it used, wall-clock, and the headline value — so you can see whether
+successive runs are actually improving rather than just changing.

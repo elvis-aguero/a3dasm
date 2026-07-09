@@ -61,5 +61,6 @@ llm_slurm:
     env_setup: ["module load cuda", "module load vllm"]
 ```
 
-See the feature catalog for the full set of `llm_slurm` knobs (resource
-overrides, queue and serve timeouts, tensor-parallel).
+The `llm_slurm` block also accepts resource overrides (`gres`, `mem`, `time`),
+queue and serve timeouts, and a `tensor_parallel` size for sharding a large model
+across GPUs.

@@ -21,7 +21,7 @@ import yaml
 from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 
 _REPO = Path(__file__).resolve().parents[1]
-EXAMPLE = _REPO / "docs" / "example_study"
+EXAMPLE = _REPO / "studies" / "example_study"
 
 # The config surface the contract documents (authoring-a-study.md). Keep in sync.
 DOCUMENTED_TOP_KEYS = {

@@ -1,12 +1,13 @@
 # Installation
 
 a3dasm requires Python 3.10 or newer and depends on
-[f3dasm](https://github.com/bessagroup/f3dasm).
+[f3dasm](https://github.com/bessagroup/f3dasm) (installed automatically from
+PyPI).
 
-While the repository is private, install from Git:
+It isn't on PyPI yet, so install it from the repository:
 
 ```bash
-pip install "a3dasm @ git+ssh://git@github.com/bessagroup/a3dasm.git@v0.1.0"
+pip install "a3dasm @ git+https://github.com/elvis-aguero/a3dasm.git"
 ```
 
 ## Optional extras
@@ -20,5 +21,5 @@ pip install "a3dasm @ git+ssh://git@github.com/bessagroup/a3dasm.git@v0.1.0"
 ## Backends
 
 a3dasm can drive the agents with the Claude CLI (default), an OpenAI-compatible
-endpoint, Ollama, OpenRouter, or a vLLM server. See the feature catalog for the
-backend matrix.
+endpoint, Ollama, OpenRouter, or a vLLM server. See
+[Configuring the backend](backends.md).

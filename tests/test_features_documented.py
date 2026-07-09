@@ -17,7 +17,7 @@ import a3dasm._src.agents as agents_pkg
 
 _FEATURES = (
     Path(__file__).resolve().parents[1]
-    / "docs" / "FEATURES.md"
+    / "internal" / "FEATURES.md"
 )
 
 

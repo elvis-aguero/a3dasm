@@ -73,22 +73,18 @@ plugins:
                         - "!^__.*__$"
 
 nav:
-    - 'index.md'
+    - Home: 'index.md'
     - Getting started:
         - 'installation.md'
         - 'concepts.md'
-        - 'Configuring the backend': 'backends.md'
-    - Tutorials:
         - 'Quickstart': 'notebooks/quickstart.ipynb'
-        - 'Reading a run': 'reading-a-run.md'
-    - How the system works:
-        - 'Feature catalog': 'FEATURES.md'
-        - 'Backlog': 'BACKLOG.md'
+    - Guides:
         - 'Authoring a study': 'authoring-a-study.md'
-    - API Reference:
+        - 'Configuring the backend': 'backends.md'
+        - "Understanding a run's output": 'reading-a-run.md'
+    - API reference:
         - 'api/run.md'
         - 'api/agents.md'
         - 'api/graph.md'
         - 'api/evaluator.md'
-    - License:
-        - 'license.md'
+    - License: 'license.md'
