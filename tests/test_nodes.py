@@ -146,16 +146,21 @@ def test_strategizer_delegate_returns_task_id():
 
     received_ids: list[str] = []
     worker_started = threading.Event()
+    worker_finished = threading.Event()
 
     class SlowWorkerAdapter(StubAdapter):
         def invoke(self, messages):
             worker_started.set()
             time.sleep(0.05)
-            return (
-                "## Report\n### Actions taken\nDone.\n### Files touched\n(none)\n"
-                "### Conclusions\nExperiment A completed successfully.\n"
-                "### Numbers\nn: 1, mean: 0.42, std: 0.01"
-            )
+            try:
+                return (
+                    "## Report\n### Actions taken\nDone.\n"
+                    "### Files touched\n(none)\n"
+                    "### Conclusions\nExperiment A completed successfully.\n"
+                    "### Numbers\nn: 1, mean: 0.42, std: 0.01"
+                )
+            finally:
+                worker_finished.set()
 
     class DelegateCallingAdapter(StubAdapter):
         def invoke(self, messages):
@@ -165,9 +170,14 @@ def test_strategizer_delegate_returns_task_id():
                 expected_report="Report results.",
             )
             received_ids.append(result)
-            # Wait briefly then call Done after delegation finishes
-            worker_started.wait(timeout=2)
-            time.sleep(0.1)  # let worker finish
+            # Wait for the worker to actually finish, not a fixed guess (a
+            # loaded CI runner blew past a bare 0.1s sleep, so Done() hit a
+            # still-pending delegation and routed back instead of to END). A
+            # short settle after the finish event lets the node record
+            # completion before Done is called.
+            worker_started.wait(timeout=5)
+            worker_finished.wait(timeout=5)
+            time.sleep(0.5)
             self.closure_tools["Done"](summary="All done.")  # first: warning
             self.closure_tools["Done"](summary="All done.")  # second: accepted
             return "Done."

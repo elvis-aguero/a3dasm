@@ -19,7 +19,14 @@ def _call_in_fresh_thread(fn, *args, timeout=30.0, **kwargs):
     """
     import concurrent.futures as _cf
     with _cf.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(fn, *args, **kwargs).result(timeout=timeout)
+        try:
+            return pool.submit(fn, *args, **kwargs).result(timeout=timeout)
+        except _cf.TimeoutError as exc:
+            # On Python 3.10 concurrent.futures.TimeoutError is a DISTINCT class
+            # from builtins.TimeoutError (they were merged in 3.11). Normalise to
+            # builtins.TimeoutError so every caller's `except TimeoutError`
+            # catches a pool timeout on all supported Python versions.
+            raise TimeoutError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
