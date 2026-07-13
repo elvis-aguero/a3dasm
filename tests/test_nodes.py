@@ -496,7 +496,14 @@ def test_parallel_two_delegations_both_complete():
         def invoke(self, messages):
             self.closure_tools["Delegate"](target="worker_a", intent="Task A", expected_report="")
             self.closure_tools["Delegate"](target="worker_b", intent="Task B", expected_report="")
-            time.sleep(0.15)  # let both workers finish
+            # Let both workers finish. Each sleeps 0.05s, so this margin is a
+            # 3x safety factor under light load — not enough on a contended CI
+            # runner (observed flake: macos-latest/3.13, 2026-07-13, "assert
+            # cmd.goto == END" got 'strategizer' instead — a delegation was
+            # still pending when Done() fired). Bumped to a much wider margin;
+            # this polls a fixed sleep rather than a completion signal, so it
+            # is still probabilistic, just far less likely to flake.
+            time.sleep(1.0)
             result = self.closure_tools["Done"](summary="Both done.")  # first: warning
             assert "ERROR" not in result, f"Done() failed: {result}"
             self.closure_tools["Done"](summary="Both done.")  # second: accepted
