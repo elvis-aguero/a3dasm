@@ -5,6 +5,11 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # Full OS x version matrix nightly, independent of push/PR activity, so
+    # version-specific regressions (e.g. the py3.10 cf.TimeoutError bug,
+    # 410ac0d) surface even between merges.
+    - cron: "0 6 * * *"
 
 jobs:
   run-tests:
@@ -12,8 +17,19 @@ jobs:
       matrix:
         # a3dasm is POSIX/HPC-oriented (process-group reaping, signals, SLURM);
         # Windows is not a supported target.
-        os: [ubuntu-latest, macos-latest]
-        version: ["3.10", "3.11", "3.12", "3.13"]
+        #
+        # Every PR push runs a single fast combo (quick feedback loop); the
+        # full matrix runs on push to main (post-merge) and nightly, so
+        # cross-version bugs still surface without gating every PR iteration
+        # on the full 2-OS x 4-version grid.
+        os: >-
+          ${{ github.event_name == 'pull_request'
+              && fromJSON('["ubuntu-latest"]')
+              || fromJSON('["ubuntu-latest", "macos-latest"]') }}
+        version: >-
+          ${{ github.event_name == 'pull_request'
+              && fromJSON('["3.12"]')
+              || fromJSON('["3.10", "3.11", "3.12", "3.13"]') }}
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
