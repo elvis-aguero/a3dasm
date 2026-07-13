@@ -26,7 +26,8 @@ class _Stub:
 def _node(study_dir):
     class A(Agent):
         role = "strategizer"
-        tools = frozenset({"Done", "AddPipelineMarkdownCell", "AddPipelineCell"})
+        tools = frozenset({"Done", "AddPipelineMarkdownCell", "AddPipelineCell",
+                           "CheckDeliverable"})
         description = "strategizer"
 
     class B(Agent):
@@ -174,3 +175,52 @@ def test_authored_notebook_passes_the_gate(tmp_path):
     tools["AddPipelineMarkdownCell"]("hypotheses", "H1")
     tools["AddPipelineCell"]("analysis", "derive", "print('REPRODUCED: 1.0')")
     assert n._reproduction_gate({"study_dir": str(tmp_path)}) is None
+
+
+def test_check_deliverable_sees_evals_in_a_design_namespace_only(tmp_path):
+    """CheckDeliverable's row-count fail-fast keyed off run_dir/experiment_data/
+    experiment_data/output.csv only, so a run whose evals all landed in a
+    design-namespace store (run_dir/experiment_data/<namespace>/) got a false
+    'canonical store has no evaluations yet' block even though the ledger is
+    populated — CheckDeliverable never even reached the reproduction gate."""
+    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from f3dasm._src.core import DataGenerator
+    from f3dasm._src.experimentsample import ExperimentSample, JobStatus
+
+    run_dir = tmp_path / "runs" / "A1"
+    (run_dir / "debug" / "strategizer_notes").mkdir(parents=True)
+    # Rows live ONLY in the "polar" namespace store. The default store's
+    # output.csv EXISTS (header only, zero data rows) — the exact shape that
+    # trips the old single-file row-count fail-fast (a namespace-only run
+    # with an empty-but-present default CSV).
+    default_csv = run_dir / "experiment_data" / "experiment_data" / "output.csv"
+    default_csv.parent.mkdir(parents=True)
+    default_csv.write_text("f\n")
+    ns_store_dir = run_dir / "experiment_data" / "polar"
+    ns_store_dir.mkdir(parents=True)
+
+    class _Sum(DataGenerator):
+        def execute(self, s, **k):
+            s._output_data["f"] = sum(s._input_data.values())
+            s.job_status = JobStatus.FINISHED
+            return s
+
+    gen = InstrumentedDataGenerator(
+        inner=_Sum(), store_dir=ns_store_dir, delegation_id="D001",
+        flush_every=1)
+    gen.execute(ExperimentSample(
+        _input_data={"x0": 1.0}, _output_data={}, job_status=JobStatus.OPEN))
+    gen.flush()
+
+    n = _node(tmp_path)
+    n._study_dir = tmp_path
+    n._current_notes_dir = run_dir / "debug" / "strategizer_notes"
+    tools = n.adapter.closure_tools
+    tools["AddPipelineMarkdownCell"]("problem", "minimise f")
+    tools["AddPipelineMarkdownCell"]("hypotheses", "H1")
+    tools["AddPipelineCell"]("analysis", "derive", "print('REPRODUCED: 1.0')")
+
+    result = tools["CheckDeliverable"]()
+    assert "no evaluations yet" not in result, (
+        f"CheckDeliverable falsely blocked a namespace-only run: {result!r}"
+    )

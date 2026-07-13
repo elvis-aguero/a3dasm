@@ -2399,23 +2399,23 @@ def build_routing_tools(node) -> dict:
         # FINISHED→IN_PROGRESS without dropping any data. Checking jobs.csv here
         # made this guard misfire on a store that is fully present but whose
         # statuses were clobbered (the "no FINISHED rows" false positive).
+        # Checked across EVERY store (default + every design namespace) via
+        # experiment_stores() — a namespace-only run's default output.csv can
+        # exist but be empty, which false-blocked CheckDeliverable even though
+        # the ledger was populated (backlog #21's sibling gap).
         _notes = getattr(node, "_current_notes_dir", None)
         if _notes is not None:
-            import csv as _csv
+            from ...instrumented import RunStateSummary, experiment_stores
             _run_dir = Path(_notes).parent.parent
-            _out_csv = _run_dir / "experiment_data" / "experiment_data" / "output.csv"
-            if _out_csv.exists():
-                try:
-                    with _out_csv.open(newline="") as _f:
-                        # Logical CSV rows minus header (output values may span
-                        # several physical lines, e.g. numpy-array reprs).
-                        _rows = max(sum(1 for _ in _csv.reader(_f)) - 1, 0)
-                    if _rows == 0:
-                        return (prefix +
-                            "CheckDeliverable: canonical store has no evaluations yet. "
-                            "Run at least one evaluation campaign before calling CheckDeliverable.")
-                except Exception:
-                    pass  # if we can't read output.csv, let the gate decide
+            _store_root = _run_dir / "experiment_data"
+            _has_rows = any(
+                RunStateSummary.from_store(s) is not None
+                for s in experiment_stores(_store_root)
+            )
+            if not _has_rows:
+                return (prefix +
+                    "CheckDeliverable: canonical store has no evaluations yet. "
+                    "Run at least one evaluation campaign before calling CheckDeliverable.")
         _BUDGET = 10
         prior = getattr(node, "_check_deliverable_calls", 0)
         if prior >= _BUDGET:
