@@ -1917,9 +1917,12 @@ def build_routing_tools(node) -> dict:
                 f"study_dir             = {_study_dir}\n"
                 f"debug_dir             = {_debug_dir}\n"
                 f"canonical_store       = {_store_dir}\n"
-                "  ^ audit the ledger yourself: ExperimentData.from_file("
-                f"project_dir=\"{_store_dir}\") (CSVs are one level under it). "
-                "Do NOT rely solely on the strategizer's self-reported numbers.\n"
+                "  ^ audit the ledger yourself: call RecallStore()/"
+                "QueryStore(...) (namespace-aware — they see every design "
+                "namespace, not just the default store). Do NOT hand-roll "
+                "ExperimentData.from_file(project_dir=...) directly on this "
+                "path alone — it misses any namespace store. Do NOT rely "
+                "solely on the strategizer's self-reported numbers.\n"
                 "delegation_log        = "
                 f"{_debug_dir}/delegation_log.jsonl\n"
                 f"diagnostics           = "
@@ -2826,14 +2829,18 @@ def build_routing_tools(node) -> dict:
     def RunScratch(code: str) -> str:
         """Run a short Python snippet against a COPY of the canonical ledger and
         return its stdout/stderr — your scratchpad for INSPECTING state before
-        committing it to pipeline.ipynb. f3dasm is importable and
+        committing it to pipeline.ipynb. f3dasm and a3dasm are importable and
         F3DASM_CANONICAL_STORE points at a temp copy of the ledger, so you can
-        e.g. ``ExperimentData.from_file(os.environ['F3DASM_CANONICAL_STORE'])``,
-        print best values, check a path resolves, or verify a DataFrame
-        populates. Runs against a COPY — it cannot touch the real ledger or
-        pipeline.ipynb — and does NOT count toward the eval budget. Use it to
-        debug instead of guessing (e.g. 'does hypotheses.json load? does h_dict
-        populate?') rather than discovering a silent bug only at CheckDeliverable."""
+        e.g. ``from a3dasm import load_experiments; experiments =
+        load_experiments()`` (returns every store — default AND every design
+        namespace — as ``{name: ExperimentData}``; a bare
+        ``ExperimentData.from_file(os.environ['F3DASM_CANONICAL_STORE'])`` only
+        sees the default store and silently misses namespace evals), print best
+        values, check a path resolves, or verify a DataFrame populates. Runs
+        against a COPY — it cannot touch the real ledger or pipeline.ipynb —
+        and does NOT count toward the eval budget. Use it to debug instead of
+        guessing (e.g. 'does hypotheses.json load? does h_dict populate?')
+        rather than discovering a silent bug only at CheckDeliverable."""
         import json as _json
         import shutil as _shutil
         import subprocess as _sub

@@ -3288,3 +3288,17 @@ def test_a6_critic_gate_allows_pass_feedback_does_not():
     from a3dasm._src.nodes.tools import routing as _routing
     src = inspect.getsource(_routing)
     assert "<mode>GATE</mode>" in src, "Done() gate must invoke critic in GATE mode"
+
+
+def test_gate_prompt_and_runscratch_point_at_namespace_aware_reads():
+    """The critic GATE prompt and RunScratch's docstring must not teach the
+    single-store idiom (ExperimentData.from_file(project_dir=<default store>))
+    as THE way to audit the ledger — it silently misses design-namespace
+    stores, the same gap fixed in RecallStore/QueryStore (backlog #21)."""
+    import inspect
+
+    from a3dasm._src.nodes.tools import routing as _routing
+    src = inspect.getsource(_routing)
+    assert "audit the ledger yourself: call RecallStore()" in src
+    assert "misses any namespace store" in src
+    assert "load_experiments()" in src
