@@ -100,6 +100,42 @@ def _load_study_config(study_dir: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _archive_prior_pipeline_notebook(study_dir: Path) -> None:
+    """Archive (never delete) a prior run's leftover study_dir/pipeline.ipynb
+    before a FRESH run starts.
+
+    pipeline.ipynb is study-scoped, not run-scoped: _load_or_new_notebook
+    (routing.py) loads it wholesale if one exists, and _emit_notebook
+    preserves any cells not touched this run as trailing "extras" — so a
+    prior run's stale cells/imports otherwise leak into a new run's
+    deliverable. Only called on the non-resume path (a resumed run must keep
+    working on the SAME notebook, which is the whole point of resume).
+
+    Renamed to pipeline_<run_id>.ipynb, keyed by the run id the archived
+    notebook actually belongs to (read from its own provenance stamp,
+    stamp_run_provenance's nb.metadata["agentic"]["run"]) so the archive is
+    traceable to the run that produced it, not the run that's starting.
+    """
+    nb_path = study_dir / "pipeline.ipynb"
+    if not nb_path.exists():
+        return
+    prior_run_id = "unknown"
+    try:
+        import nbformat
+        nb = nbformat.read(str(nb_path), as_version=4)
+        prior_run = (nb.metadata.get("agentic") or {}).get("run")
+        if prior_run:
+            prior_run_id = Path(prior_run).name
+    except Exception:  # noqa: BLE001 — corrupt/unreadable notebook, archive anyway
+        pass
+    archived = study_dir / f"pipeline_{prior_run_id}.ipynb"
+    if archived.exists():  # same run id archived twice — don't clobber
+        archived = study_dir / (
+            f"pipeline_{prior_run_id}_{uuid.uuid4().hex[:8]}.ipynb"
+        )
+    nb_path.rename(archived)
+
+
 def _init_canonical_store(
     run_dir: Path,
     study_dir: Path,
@@ -684,6 +720,7 @@ class AgenticRun:
         else:
             ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
             run_dir = self.study_dir / "runs" / ts
+            _archive_prior_pipeline_notebook(self.study_dir)
         debug_dir = run_dir / "debug"
         debug_dir.mkdir(parents=True, exist_ok=True)
         notes_dir = debug_dir / "strategizer_notes"

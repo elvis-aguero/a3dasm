@@ -135,6 +135,94 @@ def test_invoke_crash_writes_resumable_status(tmp_path):
     assert status["thread_id"]
 
 
+# ---------------------------------------------------------------------------
+# pipeline.ipynb is study-scoped, not run-scoped — _load_or_new_notebook
+# (routing.py) loads a prior run's leftover wholesale, leaking stale cells
+# into a fresh run's deliverable. A fresh (non-resume) run must archive it
+# aside (never delete) before any node can touch study_dir.
+# ---------------------------------------------------------------------------
+
+def _seed_notebook(study: Path, run_id: str | None) -> None:
+    import nbformat
+    nb = nbformat.v4.new_notebook()
+    nb.cells.append(nbformat.v4.new_markdown_cell("# stale prior-run content"))
+    if run_id is not None:
+        nb.metadata["agentic"] = {"run": f"{study}/runs/{run_id}"}
+    nbformat.write(nb, str(study / "pipeline.ipynb"))
+
+
+def test_fresh_run_archives_prior_pipeline_notebook_by_its_own_run_id(tmp_path):
+    study = _make_study(tmp_path)
+    _seed_notebook(study, "20260101T000000")
+
+    run = AgenticRun(study_dir=study, interactive=False)
+
+    class _Stub:
+        def invoke(self, state, config=None):
+            return {"last_report": "done", "evals_used": 0}
+
+    run._graph = _Stub()
+    run.execute()
+
+    assert not (study / "pipeline.ipynb").exists()
+    archived = study / "pipeline_20260101T000000.ipynb"
+    assert archived.exists()
+    import nbformat
+    nb = nbformat.read(str(archived), as_version=4)
+    assert "stale prior-run content" in nb.cells[0]["source"]
+
+
+def test_fresh_run_archives_notebook_with_no_provenance_as_unknown(tmp_path):
+    study = _make_study(tmp_path)
+    _seed_notebook(study, None)  # never stamped — no agentic.run metadata
+
+    run = AgenticRun(study_dir=study, interactive=False)
+
+    class _Stub:
+        def invoke(self, state, config=None):
+            return {"last_report": "done", "evals_used": 0}
+
+    run._graph = _Stub()
+    run.execute()
+
+    assert not (study / "pipeline.ipynb").exists()
+    assert (study / "pipeline_unknown.ipynb").exists()
+
+
+def test_resume_does_not_archive_the_notebook(tmp_path):
+    study = _make_study(tmp_path)
+    _seed_notebook(study, "prior-run")
+
+    run1 = AgenticRun(study_dir=study, interactive=False)
+
+    class _Stub1:
+        def invoke(self, state, config=None):
+            return {"last_report": "done", "evals_used": 0}
+
+    run1._graph = _Stub1()
+    run1.execute()
+    # run1 is a FRESH run too — it archives the pre-seeded notebook before
+    # doing anything else, exactly like the tests above.
+    assert not (study / "pipeline.ipynb").exists()
+    run_dir = next((study / "runs").iterdir())
+
+    # Re-seed a notebook as if THIS run (run_dir) authored it, then resume.
+    _seed_notebook(study, run_dir.name)
+
+    run2 = AgenticRun(study_dir=study, interactive=False, resume_from=run_dir)
+
+    class _Stub2:
+        def invoke(self, state, config=None):
+            return {"last_report": "resumed", "evals_used": 0}
+
+    run2._graph = _Stub2()
+    run2.execute()
+
+    # Resume must NOT archive/rename — it keeps working on the same notebook.
+    assert (study / "pipeline.ipynb").exists()
+    assert not (study / f"pipeline_{run_dir.name}.ipynb").exists()
+
+
 def test_resume_from_missing_marker_raises(tmp_path):
     study = _make_study(tmp_path)
     bogus = study / "runs" / "nonexistent"

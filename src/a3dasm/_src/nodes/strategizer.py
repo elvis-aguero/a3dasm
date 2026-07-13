@@ -830,26 +830,43 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         store_dir = run_dir / "experiment_data"
         run_config = run_dir / "debug" / "run_config.json"
 
-        def _ledger_snapshot(store: Path) -> tuple[int, str]:
-            """(row_count, content_hash) for a store dir.
+        def _ledger_snapshot(store_root: Path) -> tuple[int, str]:
+            """(row_count, content_hash) across EVERY store under store_root:
+            the canonical/default store PLUS every design-namespace sibling
+            (store_root/<namespace>/), via the same experiment_stores()
+            aggregation LedgerBreakdown/ScienceMonitor already use. A single-
+            store read here would miss a non-lazy write into a namespace
+            store during "reproduction" — the sandbox copy this is called
+            against is already namespace-complete (namespace stores nest
+            under store_root), only the read needs to look past the default.
 
-            content_hash is order-independent (sorted rounded values) so a
-            faithful lazy re-store doesn't false-trip it.
+            content_hash is order-independent (sorted rounded values, tagged
+            by store so identical values in two different stores can't
+            false-collide) so a faithful lazy re-store doesn't false-trip it.
             """
             import hashlib
-            try:
-                from f3dasm import ExperimentData
-                data = ExperimentData.from_file(project_dir=store)
-                _, out = data.to_pandas()
-            except Exception:  # noqa: BLE001
-                return 0, ""
-            cols = [c for c in out.columns if not str(c).startswith("_")]
-            if not cols:
-                return len(out), ""
-            vals = out[cols].round(10)
-            rows = sorted(tuple(r) for r in vals.to_numpy().tolist())
-            h = hashlib.sha256(repr(rows).encode()).hexdigest()
-            return len(out), h
+
+            from ..instrumented import experiment_stores
+
+            total_rows = 0
+            all_rows: list[tuple] = []
+            for store in experiment_stores(store_root):
+                try:
+                    from f3dasm import ExperimentData
+                    data = ExperimentData.from_file(project_dir=store)
+                    _, out = data.to_pandas()
+                except Exception:  # noqa: BLE001
+                    continue
+                total_rows += len(out)
+                cols = [c for c in out.columns if not str(c).startswith("_")]
+                if not cols:
+                    continue
+                vals = out[cols].round(10)
+                all_rows.extend(
+                    (store.name,) + tuple(r) for r in vals.to_numpy().tolist()
+                )
+            h = hashlib.sha256(repr(sorted(all_rows)).encode()).hexdigest()
+            return total_rows, h
 
         # ── HERMETIC SANDBOX ──────────────────────────────────────────────────
         # CRITICAL: run the deliverable against a COPY of the canonical store, never

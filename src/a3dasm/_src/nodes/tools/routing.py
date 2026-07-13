@@ -169,11 +169,19 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
     """
     out: dict = {}
 
-    def _derive_store_dir() -> Path | None:
+    def _all_store_dirs() -> list[Path]:
         # Resolve run_dir via the node (entry: from its notes dir; any worker:
-        # from the shared delegation-log path) so these tools are never dead.
+        # from the shared delegation-log path) so these tools are never dead,
+        # then every store in the run: the canonical/default store PLUS every
+        # design-namespace sibling (run_dir/experiment_data/<namespace>/). A
+        # bare run_dir/experiment_data read misses namespace evals entirely —
+        # the same gap LedgerBreakdown/ScienceMonitor/GetStatus/CancelDelegation
+        # already avoid by going through experiment_stores() (backlog #21).
         rd = node._resolve_run_dir()
-        return (rd / "experiment_data") if rd is not None else None
+        if rd is None:
+            return []
+        from ...instrumented import experiment_stores
+        return experiment_stores(rd / "experiment_data")
 
     if "RecallStore" in agent_tools:
         def RecallStore() -> str:
@@ -181,19 +189,22 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             delegation/source, output ranges. Call before deciding the next
             delegation."""
             from ...instrumented import RunStateSummary
-            sd = _derive_store_dir()
-            if sd is None:
+            stores = _all_store_dirs()
+            blocks: list[tuple[str, str]] = []
+            for i, store in enumerate(stores):
+                summary = RunStateSummary.from_store(store)
+                if summary is None:
+                    continue
+                label = "default" if i == 0 else store.name
+                blocks.append((label, summary.format()))
+            if not blocks:
                 return (
                     "Canonical store is empty — no instrumented "
                     "evaluations recorded yet."
                 )
-            summary = RunStateSummary.from_store(sd)
-            if summary is None:
-                return (
-                    "Canonical store is empty — no instrumented "
-                    "evaluations recorded yet."
-                )
-            return summary.format()
+            if len(blocks) == 1:
+                return blocks[0][1]
+            return "\n\n".join(f"[{label}]\n{body}" for label, body in blocks)
         out["RecallStore"] = RecallStore
 
     if "QueryStore" in agent_tools:
@@ -224,26 +235,41 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
 
             from ...instrumented import _PROVENANCE_COLS
 
-            sd = _derive_store_dir()
-            if sd is None:
+            stores = _all_store_dirs()
+            if not stores:
                 return (
                     "Canonical store is empty — no instrumented "
                     "evaluations recorded yet."
                 )
-            try:
-                data = ExperimentData.from_file(project_dir=sd)
-                df_in, df_out = data.to_pandas()
-            except (FileNotFoundError, EmptyFileError,
-                    ReachMaximumTriesError):
+            # Load and concatenate EVERY store (default + every design
+            # namespace) before filtering — a bare single-store read misses
+            # rows that landed in a namespace store (backlog #21). Mismatched
+            # columns across namespaces just NaN-fill; this is an in-memory
+            # read-side merge for reporting, not a rewrite of the canonical
+            # store.
+            import pandas as _pd
+            df_ins, df_outs = [], []
+            for store in stores:
+                try:
+                    data = ExperimentData.from_file(project_dir=store)
+                    d_in, d_out = data.to_pandas()
+                except (FileNotFoundError, EmptyFileError,
+                        ReachMaximumTriesError):
+                    continue
+                if d_out.empty:
+                    continue
+                df_ins.append(d_in)
+                df_outs.append(d_out)
+            if not df_outs:
                 return (
                     "Canonical store is empty — no instrumented "
                     "evaluations recorded yet."
                 )
-            if df_out.empty:
-                return (
-                    "Canonical store is empty — no instrumented "
-                    "evaluations recorded yet."
-                )
+            df_out = _pd.concat(df_outs, ignore_index=True)
+            df_in = (
+                _pd.concat(df_ins, ignore_index=True)
+                if all(d is not None for d in df_ins) else None
+            )
 
             # Decode delegation_ids: JSON / comma / bare / list
             d_ids: list[str] | None = None
@@ -271,7 +297,6 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                         d_ids = [raw]
 
             # Apply filters (read-only: build a boolean mask)
-            import pandas as _pd
             mask = _pd.Series([True] * len(df_out), index=df_out.index)
             if d_ids is not None and "_delegation_id" in df_out.columns:
                 mask &= df_out["_delegation_id"].isin(d_ids)
@@ -1892,9 +1917,12 @@ def build_routing_tools(node) -> dict:
                 f"study_dir             = {_study_dir}\n"
                 f"debug_dir             = {_debug_dir}\n"
                 f"canonical_store       = {_store_dir}\n"
-                "  ^ audit the ledger yourself: ExperimentData.from_file("
-                f"project_dir=\"{_store_dir}\") (CSVs are one level under it). "
-                "Do NOT rely solely on the strategizer's self-reported numbers.\n"
+                "  ^ audit the ledger yourself: call RecallStore()/"
+                "QueryStore(...) (namespace-aware — they see every design "
+                "namespace, not just the default store). Do NOT hand-roll "
+                "ExperimentData.from_file(project_dir=...) directly on this "
+                "path alone — it misses any namespace store. Do NOT rely "
+                "solely on the strategizer's self-reported numbers.\n"
                 "delegation_log        = "
                 f"{_debug_dir}/delegation_log.jsonl\n"
                 f"diagnostics           = "
@@ -2374,23 +2402,23 @@ def build_routing_tools(node) -> dict:
         # FINISHED→IN_PROGRESS without dropping any data. Checking jobs.csv here
         # made this guard misfire on a store that is fully present but whose
         # statuses were clobbered (the "no FINISHED rows" false positive).
+        # Checked across EVERY store (default + every design namespace) via
+        # experiment_stores() — a namespace-only run's default output.csv can
+        # exist but be empty, which false-blocked CheckDeliverable even though
+        # the ledger was populated (backlog #21's sibling gap).
         _notes = getattr(node, "_current_notes_dir", None)
         if _notes is not None:
-            import csv as _csv
+            from ...instrumented import RunStateSummary, experiment_stores
             _run_dir = Path(_notes).parent.parent
-            _out_csv = _run_dir / "experiment_data" / "experiment_data" / "output.csv"
-            if _out_csv.exists():
-                try:
-                    with _out_csv.open(newline="") as _f:
-                        # Logical CSV rows minus header (output values may span
-                        # several physical lines, e.g. numpy-array reprs).
-                        _rows = max(sum(1 for _ in _csv.reader(_f)) - 1, 0)
-                    if _rows == 0:
-                        return (prefix +
-                            "CheckDeliverable: canonical store has no evaluations yet. "
-                            "Run at least one evaluation campaign before calling CheckDeliverable.")
-                except Exception:
-                    pass  # if we can't read output.csv, let the gate decide
+            _store_root = _run_dir / "experiment_data"
+            _has_rows = any(
+                RunStateSummary.from_store(s) is not None
+                for s in experiment_stores(_store_root)
+            )
+            if not _has_rows:
+                return (prefix +
+                    "CheckDeliverable: canonical store has no evaluations yet. "
+                    "Run at least one evaluation campaign before calling CheckDeliverable.")
         _BUDGET = 10
         prior = getattr(node, "_check_deliverable_calls", 0)
         if prior >= _BUDGET:
@@ -2801,14 +2829,18 @@ def build_routing_tools(node) -> dict:
     def RunScratch(code: str) -> str:
         """Run a short Python snippet against a COPY of the canonical ledger and
         return its stdout/stderr — your scratchpad for INSPECTING state before
-        committing it to pipeline.ipynb. f3dasm is importable and
+        committing it to pipeline.ipynb. f3dasm and a3dasm are importable and
         F3DASM_CANONICAL_STORE points at a temp copy of the ledger, so you can
-        e.g. ``ExperimentData.from_file(os.environ['F3DASM_CANONICAL_STORE'])``,
-        print best values, check a path resolves, or verify a DataFrame
-        populates. Runs against a COPY — it cannot touch the real ledger or
-        pipeline.ipynb — and does NOT count toward the eval budget. Use it to
-        debug instead of guessing (e.g. 'does hypotheses.json load? does h_dict
-        populate?') rather than discovering a silent bug only at CheckDeliverable."""
+        e.g. ``from a3dasm import load_experiments; experiments =
+        load_experiments()`` (returns every store — default AND every design
+        namespace — as ``{name: ExperimentData}``; a bare
+        ``ExperimentData.from_file(os.environ['F3DASM_CANONICAL_STORE'])`` only
+        sees the default store and silently misses namespace evals), print best
+        values, check a path resolves, or verify a DataFrame populates. Runs
+        against a COPY — it cannot touch the real ledger or pipeline.ipynb —
+        and does NOT count toward the eval budget. Use it to debug instead of
+        guessing (e.g. 'does hypotheses.json load? does h_dict populate?')
+        rather than discovering a silent bug only at CheckDeliverable."""
         import json as _json
         import shutil as _shutil
         import subprocess as _sub
