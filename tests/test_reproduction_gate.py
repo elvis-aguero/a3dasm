@@ -111,6 +111,37 @@ def test_gate_fails_when_pipeline_adds_evals(tmp_path):
     assert problem is not None and "lazy" in problem.lower()
 
 
+def test_gate_fails_when_pipeline_adds_evals_to_a_namespace_store(tmp_path):
+    """A NON-lazy pipeline that re-evaluates into a DESIGN-NAMESPACE store
+    (run_dir/experiment_data/<namespace>/) instead of the default one must be
+    caught too — _ledger_snapshot has to aggregate across every
+    experiment_stores() store, the same primitive LedgerBreakdown/
+    ScienceMonitor already use, not just read the default store."""
+    node, study_dir = _setup(tmp_path)
+    (study_dir / "pipeline.py").write_text(
+        "import os\n"
+        "from a3dasm._src.instrumented import InstrumentedDataGenerator\n"
+        "from f3dasm._src.core import DataGenerator\n"
+        "from f3dasm._src.experimentsample import ExperimentSample, JobStatus\n"
+        "class G(DataGenerator):\n"
+        "    def execute(self, s, **k):\n"
+        "        s._output_data['f'] = 1.0\n"
+        "        s.job_status = JobStatus.FINISHED\n"
+        "        return s\n"
+        "store = os.path.join(os.environ['F3DASM_CANONICAL_STORE'], 'polar')\n"
+        "g = InstrumentedDataGenerator(inner=G(), store_dir=store,\n"
+        "                              delegation_id='D777', flush_every=1)\n"
+        "g.execute(ExperimentSample(_input_data={'x0': 9.0}, _output_data={},\n"
+        "                           job_status=JobStatus.OPEN))\n"
+        "g.flush()\n"
+    )
+    problem = node._reproduction_gate({"study_dir": str(study_dir)})
+    assert problem is not None and "lazy" in problem.lower(), (
+        f"gate should have caught the namespace-store write as non-lazy, "
+        f"got: {problem!r}"
+    )
+
+
 def test_gate_skips_without_run_context(tmp_path):
     node, study_dir = _setup(tmp_path)
     (study_dir / "pipeline.py").write_text("print('ok')\n")
