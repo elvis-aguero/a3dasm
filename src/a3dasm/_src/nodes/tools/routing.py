@@ -169,11 +169,19 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
     """
     out: dict = {}
 
-    def _derive_store_dir() -> Path | None:
+    def _all_store_dirs() -> list[Path]:
         # Resolve run_dir via the node (entry: from its notes dir; any worker:
-        # from the shared delegation-log path) so these tools are never dead.
+        # from the shared delegation-log path) so these tools are never dead,
+        # then every store in the run: the canonical/default store PLUS every
+        # design-namespace sibling (run_dir/experiment_data/<namespace>/). A
+        # bare run_dir/experiment_data read misses namespace evals entirely —
+        # the same gap LedgerBreakdown/ScienceMonitor/GetStatus/CancelDelegation
+        # already avoid by going through experiment_stores() (backlog #21).
         rd = node._resolve_run_dir()
-        return (rd / "experiment_data") if rd is not None else None
+        if rd is None:
+            return []
+        from ...instrumented import experiment_stores
+        return experiment_stores(rd / "experiment_data")
 
     if "RecallStore" in agent_tools:
         def RecallStore() -> str:
@@ -181,19 +189,22 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             delegation/source, output ranges. Call before deciding the next
             delegation."""
             from ...instrumented import RunStateSummary
-            sd = _derive_store_dir()
-            if sd is None:
+            stores = _all_store_dirs()
+            blocks: list[tuple[str, str]] = []
+            for i, store in enumerate(stores):
+                summary = RunStateSummary.from_store(store)
+                if summary is None:
+                    continue
+                label = "default" if i == 0 else store.name
+                blocks.append((label, summary.format()))
+            if not blocks:
                 return (
                     "Canonical store is empty — no instrumented "
                     "evaluations recorded yet."
                 )
-            summary = RunStateSummary.from_store(sd)
-            if summary is None:
-                return (
-                    "Canonical store is empty — no instrumented "
-                    "evaluations recorded yet."
-                )
-            return summary.format()
+            if len(blocks) == 1:
+                return blocks[0][1]
+            return "\n\n".join(f"[{label}]\n{body}" for label, body in blocks)
         out["RecallStore"] = RecallStore
 
     if "QueryStore" in agent_tools:
@@ -224,26 +235,41 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
 
             from ...instrumented import _PROVENANCE_COLS
 
-            sd = _derive_store_dir()
-            if sd is None:
+            stores = _all_store_dirs()
+            if not stores:
                 return (
                     "Canonical store is empty — no instrumented "
                     "evaluations recorded yet."
                 )
-            try:
-                data = ExperimentData.from_file(project_dir=sd)
-                df_in, df_out = data.to_pandas()
-            except (FileNotFoundError, EmptyFileError,
-                    ReachMaximumTriesError):
+            # Load and concatenate EVERY store (default + every design
+            # namespace) before filtering — a bare single-store read misses
+            # rows that landed in a namespace store (backlog #21). Mismatched
+            # columns across namespaces just NaN-fill; this is an in-memory
+            # read-side merge for reporting, not a rewrite of the canonical
+            # store.
+            import pandas as _pd
+            df_ins, df_outs = [], []
+            for store in stores:
+                try:
+                    data = ExperimentData.from_file(project_dir=store)
+                    d_in, d_out = data.to_pandas()
+                except (FileNotFoundError, EmptyFileError,
+                        ReachMaximumTriesError):
+                    continue
+                if d_out.empty:
+                    continue
+                df_ins.append(d_in)
+                df_outs.append(d_out)
+            if not df_outs:
                 return (
                     "Canonical store is empty — no instrumented "
                     "evaluations recorded yet."
                 )
-            if df_out.empty:
-                return (
-                    "Canonical store is empty — no instrumented "
-                    "evaluations recorded yet."
-                )
+            df_out = _pd.concat(df_outs, ignore_index=True)
+            df_in = (
+                _pd.concat(df_ins, ignore_index=True)
+                if all(d is not None for d in df_ins) else None
+            )
 
             # Decode delegation_ids: JSON / comma / bare / list
             d_ids: list[str] | None = None
@@ -271,7 +297,6 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                         d_ids = [raw]
 
             # Apply filters (read-only: build a boolean mask)
-            import pandas as _pd
             mask = _pd.Series([True] * len(df_out), index=df_out.index)
             if d_ids is not None and "_delegation_id" in df_out.columns:
                 mask &= df_out["_delegation_id"].isin(d_ids)

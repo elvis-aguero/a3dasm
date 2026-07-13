@@ -169,3 +169,35 @@ def test_leaf_worker_without_declaration_has_no_read_tools(tmp_path):
     assert "RecallStore" not in ct
     assert "QueryStore" not in ct
     assert "HypothesisList" not in ct
+
+
+# ---------------------------------------------------------------------------
+# Namespace visibility (backlog #21): the default-store-only resolution used
+# by RecallStore/QueryStore made rows that landed in a design-namespace store
+# (run_dir/experiment_data/<namespace>/experiment_data/) invisible, even
+# though LedgerBreakdown's experiment_stores() aggregation sums across them
+# fine. A delegation whose rows only landed in a namespace got a false
+# "No rows match the given filters." / a summary with no mention of it.
+# ---------------------------------------------------------------------------
+
+def test_querystore_sees_rows_in_a_design_namespace(tmp_path):
+    run_dir, _ = _setup(tmp_path)
+    # D007 lands only in the "polar" namespace store, a sibling of the
+    # default store under run_dir/experiment_data/.
+    _build_store(run_dir / "experiment_data" / "polar", [(0.4, 4.0, "D007")])
+    n = _leaf_worker(run_dir, {"RecallStore", "QueryStore"})
+    q = n.adapter.closure_tools["QueryStore"](delegation_ids="D007")
+    assert "No rows match" not in q, (
+        f"QueryStore falsely reports D007 empty (namespace-blind): {q!r}"
+    )
+    assert "D007" in q
+
+
+def test_recallstore_summary_includes_namespace_rows(tmp_path):
+    run_dir, _ = _setup(tmp_path)
+    _build_store(run_dir / "experiment_data" / "polar", [(0.4, 4.0, "D007")])
+    n = _leaf_worker(run_dir, {"RecallStore", "QueryStore"})
+    rec = n.adapter.closure_tools["RecallStore"]()
+    assert "D007" in rec, (
+        f"RecallStore summary omits namespace delegation D007: {rec!r}"
+    )
