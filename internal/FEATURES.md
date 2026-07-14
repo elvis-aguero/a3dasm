@@ -265,8 +265,35 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 
 ### Framework-owned local LLM on a SLURM GPU node (vLLM)
 - **What:** instead of a hosted API, the framework can own the LLM *behind the
-  nodes* on a separate SLURM GPU allocation: it resolves model-keyed serve
-  defaults (config overrides them), submits a `vllm serve` job (reusing f3dasm's
+  nodes* on a separate SLURM GPU allocation: it sizes the allocation from the
+  checkpoint's own published metadata (parameter count + dtype, fetched
+  weights-free — local HF cache first, then a single `requests` GET of the HF
+  Hub model-info JSON; no `huggingface_hub`/`transformers` dependency), so a
+  full HF id or a short alias gets correctly-sized GPUs/mem with **zero user
+  config**. GPU-count derivation uses a built-in per-GPU VRAM table keyed by the
+  cluster's exact Slurm gres names (the Oscar/Brown-CCV inventory; hardware
+  drifts far slower than model releases), defaulting to `l40s` (48 GB,
+  schedulable on the general `gpu` partition) when the study names no GPU, and
+  emits a type-qualified `--gres=gpu:<name>:<n>` so Slurm grants the exact card
+  the size was computed for. VRAM is sized as weight-bytes(serve quant) +
+  **context-aware KV cache** (read from the model config — layer count, KV
+  heads/head-dim, and the sliding/global attention split, at the served context
+  length and `--kv-cache-dtype`; a flat multiplier is the fallback only when the
+  config lacks those fields) + a small fixed overhead. The serve quant is a
+  `runtime` knob whose default is **GPU-aware**: FP8 only on FP8-capable cards
+  (Ada/Hopper/Blackwell — `l40s`/`h100`/`nvidia_rtx_pro_6000_blackwell`/
+  `nvidia_b200`), else a safe BF16/Q4 path, so a zero-config Ampere/Turing run
+  never asks for FP8 it cannot serve; an explicit `llm_quantization=fp8` still
+  wins. This lets the power model `gemma-4-31b` (30.7B) fit a single 48 GB L40S
+  at FP8 weights + FP8 KV (~44 GB) while keeping its full 256K context; the same
+  quant is applied to the `vllm serve` launch so sizing and serve agree. A tiny
+  built-in alias table maps `gemma-4`/`gemma-4-e4b` → the cheap default and
+  `gemma-4-31b` → the max-power-for-48 GB variant. Optional, purely-override layers,
+  most-explicit-wins: `llm_slurm` config fields > metadata-derived sizing >
+  basename-matched family *serve-hints* (context length etc. that metadata
+  can't publish) > conservative default. Metadata unavailable (offline, gated
+  repo, unknown GPU) degrades to a loud warning + conservative default — never
+  raises, never silently mis-sizes. Then submits a `vllm serve` job (reusing f3dasm's
   `SlurmCluster` + the plain `sbatch` idiom — a persistent server is NOT routed
   through the eval-oriented `Pipeline`/`SlurmExecutor`), waits for the granted
   node, polls `/v1/models` past the cold model load, publishes `VLLM_BASE_URL`
@@ -279,14 +306,24 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   telemetry measures after the fact (parity). Phase 1: one allocation for the
   run's lifetime; Phase 2 (walltime chaining + a stable local proxy) is designed
   but deferred.
-- **Config:** `llm_slurm:` block — `enabled` (default off), `model`, resource
-  overrides (`gres`/`mem`/`time`/`cpus_per_task`/`vllm_args`), throughput inputs
+- **Config (all optional overrides):** `llm_slurm:` block — `enabled`
+  (default off), `model`, `aliases` (short-name→canonical-HF-id map; wins over
+  the built-in aliases), resource overrides
+  (`gres`/`mem`/`time`/`cpus_per_task`/`vllm_args`), sizing/throughput inputs
   (`gpu_model`/`params_b`/`dtype_bytes`/`tensor_parallel`), `queue_timeout`/
   `serve_timeout`, and a nested `cluster:` (`partition`/`account`/`env_setup`/
-  `env_vars`/`runner`). Requires `backend: vllm`. Disabled → hosted-API runs are
-  unchanged.
-- **Where:** `agentic/slurm_llm.py` (profiles, resolve, render/submit, wait,
-  throughput bound, teardown, reaper); `agent_runtime.py`
+  `env_vars`/`runner`). Metadata knobs live in the `runtime:` block via
+  `settings.get_*`: `llm_metadata_fetch` (bool, default on — off = local-cache
+  only, no network), `llm_metadata_timeout_s` (float, default 8), and
+  `llm_quantization` (str; unset → GPU-aware default: FP8 on FP8-capable cards
+  else BF16/Q4. Set `fp8`/`bf16`/`fp16`/`awq`/`gptq`/`q4`/…, or `auto` for the
+  checkpoint's native dtype) — the serve dtype used for both VRAM sizing and the
+  `vllm serve --quantization` flag; an explicit value wins over the GPU-aware
+  default. Requires
+  `backend: vllm`. Disabled → hosted-API runs are unchanged.
+- **Where:** `agentic/slurm_llm.py` (aliases, metadata fetch, VRAM sizing,
+  serve-hints, resolve, render/submit, wait, throughput bound, teardown,
+  reaper); `agent_runtime.py`
   (`_maybe_start_slurm_llm` + the teardown `finally` in `execute()`);
   `studies/*/run.py` watchdogs (serve-job reap). Reuses
   `pipeline/resources.py` (`SlurmCluster`/`SlurmResources`) unchanged.
