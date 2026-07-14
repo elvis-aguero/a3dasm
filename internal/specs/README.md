@@ -16,13 +16,14 @@ Priority order (highest first) and how they compose:
 | [06](06-stuck-delegation-detection.md) | Stuck-delegation detection + push | medium | **detection done; push+levers remain** |
 | [04](04-single-notebook-deliverable.md) | Single `.ipynb` deliverable | low | spec |
 | [05](05-slurm-execution-kb.md) | SLURM execution KB (+ shared-FS invariant) | lowest | spec |
+| [07](07-duplicate-evaluation-detection.md) | Duplicate/redundant design-point evaluation detection | medium | **DONE (shipped simplified)** |
 
 **Dependency graph (build order matters):**
 - **01 + 02 + 06 are one cluster.** 06 *detects* a stuck/slow delegation; 02
   supplies the *actuators* (`grant_budget`/`abort`) to respond; 01 *reconciles*
   whatever a cancelled/aborted-but-completed delegation already stamped. Building
   02 first gives 01 a clean `abort` and 06 a real lever; build **02 → 01 → 06**.
-- **03, 04, 05 are independent** of that cluster and of each other.
+- **03, 04, 05, 07 are independent** of that cluster and of each other.
 
 Every spec separates the **mechanism claim** (tests pass) from the **behavioral
 claim** (KPI improves on a re-run) and says which is which.

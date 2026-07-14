@@ -55,8 +55,18 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   **UNSTAMPED_ROWS** (the store gained rows with no provenance owner — the
   reverse: rows written outside get_evaluator() via the public
   ExperimentData.store() door, neither counted nor reproducible). Both warn-only.
-- **Where:** `science_monitor.py` (`_check_unledgered`, `_check_unstamped_rows`);
-  `instrumented.py` `unstamped_row_count`. **Status:** core (§4 user-owned).
+  A third rule, **DUPLICATE_EVALUATION**, flags a delegation re-evaluating a
+  design point already FINISHED, unchanged, in the ledger (real incident: a
+  delegation re-sampled an identical seed=42 LHS design three times, 122 of
+  160 rows pure waste — backlog #24). Counter-based, not level-triggered: fires
+  once 3 NEW duplicate rows land since the last check, then resets; capped at
+  2 nudges per delegation; rate-limited to one per 60s. `Wait()`'s poll loop
+  also drains the monitor on every 10s tick (not just on the next tool call),
+  so a nudge reaches a strategizer blocked waiting on a live campaign instead
+  of surfacing only after the whole delegation (and its budget) is spent.
+- **Where:** `science_monitor.py` (`_check_unledgered`, `_check_unstamped_rows`,
+  `_check_duplicate_evaluations`); `instrumented.py` `unstamped_row_count`,
+  `duplicate_eval_stats`; `routing.py` `Wait()`. **Status:** core (§4 user-owned).
 
 ### Process milestones
 - **What:** a small backlog (assess-literature, oracle-ready, …) that gates the
