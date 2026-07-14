@@ -16,6 +16,7 @@ legitimately appear in evidence without matching the report verbatim.
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -25,6 +26,13 @@ MAX_INJECT_PER_TURN = 2
 ESCALATION_CAP = 2
 ESCALATE_AFTER_VIOLATIONS = 3
 ESCALATE_AFTER_ERROR_REPEATS = 2
+
+# DUPLICATE_EVALUATION — new duplicate rows since the last nudge that trip
+# the counter, the per-delegation nudge cap, and the minimum gap between
+# nudges. See backlog #24 / specs/07-duplicate-evaluation-detection.md.
+DUP_NUDGE_THRESHOLD = 3
+DUP_MAX_NUDGES = 2
+DUP_COOLDOWN_S = 60.0
 
 
 @dataclass(frozen=True)
@@ -68,11 +76,22 @@ class ScienceMonitor:
         self._escalations = 0
         self._pending_escalation: list[str] | None = None
         self.store_dir: str | None = store_dir
+        # DUPLICATE_EVALUATION bookkeeping, per delegation id.
+        self._now: Callable[[], float] = time.time
+        self._dup_baseline: dict[str, int] = {}
+        self._dup_counter: dict[str, int] = {}
+        self._dup_nudge_count: dict[str, int] = {}
+        self._dup_last_nudge_ts: dict[str, float] = {}
 
     def evaluate(self) -> list[Violation]:
-        """Run UNLEDGERED_EVALS + UNSTAMPED_ROWS against current state."""
+        """Run UNLEDGERED_EVALS + UNSTAMPED_ROWS + DUPLICATE_EVALUATION
+        against current state."""
         records = self._dlog.query_all()
-        return self._check_unledgered(records) + self._check_unstamped_rows()
+        return (
+            self._check_unledgered(records)
+            + self._check_unstamped_rows()
+            + self._check_duplicate_evaluations()
+        )
 
     def _check_unstamped_rows(self) -> list[Violation]:
         """UNSTAMPED_ROWS: the experiment stores gained rows that carry no
@@ -103,6 +122,68 @@ class ScienceMonitor:
             "written through get_evaluator(). Re-run those evaluations via "
             "get_evaluator() so they are ledgered and attributable.",
         )]
+
+    def _check_duplicate_evaluations(self) -> list[Violation]:
+        """DUPLICATE_EVALUATION: a delegation re-evaluated a design point
+        already FINISHED, unchanged, in the ledger — wasted budget, no new
+        evidence. Real incident (run example_study/20260713T221841): three
+        separate scripts under one delegation independently re-sampled an
+        identical seed=42 LHS design, so 122 of its 160 rows (76%) were exact
+        repeats of 38 unique points (backlog #24).
+
+        Counter-based, not level-triggered like UNLEDGERED_EVALS/
+        UNSTAMPED_ROWS: fires once DUP_NUDGE_THRESHOLD NEW duplicate rows have
+        landed since the last check for that delegation, then resets to 0 —
+        so it fires again on the NEXT batch of new duplicates, not
+        continuously while the condition persists. Capped at DUP_MAX_NUDGES
+        per delegation and rate-limited to one per DUP_COOLDOWN_S, so a burst
+        of duplicate rows can't spam the strategizer. No-ops when store_dir is
+        None.
+        """
+        if self.store_dir is None:
+            return []
+        try:
+            from .instrumented import duplicate_eval_stats as _dupstats
+            stats = _dupstats(self.store_dir)
+        except Exception:  # noqa: BLE001
+            return []
+        out: list[Violation] = []
+        with self._lock:
+            for d_id, s in stats.items():
+                total_dup = s["duplicate_rows"]
+                baseline = self._dup_baseline.get(d_id, 0)
+                new_dups = total_dup - baseline
+                if new_dups <= 0:
+                    continue
+                self._dup_baseline[d_id] = total_dup
+                if self._dup_nudge_count.get(d_id, 0) >= DUP_MAX_NUDGES:
+                    continue
+                self._dup_counter[d_id] = (
+                    self._dup_counter.get(d_id, 0) + new_dups)
+                if self._dup_counter[d_id] < DUP_NUDGE_THRESHOLD:
+                    continue
+                now = self._now()
+                last_ts = self._dup_last_nudge_ts.get(d_id)
+                if last_ts is not None and (now - last_ts) < DUP_COOLDOWN_S:
+                    continue
+                self._dup_counter[d_id] = 0
+                self._dup_nudge_count[d_id] = (
+                    self._dup_nudge_count.get(d_id, 0) + 1)
+                self._dup_last_nudge_ts[d_id] = now
+                worst = s["worst"]
+                worst_txt = (
+                    f" e.g. {worst[0]} was evaluated {worst[1]}x."
+                    if worst else ""
+                )
+                out.append(Violation(
+                    "DUPLICATE_EVALUATION", "warn", d_id,
+                    f"Delegation {d_id} has re-evaluated design points "
+                    f"already in the ledger — {total_dup} duplicate row(s) "
+                    f"so far.{worst_txt} Check QueryStore for existing rows "
+                    "at a candidate before re-evaluating it; re-sampling the "
+                    "same points wastes eval budget without new evidence.",
+                ))
+        return out
 
     def _check_unledgered(self, all_records: list[dict]) -> list[Violation]:
         """UNLEDGERED_EVALS: DONE delegations that reported evals but wrote no

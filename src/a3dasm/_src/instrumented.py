@@ -1169,9 +1169,78 @@ def ledger_breakdown(store_root: Path | str) -> list[dict]:
     return out
 
 
+def duplicate_eval_stats(store_root: Path | str) -> dict[str, dict]:
+    """Per-delegation duplicate-design-point counts across every store.
+
+    An evaluation that re-derives a design point already FINISHED, unchanged,
+    in the ledger wastes eval budget without adding evidence — this exposes
+    that waste so a caller (ScienceMonitor) can nudge about it. Real incident
+    (run example_study/20260713T221841): a delegation's three separate scripts
+    each independently re-sampled and re-evaluated an identical seed=42 LHS
+    design, so 122 of its 160 stamped rows (76%) were exact repeats of 38
+    unique points — backlog #24.
+
+    Coordinates are the non-provenance INPUT columns, rounded to 10 decimals
+    (same convention `_reproduction_gate`'s `_ledger_snapshot` uses) so a
+    faithful re-store of identical values doesn't false-count as new.
+    Namespace-aware: sums across every experiment_stores() store, the same
+    primitive `ledger_breakdown`/`delegation_evals` use.
+
+    Returns ``{delegation_id: {"total_rows", "unique_points",
+    "duplicate_rows", "worst": (coords_dict, count) | None}}``. Never raises;
+    an empty/absent store yields ``{}``.
+    """
+    store_root = Path(store_root)
+    per_deleg: dict[str, dict] = {}
+    for store in experiment_stores(store_root):
+        try:
+            data = ExperimentData.from_file(project_dir=store)
+            df_in, df_out = data.to_pandas()
+        except Exception:  # noqa: BLE001
+            continue
+        if df_out.empty or "_delegation_id" not in df_out.columns:
+            continue
+        input_cols = [
+            c for c in (df_in.columns if df_in is not None else [])
+            if c not in _PROVENANCE_COLS
+        ]
+        rounded = df_in[input_cols].round(10) if input_cols else None
+        for pos, did in enumerate(df_out["_delegation_id"]):
+            if not did:
+                continue
+            did = str(did)
+            coords = tuple(rounded.iloc[pos]) if rounded is not None else ()
+            bucket = per_deleg.setdefault(
+                did, {"counts": {}, "cols": input_cols})
+            bucket["counts"][coords] = bucket["counts"].get(coords, 0) + 1
+
+    out: dict[str, dict] = {}
+    for did, bucket in per_deleg.items():
+        counts = bucket["counts"]
+        total_rows = sum(counts.values())
+        unique_points = len(counts)
+        worst = None
+        if counts:
+            worst_coords, worst_count = max(
+                counts.items(), key=lambda kv: kv[1])
+            if worst_count > 1:
+                worst = (
+                    dict(zip(bucket["cols"], worst_coords, strict=True)),
+                    worst_count,
+                )
+        out[did] = {
+            "total_rows": total_rows,
+            "unique_points": unique_points,
+            "duplicate_rows": total_rows - unique_points,
+            "worst": worst,
+        }
+    return out
+
+
 __all__ = [
     "InstrumentedDataGenerator",
     "RunStateSummary",
+    "duplicate_eval_stats",
     "get_evaluator",
     "ledger_breakdown",
     "load_experiments",

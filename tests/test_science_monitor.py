@@ -285,3 +285,110 @@ def test_unstamped_rows_silent_when_every_row_attributed(tmp_path):
     with patch.object(RunStateSummary, "from_store", return_value=stub):
         violations = mon.evaluate()
     assert "UNSTAMPED_ROWS" not in {v.rule for v in violations}
+
+
+# ---------------------------------------------------------------------------
+# DUPLICATE_EVALUATION — nudge on repeated re-evaluation of an already-known
+# design point. Counter-based (fires on 3 NEW duplicate rows since the last
+# check, then resets), rate-limited (>=60s between nudges), capped (max 2
+# nudges per delegation). Regression for run example_study/20260713T221841
+# (backlog #24 / spec 07): D003 re-evaluated 38 unique points up to 10x each,
+# 122 of 160 rows pure waste.
+# ---------------------------------------------------------------------------
+
+def _store_rows(store_dir, rows):
+    """rows: list of (x1, x2, delegation_id). Overwrites store_dir wholesale —
+    tests call this repeatedly with a growing row list to simulate a live
+    campaign accumulating duplicate evaluations over time."""
+    from f3dasm._src.design.domain import Domain
+    from f3dasm._src.experimentdata import ExperimentData
+    from f3dasm._src.experimentsample import ExperimentSample, JobStatus
+
+    dom = Domain()
+    dom.add_float("x1", -5.0, 5.0)
+    dom.add_float("x2", -5.0, 5.0)
+    dom.add_output("y", exist_ok=True)
+    dom.add_output("_delegation_id", exist_ok=True)
+    samples = {
+        i: ExperimentSample(
+            _input_data={"x1": x1, "x2": x2},
+            _output_data={"y": 0.0, "_delegation_id": did},
+            job_status=JobStatus.FINISHED)
+        for i, (x1, x2, did) in enumerate(rows)
+    }
+    ExperimentData.from_data(data=samples, domain=dom).store(
+        project_dir=store_dir)
+
+
+def _make_monitor_with_clock(tmp_path):
+    clock = {"t": 1000.0}
+    ledger, dlog, mon, drift = make_world(tmp_path)
+    store_dir = tmp_path / "experiment_data"
+    mon.store_dir = str(store_dir)
+    mon._now = lambda: clock["t"]
+    return mon, store_dir, clock
+
+
+def test_duplicate_eval_does_not_fire_below_threshold(tmp_path):
+    mon, store_dir, _ = _make_monitor_with_clock(tmp_path)
+    # 1 unique point evaluated 3x = 2 duplicate rows -> below the 3-dup bar.
+    _store_rows(store_dir, [(0.1, 0.2, "D003")] * 3)
+    violations = mon.evaluate()
+    assert "DUPLICATE_EVALUATION" not in {v.rule for v in violations}
+
+
+def test_duplicate_eval_fires_after_three_new_duplicates(tmp_path):
+    mon, store_dir, _ = _make_monitor_with_clock(tmp_path)
+    # 1 unique point evaluated 4x = 3 duplicate rows -> hits the bar.
+    _store_rows(store_dir, [(0.1, 0.2, "D003")] * 4)
+    violations = mon.evaluate()
+    dup = [v for v in violations if v.rule == "DUPLICATE_EVALUATION"]
+    assert len(dup) == 1
+    assert dup[0].severity == "warn"
+    assert dup[0].h_id == "D003"
+
+
+def test_duplicate_eval_counter_resets_after_nudge(tmp_path):
+    mon, store_dir, _ = _make_monitor_with_clock(tmp_path)
+    _store_rows(store_dir, [(0.1, 0.2, "D003")] * 4)
+    first = mon.evaluate()
+    assert "DUPLICATE_EVALUATION" in {v.rule for v in first}
+    # No NEW rows added -> counter is 0 again, must not re-fire immediately.
+    second = mon.evaluate()
+    assert "DUPLICATE_EVALUATION" not in {v.rule for v in second}
+
+
+def test_duplicate_eval_respects_cooldown(tmp_path):
+    mon, store_dir, clock = _make_monitor_with_clock(tmp_path)
+    _store_rows(store_dir, [(0.1, 0.2, "D003")] * 4)
+    assert "DUPLICATE_EVALUATION" in {v.rule for v in mon.evaluate()}
+    # 3 more new duplicates, but only 10s later -> still within the 60s cooldown.
+    clock["t"] += 10
+    _store_rows(store_dir, [(0.1, 0.2, "D003")] * 4 + [(0.3, 0.4, "D003")] * 4)
+    assert "DUPLICATE_EVALUATION" not in {
+        v.rule for v in mon.evaluate()}
+
+
+def test_duplicate_eval_fires_again_after_cooldown(tmp_path):
+    mon, store_dir, clock = _make_monitor_with_clock(tmp_path)
+    _store_rows(store_dir, [(0.1, 0.2, "D003")] * 4)
+    assert "DUPLICATE_EVALUATION" in {v.rule for v in mon.evaluate()}
+    clock["t"] += 61  # past the 60s cooldown
+    _store_rows(store_dir, [(0.1, 0.2, "D003")] * 4 + [(0.3, 0.4, "D003")] * 4)
+    assert "DUPLICATE_EVALUATION" in {v.rule for v in mon.evaluate()}
+
+
+def test_duplicate_eval_max_two_nudges_per_delegation(tmp_path):
+    mon, store_dir, clock = _make_monitor_with_clock(tmp_path)
+    _store_rows(store_dir, [(0.1, 0.2, "D003")] * 4)
+    assert "DUPLICATE_EVALUATION" in {v.rule for v in mon.evaluate()}  # nudge 1
+    clock["t"] += 61
+    _store_rows(store_dir, [(0.1, 0.2, "D003")] * 4 + [(0.3, 0.4, "D003")] * 4)
+    assert "DUPLICATE_EVALUATION" in {v.rule for v in mon.evaluate()}  # nudge 2
+    clock["t"] += 61
+    _store_rows(
+        store_dir,
+        [(0.1, 0.2, "D003")] * 4 + [(0.3, 0.4, "D003")] * 4
+        + [(0.5, 0.6, "D003")] * 4)
+    # 3rd batch of new duplicates, cooldown clear -> capped at 2, must NOT fire.
+    assert "DUPLICATE_EVALUATION" not in {v.rule for v in mon.evaluate()}

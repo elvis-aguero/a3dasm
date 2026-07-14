@@ -1676,6 +1676,16 @@ def build_routing_tools(node) -> dict:
                     node._notifications.clear()
                 for _n in _notifs:
                     prefix += _n + "\n\n"
+                # Wake a strategizer that's asleep in Wait() for a live
+                # campaign — without this, a science-monitor nudge (e.g.
+                # DUPLICATE_EVALUATION) only surfaces on the NEXT tool call,
+                # by which point the whole delegation (and its eval budget)
+                # has already finished. Same drain() every other call site
+                # uses; each poll tick is a fresh check, not a repeat.
+                if node._science_monitor is not None:
+                    drift = node._science_monitor.drain()
+                    if drift:
+                        prefix += drift + "\n"
 
         with node._registry_lock:
             entry = node._registry.get(delegation_id, {})
