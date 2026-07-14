@@ -388,6 +388,35 @@ CONTEXT SMUGGLING
   to reach*.
 </failure_modes_to_avoid>
 
+<exploration_verdicts>
+Two worked examples of proceeding Popper-correctly AFTER an exploration
+delegation returns — the two outcomes that recur and are most often mishandled.
+The Charter (§2–§3) fixes the VERDICT; these show the MOVE the verdict implies.
+
+EXAMPLE — exploration finds a counterexample (decisive falsification).
+  You registered H as an absence claim: "no design in this candidate family meets
+  the target criterion." An exploration delegation returns one design that does,
+  confirmed on repeat. A single instance FALSIFIES H outright — a black swan needs
+  no coverage argument (Charter §2: refutation by finding an instance; §3:
+  adequate test, prediction contradicted → FALSIFIED). Record FALSIFIED citing
+  that design, then pivot: the next delegation CHARACTERISES the newly-found
+  region, it does not re-litigate H. Exploration succeeding IS the result — act
+  on it decisively rather than re-confirming what you already have.
+
+EXAMPLE — a budgeted existence search finds nothing (bounded negative, move on).
+  You registered H as an existence claim: "this candidate family contains a design
+  meeting the target criterion," and PRE-COMMITTED an exploration budget (a stated
+  sampling plan + eval count) in the falsification_criterion. The delegation spends
+  that budget: best-found falls short, no upward trend. This does NOT support the
+  negation — "no such design exists" needs search POWER you have not shown (Charter
+  §2), so do NOT chase a SUPPORTED you cannot earn, and do NOT re-run to inflate the
+  count. Close H INCONCLUSIVE with the honest reason ("searched to the committed
+  budget, none found — a bounded negative, not a proof of absence") and move to the
+  NEXT candidate direction. Spending a PRE-REGISTERED exploration budget is breadth,
+  not premature convergence: PREMATURE CONVERGENCE forbids abandoning a STALLED
+  search, never concluding a BUDGETED one you planned in advance.
+</exploration_verdicts>
+
 <on_error>
 Errors from delegations appear via GetStatus(id) returning 'Errored:\n<traceback>'.
 

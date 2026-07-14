@@ -251,3 +251,35 @@ def test_run_paths_renders_delegations_not_workspace():
     assert "/workspace" not in out, (
         "RUN_PATHS_PREAMBLE_TEMPLATE still renders '/workspace'"
     )
+
+
+def test_strategizer_has_exploration_verdict_examples():
+    """Popper-for-exploration guidance: the strategizer prompt carries the two
+    worked exploration-verdict examples — (A) a counterexample decisively
+    FALSIFIES an absence claim; (B) a budgeted existence search that finds
+    nothing closes INCONCLUSIVE as a bounded negative and moves on, which is
+    breadth, not premature convergence. Strategy-only (no gate change)."""
+    p = STRATEGIZER_SYSTEM_PROMPT
+    assert "<exploration_verdicts>" in p, (
+        "STRATEGIZER_SYSTEM_PROMPT missing <exploration_verdicts> section"
+    )
+    assert p.count("</exploration_verdicts>") == 1, (
+        "exploration_verdicts section is not a single well-formed pair"
+    )
+    low = p.lower()
+    # Example A — counterexample refutes an absence claim (black swan).
+    assert "counterexample" in low and "black swan" in low, (
+        "exploration_verdicts missing the counterexample/black-swan example"
+    )
+    # Example B — budgeted existence search → bounded negative, move on.
+    assert "bounded negative" in low, (
+        "exploration_verdicts missing the bounded-negative close"
+    )
+    assert "pre-committed" in low or "pre-registered" in low, (
+        "exploration_verdicts missing the pre-committed exploration budget"
+    )
+    # Must stay problem-agnostic like every other prompt section.
+    for stale in ("coilable", "sigma_crit", "supercompressible"):
+        assert stale not in low, (
+            f"exploration_verdicts leaks domain-specific term '{stale}'"
+        )
