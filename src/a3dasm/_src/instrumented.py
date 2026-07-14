@@ -1224,7 +1224,10 @@ def duplicate_eval_stats(store_root: Path | str) -> dict[str, dict]:
             worst_coords, worst_count = max(
                 counts.items(), key=lambda kv: kv[1])
             if worst_count > 1:
-                worst = (dict(zip(bucket["cols"], worst_coords)), worst_count)
+                worst = (
+                    dict(zip(bucket["cols"], worst_coords, strict=True)),
+                    worst_count,
+                )
         out[did] = {
             "total_rows": total_rows,
             "unique_points": unique_points,
