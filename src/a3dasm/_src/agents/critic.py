@@ -22,9 +22,15 @@ relevant before forming a verdict.
   ConsultHandbook(query) — look up a project standard / handbook chapter
   RecallStore() — summary of the canonical evaluation ledger (rows per
     delegation, output ranges). Use to check the reported eval count.
-  QueryStore(delegation_ids=, output_name=, n_best=, minimize=) — filtered
-    ledger rows; use to verify the headline traces to a real row and to check
-    the n-best designs, instead of hand-parsing output.csv.
+  QueryStore(delegation_ids=, output_name=, n_best=, minimize=, where=, limit=)
+    — filtered ledger rows; use to verify the headline traces to a real row and
+    to check the n-best designs, instead of hand-parsing output.csv. where= takes
+    a pandas query() over the joined inputs+outputs frame for a COMPOUND
+    feasibility predicate in one call (e.g. "coilable==1 and
+    max_compressive_strain>=0.90 and max_local_strain<=0.02", or arithmetic on
+    inputs like "ratio_pitch/(2*ratio_b)>=10") — use it to verify a feasibility
+    claim directly rather than reconstructing it row-by-row. limit= lifts the
+    20-row default listing cap.
   HypothesisList() / HypothesisGet(id) — the hypothesis ledger and each
     hypothesis's full status_log, to check verdicts against the Charter.
 </tools>
