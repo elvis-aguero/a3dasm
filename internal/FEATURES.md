@@ -369,7 +369,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 | `RunPipelineCell` | Per-cell notebook debugger (#13) |
 | `RunScratch` | Worker scratch execution against a ledger copy |
 | `WriteNote` · `ReadNote` | Agent scratch notes |
-| `RecallStore` · `QueryStore` | Canonical evaluation-store read (declaration-gated; shared verbatim across node types — strategizer, workers, and the critic) |
+| `RecallStore` · `QueryStore` | Canonical evaluation-store read (declaration-gated; shared verbatim across node types — strategizer, workers, and the critic). `QueryStore` accepts `where=` (a pandas `query()` expression over the joined inputs+outputs frame — compound feasibility predicates + arithmetic on input columns in one call) and `limit=` (lifts the 20-row default listing cap); bad `where` returns a column-listing ERROR, never raises (spec 09) |
 | `HypothesisPropose` · `HypothesisUpdate` · `HypothesisList` · `HypothesisGet` · `LinkFalsificationAttempt` | Hypothesis ledger — read (List/Get) is declaration-gated to any node; mutate (Propose/Update/Link) is strategizer-only |
 | `MilestoneList` · `MilestonePropose` · `MilestoneComplete` · `MilestoneSkip` | Process milestones (strategizer-only) |
 | `BashOutput` · `KillShell` | Bash companions: poll / stop a backgrounded shell (#24) |

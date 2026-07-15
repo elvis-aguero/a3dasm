@@ -1,0 +1,130 @@
+"""QueryStore compound-predicate (`where`) + `limit` — spec 09.
+
+An agent must be able to ask the ledger a compound feasibility question in one
+call ("coilable and compresses and low-strain, ranked by objective") instead of
+falling back to ExperimentData.from_file + pandas by hand (the friction hit in
+run 20260715T002538 by D005 and critic-1). `where` is a pandas query() over the
+joined inputs+outputs frame; `limit` lifts the 20-row default cap.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from f3dasm._src.design.domain import Domain
+from f3dasm._src.experimentdata import ExperimentData
+from f3dasm._src.experimentsample import ExperimentSample, JobStatus
+
+from a3dasm._src.backends.base import Agent, Edge, Graph
+from a3dasm._src.delegation_log import DelegationLog
+from a3dasm._src.nodes import StrategizerNode
+
+
+class _Stub:
+    def __init__(self) -> None:
+        self.closure_tools: dict = {}
+        self.last_usage: dict = {}
+        self.model = "m"
+
+    def invoke(self, messages):
+        return ""
+
+
+def _build_store(store_dir: Path, rows) -> None:
+    """rows: (x0, f, coilable, mcs, delegation_id)."""
+    domain = Domain()
+    domain.add_float("x0", 0.0, 10.0)
+    for k in ("f", "coilable", "mcs", "_delegation_id", "_source", "_ts"):
+        domain.add_output(k, exist_ok=True)
+    samples = {}
+    for i, (x0, f, coil, mcs, did) in enumerate(rows):
+        samples[i] = ExperimentSample(
+            _input_data={"x0": x0},
+            _output_data={"f": f, "coilable": coil, "mcs": mcs,
+                          "_delegation_id": did, "_source": "test",
+                          "_ts": "2026-01-01T00:00:00+00:00"},
+            job_status=JobStatus.FINISHED,
+        )
+    ExperimentData.from_data(data=samples, domain=domain).store(
+        project_dir=store_dir)
+
+
+def _querystore(tmp_path):
+    run_dir = tmp_path / "runs" / "T1"
+    (run_dir / "debug").mkdir(parents=True)
+    _build_store(run_dir / "experiment_data", [
+        (0.1, 1.0, 1, 0.95, "D001"),   # feasible
+        (0.2, 2.0, 1, 0.50, "D001"),   # coilable but mcs<0.9 -> infeasible
+        (0.3, 3.0, 0, 0.99, "D002"),   # not coilable
+        (0.4, 2.5, 1, 0.92, "D002"),   # feasible, highest feasible f
+        (0.5, 0.5, 1, 0.91, "D001"),   # feasible, low f
+    ])
+
+    class S(Agent):
+        role = "strategizer"
+        tools = frozenset({"Done"})
+        description = "s"
+
+    class Impl(Agent):
+        role = "implementer"
+        description = "i"
+        tools = frozenset({"QueryStore"})
+
+    class Lit(Agent):
+        role = "literature_reviewer"
+        description = "l"
+
+    spec = Graph(
+        nodes={"strategizer": S(), "implementer": Impl(),
+               "literature_reviewer": Lit()},
+        edges=(Edge("strategizer", "implementer"),
+               Edge("implementer", "literature_reviewer")),
+        entry="strategizer")
+    dlog = DelegationLog(run_dir / "debug" / "delegation_log.jsonl")
+    n = StrategizerNode(
+        _Stub(), name="implementer", outgoing=["literature_reviewer"],
+        spec=spec, worker_adapters={"literature_reviewer": _Stub()},
+        notes_dir=None, delegation_log=dlog)
+    return n._build_routing_closures()["QueryStore"]
+
+
+def test_where_compound_feasibility_predicate(tmp_path):
+    q = _querystore(tmp_path)
+    out = q(where="coilable==1 and mcs>=0.90")
+    assert "3 rows match" in out           # rows 0, 3, 4
+    assert "2.0" not in out or "mcs" in out  # row1 (mcs 0.5) excluded from data
+
+
+def test_where_plus_n_best_ranks_feasible_only(tmp_path):
+    q = _querystore(tmp_path)
+    # best FEASIBLE by f, maximizing -> row3 (f=2.5), not row2 (f=3.0, infeasible)
+    out = q(where="coilable==1 and mcs>=0.90", n_best=1,
+            output_name="f", minimize=False)
+    assert "2.5" in out
+    assert "3.0" not in out                # infeasible top-f excluded by where
+
+
+def test_where_arithmetic_on_input_columns(tmp_path):
+    q = _querystore(tmp_path)
+    out = q(where="x0*10 >= 3")             # x0 in {0.3,0.4,0.5} -> 3 rows
+    assert "3 rows match" in out
+
+
+def test_bad_where_returns_error_not_raises(tmp_path):
+    q = _querystore(tmp_path)
+    out = q(where="no_such_column == 1")
+    assert out.startswith("ERROR:")
+    assert "Available columns" in out       # self-documenting
+
+
+def test_limit_caps_and_reports_remainder(tmp_path):
+    q = _querystore(tmp_path)
+    out = q(limit=2)
+    assert "Showing 2" in out
+    assert "more not shown" in out          # 3 remaining flagged
+
+
+def test_no_args_lists_all_under_cap(tmp_path):
+    q = _querystore(tmp_path)
+    out = q()
+    assert "5 rows match" in out
+    assert "more not shown" not in out      # 5 < default 20

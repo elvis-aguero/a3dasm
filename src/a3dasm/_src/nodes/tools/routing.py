@@ -214,6 +214,8 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             n_best: int | None = None,
             output_name: str | None = None,
             minimize: bool = True,
+            where: str | None = None,
+            limit: int | None = None,
         ) -> str:
             """Filtered view of the evaluation ledger (e.g. rows from D001+D003
             only). Use to ground claims or to select training subsets; cite row
@@ -222,7 +224,19 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             n_best returns the best rows by output_name: smallest when
             minimize=True (default), largest when minimize=False (set this for
             MAXIMIZATION objectives). Infeasible/placeholder rows (large-
-            magnitude sentinel outputs) are never returned as 'best'."""
+            magnitude sentinel outputs) are never returned as 'best'.
+
+            where is a pandas query() expression over the JOINED inputs+outputs
+            frame, for a compound feasibility predicate in one call — e.g.
+            where="coilable==1 and max_compressive_strain>=0.90 and
+            max_local_strain<=0.02". Arithmetic on input columns works too, so a
+            derived quantity needs no stored column:
+            where="ratio_pitch/(2*ratio_b) >= 10". Combine with n_best to rank
+            the feasible subset. A bad expression returns an ERROR string listing
+            the available columns; it never raises.
+
+            limit caps the default (non-n_best) listing (default 20); raise it to
+            pull a larger feasible set once where= has narrowed the rows."""
             import json as _json
 
             from f3dasm import ExperimentData
@@ -303,6 +317,27 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             if source is not None and "_source" in df_out.columns:
                 mask &= df_out["_source"] == source
 
+            # where: compound predicate over the joined inputs+outputs frame.
+            # Read-only (query on an in-memory copy); folds into the mask so both
+            # the n_best path and the list path respect it. Never raises.
+            if where:
+                if df_in is not None:
+                    joined = _pd.concat(
+                        [df_in.reset_index(drop=True),
+                         df_out.reset_index(drop=True)], axis=1)
+                    joined = joined.loc[:, ~joined.columns.duplicated()]
+                else:
+                    joined = df_out.reset_index(drop=True)
+                try:
+                    keep = joined.query(where).index
+                except Exception as exc:  # noqa: BLE001
+                    return (
+                        f"ERROR: could not evaluate where={where!r}: {exc}. "
+                        f"Available columns: {list(joined.columns)}"
+                    )
+                mask &= _pd.Series(
+                    df_out.index.isin(keep), index=df_out.index)
+
             filtered = df_out[mask]
             filtered_in = df_in[mask] if df_in is not None else None
 
@@ -321,6 +356,11 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                         f"ERROR: n_best must be an integer, got "
                         f"{n_best!r}."
                     )
+            if limit is not None:
+                try:
+                    limit = int(limit)
+                except (TypeError, ValueError):
+                    return f"ERROR: limit must be an integer, got {limit!r}."
             if isinstance(minimize, str):  # MCP string-in may pass "false"
                 minimize = minimize.strip().lower() not in (
                     "false", "0", "no", "max", "maximize"
@@ -370,13 +410,19 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                     ]
                 return combined.to_string(index=False)
 
-            # Default: return count + first 20 rows
-            n_shown = min(20, len(filtered))
+            # Default: return count + first `limit` rows (default 20). Narrow
+            # with where=/delegation_ids= or rank with n_best= to see the rest.
+            cap = 20 if limit is None else limit
+            n_shown = min(cap, len(filtered))
             subset = filtered.iloc[:n_shown]
+            more = len(filtered) - n_shown
+            tail = (
+                f"\n… {more} more not shown — pass limit=<n>, a tighter "
+                f"where=, or n_best= to rank." if more > 0 else ""
+            )
             return (
-                f"{len(filtered)} rows match. "
-                f"Showing first {n_shown}:\n"
-                + subset.to_string(index=False)
+                f"{len(filtered)} rows match. Showing {n_shown}:\n"
+                + subset.to_string(index=False) + tail
             )
         out["QueryStore"] = QueryStore
 
