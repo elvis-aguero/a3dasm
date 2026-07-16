@@ -123,6 +123,9 @@ class InstrumentedDataGenerator(DataGenerator):
         self.lock_path = Path(lock_path)
 
         self._buffer: list[ExperimentSample] = []
+        # Designs (coord keys) queued for SUPERSEDE via supersede(): their stale
+        # canon rows are dropped at flush so a corrected re-eval replaces them.
+        self._supersede_keys: set = set()
 
     # ------------------------------------------------------------------
 
@@ -223,6 +226,14 @@ class InstrumentedDataGenerator(DataGenerator):
             ):
                 canon = None
 
+            # Supersede (opt-in correction): drop the stale rows for any design
+            # queued via supersede() BEFORE dedup, so the corrected re-eval
+            # REPLACES them instead of being skipped as a duplicate. Net-count-
+            # preserving (old row out, new row in) so the PROTECTED-store guard
+            # still holds (it blocks only SHRINK and FINISHED-regression).
+            if canon is not None and self._supersede_keys:
+                canon = self._drop_canon_rows(canon, self._supersede_keys)
+
             # Dedup-on-write: drop buffered samples whose design (the
             # non-provenance input coords, rounded 10dp — the SAME key the
             # DUPLICATE_EVALUATION detector uses) is already in the canonical
@@ -273,6 +284,7 @@ class InstrumentedDataGenerator(DataGenerator):
             self._record_dedup(n_skipped)
 
         self._buffer.clear()
+        self._supersede_keys.clear()
 
     @staticmethod
     def _coord_key(input_data: dict) -> tuple:
@@ -347,6 +359,76 @@ class InstrumentedDataGenerator(DataGenerator):
             pass
 
     # ------------------------------------------------------------------
+
+    def supersede(self, experiment_sample: ExperimentSample, **kwargs):
+        """Re-evaluate a design and REPLACE its existing FINISHED ledger row(s).
+
+        The opt-in correction for a stale/wrong row (e.g. a pre-oracle-fix read):
+        dedup-on-write otherwise keep-firsts, so a plain re-eval would be dropped.
+        This runs the oracle fresh and, at flush, drops the design's prior canon
+        row(s) and writes the new one — net-count-preserving, so the PROTECTED-
+        store guard still holds (it blocks only SHRINK and FINISHED-regression,
+        neither of which a same-design replace does). Use sparingly; the ledger
+        is otherwise append-only by design."""
+        self._supersede_keys.add(
+            self._coord_key(experiment_sample._input_data))
+        out = self.execute(experiment_sample, **kwargs)
+        self.flush()   # force: the drop + the new row must land in one write
+        # Provenance-mutating op → leave an audit line (the old value is replaced
+        # in-ledger, so the FACT of the correction must be traceable).
+        self._record_supersede(dict(experiment_sample._input_data))
+        return out
+
+    def _record_supersede(self, input_data: dict) -> None:
+        """Best-effort SUPERSEDE audit line (never breaks the eval path)."""
+        try:
+            import json as _json
+            from datetime import datetime, timezone
+            diag = self.store_dir.parent / "debug" / "diagnostics.jsonl"
+            if diag.parent.exists():
+                coords = {k: v for k, v in input_data.items()
+                          if k not in _PROVENANCE_COLS}
+                rec = {
+                    "ts": datetime.now(tz=timezone.utc).isoformat(
+                        timespec="seconds"),
+                    "node": self.delegation_id,
+                    "error_type": "SUPERSEDE",
+                    "message": (
+                        f"re-evaluated and REPLACED the ledger row for design "
+                        f"{coords} (prior value overwritten in-ledger)"),
+                }
+                with diag.open("a", encoding="utf-8") as f:
+                    f.write(_json.dumps(rec) + "\n")
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _drop_canon_rows(self, canon, keys: set):
+        """canon minus every row whose design (coord key) is in ``keys``, rebuilt
+        via the same from_data(samples, domain) idiom the flush path uses. Kept
+        rows are re-stamped FINISHED (they were) so the FINISHED-regression guard
+        passes. Best-effort: on any error returns canon unchanged (the new row
+        then merely appends — visible and safe, never lost)."""
+        try:
+            df_in, df_out = canon.to_pandas()
+            if df_in is None or df_in.empty:
+                return canon
+            in_cols = list(df_in.columns)
+            out_cols = list(df_out.columns)
+            samples: dict[int, ExperimentSample] = {}
+            j = 0
+            for i in range(len(df_out)):
+                if self._coord_key(df_in.iloc[i].to_dict()) in keys:
+                    continue
+                s = ExperimentSample(
+                    _input_data={c: df_in.iloc[i][c] for c in in_cols},
+                    _output_data={c: df_out.iloc[i][c] for c in out_cols})
+                s.mark("finished")
+                samples[j] = s
+                j += 1
+            return ExperimentData.from_data(
+                data=samples, domain=canon._domain)
+        except Exception:  # noqa: BLE001
+            return canon
 
     # Soft eval-budget nudge bands (fraction of eval_budget). One nudge per band
     # max → at most 3 nudges per delegation (the fixed cap).

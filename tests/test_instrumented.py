@@ -584,3 +584,57 @@ def test_get_evaluator_names_env_namespace_as_the_cause(tmp_path, monkeypatch):
         _inst.get_evaluator()                          # namespace=None -> env
     msg = str(ei.value)
     assert "F3DASM_NAMESPACE" in msg and "graded" in msg
+
+
+# ---------------------------------------------------------------------------
+# supersede() (#2/option C): replace a stale FINISHED row, net-count-preserving
+# ---------------------------------------------------------------------------
+
+
+class _ConstGenerator(DataGenerator):
+    """f = a fixed value (simulates a corrected re-eval differing from a stale
+    prior read). Set `.val` after construction to avoid a custom __init__."""
+    val = 0.0
+
+    def execute(self, experiment_sample, **kwargs):
+        experiment_sample._output_data["f"] = self.val
+        experiment_sample.job_status = JobStatus.FINISHED
+        return experiment_sample
+
+
+def _const_gen(val):
+    g = _ConstGenerator()
+    g.val = val
+    return g
+
+
+def test_supersede_replaces_stale_row_net_count_preserving(tmp_path):
+    """Option C: supersede() re-evaluates a design and REPLACES its stale row
+    (the mcs=0.57-style drift), leaving row count and other rows intact — and
+    passing the PROTECTED-store shrink/FINISHED guards."""
+    from a3dasm._src.instrumented import InstrumentedDataGenerator
+
+    # Seed: design A(x0=0.5) with a STALE value 99.0; design B(x0=0.9) good 7.0.
+    a_bad = InstrumentedDataGenerator(
+        inner=_const_gen(99.0), store_dir=tmp_path,
+        delegation_id="D001", flush_every=1)
+    a_bad.execute(_make_sample(0.5))
+    b = InstrumentedDataGenerator(
+        inner=_const_gen(7.0), store_dir=tmp_path,
+        delegation_id="D001", flush_every=1)
+    b.execute(_make_sample(0.9))
+
+    # Supersede A with a corrected oracle (1.0).
+    fixer = InstrumentedDataGenerator(
+        inner=_const_gen(1.0), store_dir=tmp_path,
+        delegation_id="D001", flush_every=1)
+    fixer.supersede(_make_sample(0.5))
+
+    df_in, df_out = ExperimentData.from_file(project_dir=tmp_path).to_pandas()
+    assert len(df_out) == 2, f"net count not preserved: {len(df_out)}"
+    fvals = sorted(float(v) for v in df_out["f"])
+    assert fvals == [1.0, 7.0], f"stale row not replaced: {fvals}"  # 99 gone
+    # the corrected value sits on design A (x0=0.5), B untouched
+    a_f = [float(v) for v, x in zip(df_out["f"], df_in["x0"])
+           if round(float(x), 6) == 0.5]
+    assert a_f == [1.0]

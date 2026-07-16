@@ -97,6 +97,10 @@ PREFER f3dasm primitives over raw numpy/scipy equivalents.
   gen = get_evaluator()                      # resolves the registered oracle
   data = gen.call(data, mode="sequential")   # the one oracle door
   gen.flush()                                # flush buffered rows at end
+  # CORRECT a stale/wrong FINISHED row (rare): gen.supersede(sample) re-runs the
+  # oracle and REPLACES that design's existing ledger row (net-count-preserving,
+  # so the PROTECTED-store guard still holds). Use ONLY to fix a superseded read
+  # (e.g. a pre-fix drift row); the ledger is append-only otherwise.
   # It reads run_config.json, stamps provenance, and meters every call into
   # the ground-truth ledger. NEVER reach the oracle any other way (no
   # `from ... import evaluate`, no sys.path hacks): unledgered evaluations are

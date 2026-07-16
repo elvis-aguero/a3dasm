@@ -71,8 +71,12 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   existing FINISHED row is never mutated) and logged as `DEDUP_SKIPPED`. This
   ends the retry/re-launch duplication that burned ~30h of eval wall-time on 2
   designs in run 20260715T191329. Per-delegation scope preserves legitimate
-  cross-delegation concurrent evals; correcting a stale row remains a separate,
-  un-built affordance.
+  cross-delegation concurrent evals. Correcting a stale/wrong FINISHED row (e.g.
+  a pre-oracle-fix drift read) is the explicit opt-in `InstrumentedDataGenerator.
+  supersede(sample)` — re-runs the oracle and REPLACES that design's row
+  net-count-preservingly (old out, new in = same count, FINISHED preserved), so
+  the PROTECTED-store shrink/regression guard still holds; reachable by agents as
+  `get_evaluator().supersede(sample)`. The ledger is append-only otherwise.
 - **Where:** `science_monitor.py` (`_check_unledgered`, `_check_unstamped_rows`,
   `_check_duplicate_evaluations`); `instrumented.py` `unstamped_row_count`,
   `duplicate_eval_stats`; `routing.py` `Wait()`. **Status:** core (§4 user-owned).
