@@ -64,6 +64,15 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   also drains the monitor on every 10s tick (not just on the next tool call),
   so a nudge reaches a strategizer blocked waiting on a live campaign instead
   of surfacing only after the whole delegation (and its budget) is spent.
+  **DUPLICATE_EVALUATION is now also PREVENTED, not only detected:**
+  `InstrumentedDataGenerator._flush` dedups on write — a buffered eval whose
+  design (same rounded input coords, per-delegation, the detector's own key) is
+  already in the store, or repeats within the batch, is dropped keep-first (an
+  existing FINISHED row is never mutated) and logged as `DEDUP_SKIPPED`. This
+  ends the retry/re-launch duplication that burned ~30h of eval wall-time on 2
+  designs in run 20260715T191329. Per-delegation scope preserves legitimate
+  cross-delegation concurrent evals; correcting a stale row remains a separate,
+  un-built affordance.
 - **Where:** `science_monitor.py` (`_check_unledgered`, `_check_unstamped_rows`,
   `_check_duplicate_evaluations`); `instrumented.py` `unstamped_row_count`,
   `duplicate_eval_stats`; `routing.py` `Wait()`. **Status:** core (§4 user-owned).

@@ -204,9 +204,8 @@ class InstrumentedDataGenerator(DataGenerator):
         # Ensure the lock parent directory exists.
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
 
-        batch_domain = self._build_batch_domain()
-        batch = self._build_batch_experimentdata(batch_domain)
-
+        n_skipped = 0
+        _n_total = 0
         with FileLock(str(self.lock_path)):
             # Absent store (FileNotFoundError) OR a torn/empty CSV from an
             # interrupted prior write (EmptyFileError / retry-exhausted):
@@ -222,34 +221,130 @@ class InstrumentedDataGenerator(DataGenerator):
                 EmptyFileError,
                 ReachMaximumTriesError,
             ):
-                canon = ExperimentData(domain=batch_domain)
+                canon = None
 
-            # Ensure provenance columns are declared on the canon domain
-            # (fixed three + any extensible declared columns).
-            for col in ("_delegation_id", "_source", "_ts", "_wall_ms",
-                        *self.extra_provenance):
-                canon._domain.add_output(col, exist_ok=True)
+            # Dedup-on-write: drop buffered samples whose design (the
+            # non-provenance input coords, rounded 10dp — the SAME key the
+            # DUPLICATE_EVALUATION detector uses) is already in the canonical
+            # store, or repeated within this batch. Keep-first: an existing row
+            # is never mutated (correcting a stale row is a separate, opt-in
+            # affordance, deliberately out of scope). This stops a re-launched
+            # or retried campaign from re-appending designs already evaluated —
+            # the retry-duplication that burned ~30h/2-designs in an earlier run.
+            # NOTE: this hard-prevents a duplicate row (the DUPLICATE_EVALUATION
+            # signal was previously only a soft nudge); safe because the oracle
+            # is deterministic, so a repeat is pure waste, not a confirm-probe.
+            n_skipped = self._drop_duplicate_buffer(canon)
 
-            # Re-type the batch's input parameters to the canonical domain's:
-            # the canonical store is authoritative on types. _build_batch_domain
-            # declares inputs as untyped base Parameter(); merging one into a
-            # typed canonical param (e.g. add_int → DiscreteParameter) raises
-            # "Cannot add non-continuous parameter to continuous!". Adopting the
-            # canonical typed param makes the per-key merge typed+typed.
-            for key, cparam in canon._domain.input_space.items():
-                if key in batch._domain.input_space:
-                    batch._domain.input_space[key] = cparam
+            if self._buffer:
+                batch_domain = self._build_batch_domain()
+                batch = self._build_batch_experimentdata(batch_domain)
+                if canon is None:
+                    canon = ExperimentData(domain=batch_domain)
 
-            merged = canon + batch
-            merged.store(project_dir=self.store_dir)
-            _n_total = len(merged)
+                # Ensure provenance columns are declared on the canon domain
+                # (the fixed four + any extensible declared columns).
+                for col in ("_delegation_id", "_source", "_ts", "_wall_ms",
+                            *self.extra_provenance):
+                    canon._domain.add_output(col, exist_ok=True)
+
+                # Re-type the batch's input parameters to the canonical domain's:
+                # the canonical store is authoritative on types. _build_batch_domain
+                # declares inputs as untyped base Parameter(); merging one into a
+                # typed canonical param (e.g. add_int → DiscreteParameter) raises
+                # "Cannot add non-continuous parameter to continuous!". Adopting the
+                # canonical typed param makes the per-key merge typed+typed.
+                for key, cparam in canon._domain.input_space.items():
+                    if key in batch._domain.input_space:
+                        batch._domain.input_space[key] = cparam
+
+                merged = canon + batch
+                merged.store(project_dir=self.store_dir)
+                _n_total = len(merged)
+            elif canon is not None:
+                _n_total = len(canon)
 
         # SOFT eval-budget nudge (lock released): fire MID-delegation at the eval
         # boundary, to THE OFFENDER (this campaign's own stdout → the implementer's
         # delegation report). Never stops the campaign; capped at one per band.
-        self._maybe_nudge_budget(_n_total)
+        if _n_total:
+            self._maybe_nudge_budget(_n_total)
+        if n_skipped:
+            self._record_dedup(n_skipped)
 
         self._buffer.clear()
+
+    @staticmethod
+    def _coord_key(input_data: dict) -> tuple:
+        """Order-independent design key: (col, value) pairs over the
+        non-provenance inputs, values rounded to 10dp — the same convention
+        ``duplicate_eval_stats`` and the reproduction gate use, so dedup-on-write
+        matches duplicate DETECTION exactly."""
+        def _r(v):
+            try:
+                return round(float(v), 10)
+            except (TypeError, ValueError):
+                return v
+        return tuple(sorted(
+            (str(k), _r(v)) for k, v in input_data.items()
+            if k not in _PROVENANCE_COLS))
+
+    def _drop_duplicate_buffer(self, canon) -> int:
+        """Filter ``self._buffer`` in place to designs not already present in
+        ``canon`` and not repeated earlier in the buffer (keep-first). Returns
+        the count dropped. Best-effort: any failure leaves the buffer intact so
+        the eval path never loses data to a dedup bug."""
+        try:
+            seen: set = set()
+            if canon is not None:
+                df_in, df_out = canon.to_pandas()
+                if df_in is not None and not df_in.empty:
+                    # Per-delegation dedup — matches duplicate_eval_stats's own
+                    # per-delegation definition of "duplicate". Only THIS
+                    # delegation's prior rows count: a DIFFERENT delegation
+                    # legitimately re-measuring the same design is not waste
+                    # (and collapsing it would corrupt concurrent campaigns).
+                    if "_delegation_id" in df_out.columns:
+                        mine = (df_out["_delegation_id"].astype(str)
+                                == str(self.delegation_id)).to_numpy()
+                        df_in = df_in[mine]
+                    cols = [c for c in df_in.columns
+                            if c not in _PROVENANCE_COLS]
+                    for rec in df_in[cols].to_dict("records"):
+                        seen.add(self._coord_key(rec))
+            survivors = []
+            for s in self._buffer:
+                k = self._coord_key(s._input_data)
+                if k in seen:
+                    continue
+                seen.add(k)
+                survivors.append(s)
+            n = len(self._buffer) - len(survivors)
+            self._buffer = survivors
+            return n
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _record_dedup(self, n_skipped: int) -> None:
+        """Best-effort DEDUP_SKIPPED audit line (never breaks the eval path)."""
+        try:
+            import json as _json
+            from datetime import datetime, timezone
+            diag = self.store_dir.parent / "debug" / "diagnostics.jsonl"
+            if diag.parent.exists():
+                rec = {
+                    "ts": datetime.now(tz=timezone.utc).isoformat(
+                        timespec="seconds"),
+                    "node": self.delegation_id,
+                    "error_type": "DEDUP_SKIPPED",
+                    "message": (
+                        f"{n_skipped} buffered eval(s) skipped: design already "
+                        "in the ledger (dedup-on-write)"),
+                }
+                with diag.open("a", encoding="utf-8") as f:
+                    f.write(_json.dumps(rec) + "\n")
+        except Exception:  # noqa: BLE001
+            pass
 
     # ------------------------------------------------------------------
 

@@ -7,13 +7,9 @@ Run with:
 from __future__ import annotations
 
 import json
-import os
 import threading
-from copy import deepcopy
-from pathlib import Path
 
 import pytest
-
 from f3dasm._src.core import DataGenerator, datagenerator
 from f3dasm._src.design.domain import Domain
 from f3dasm._src.experimentdata import ExperimentData
@@ -146,6 +142,7 @@ def test_to_numpy_excludes_underscore_provenance(tmp_path):
     _source, _ts), so core to_numpy() drops them and returns a clean numeric
     array instead of an object-dtype array contaminated by the metadata."""
     import numpy as np
+
     from a3dasm._src.instrumented import InstrumentedDataGenerator
 
     gen = InstrumentedDataGenerator(
@@ -352,7 +349,6 @@ def test_flush_every_batches(tmp_path):
     exp_data_dir = tmp_path / "experiment_data"
     if exp_data_dir.exists():
         # If store was written it would have CSV files
-        input_csv = exp_data_dir / "input_data.csv"
         output_csv = exp_data_dir / "output_data.csv"
         if output_csv.exists():
             import pandas as pd
@@ -377,8 +373,8 @@ def test_flush_every_batches(tmp_path):
 
 def test_public_api_importable():
     # get_evaluator() is the ONE agent-facing door.
-    from a3dasm import get_evaluator  # noqa: F401
     import a3dasm as _agentic
+    from a3dasm import get_evaluator  # noqa: F401
 
     # InstrumentedDataGenerator is deliberately NOT public — it stays internal
     # so agents cannot construct a store-redirected evaluator (§1 seal).
@@ -495,6 +491,7 @@ def test_flush_merges_into_typed_canonical_domain(tmp_path):
     declares inputs as untyped base Parameter(); the merge previously failed with
     'Cannot add non-continuous parameter to continuous!'."""
     import pandas as pd
+
     from a3dasm._src.instrumented import InstrumentedDataGenerator
 
     # Pre-seed a canonical store with a TYPED domain (int + float).
@@ -515,3 +512,39 @@ def test_flush_merges_into_typed_canonical_domain(tmp_path):
 
     _, df_out = ExperimentData.from_file(project_dir=tmp_path).to_pandas()
     assert len(df_out) == 2
+
+
+def test_dedup_on_write_skips_design_already_in_ledger(tmp_path):
+    """(B) retry-duplication fix: a re-launched/retried campaign that
+    re-evaluates a design already FINISHED in the canonical store must NOT
+    append a duplicate row (keep-first); a genuinely new design still lands."""
+    from a3dasm._src.instrumented import InstrumentedDataGenerator
+
+    gen = InstrumentedDataGenerator(
+        inner=_SumGenerator(), store_dir=tmp_path,
+        delegation_id="D001", flush_every=1)
+    gen.execute(_make_sample(0.5))          # first eval of x0=0.5 -> lands
+    gen.execute(_make_sample(0.5))          # duplicate design -> skipped
+    gen.execute(_make_sample(0.7))          # distinct design -> lands
+
+    df_in, df_out = ExperimentData.from_file(
+        project_dir=tmp_path).to_pandas()
+    assert len(df_out) == 2, f"expected 2 rows after dedup, got {len(df_out)}"
+    assert sorted(round(float(v), 3) for v in df_in["x0"]) == [0.5, 0.7]
+
+
+def test_dedup_within_a_single_flush_batch(tmp_path):
+    """Duplicates repeated WITHIN one buffered flush are deduped too (the
+    example_study 76%-repeat incident, backlog #24)."""
+    from a3dasm._src.instrumented import InstrumentedDataGenerator
+
+    gen = InstrumentedDataGenerator(
+        inner=_SumGenerator(), store_dir=tmp_path,
+        delegation_id="D001", flush_every=10)   # buffer all, single flush
+    for _ in range(3):
+        gen.execute(_make_sample(0.5))
+    gen.execute(_make_sample(0.9))
+    gen.flush()
+
+    _, df_out = ExperimentData.from_file(project_dir=tmp_path).to_pandas()
+    assert len(df_out) == 2   # x0=0.5 once + x0=0.9
