@@ -717,10 +717,26 @@ def get_evaluator(namespace: str | None = None) -> InstrumentedDataGenerator:
     delegation_id = _resolve_delegation_id()
     run_config = _load_run_config()
 
+    namespace_from_env = False
     if namespace is None:
         env_ns = os.environ.get("F3DASM_NAMESPACE", "")
-        namespace = env_ns or None
-    cfg = _effective_oracle_config(run_config, namespace)
+        if env_ns:
+            namespace, namespace_from_env = env_ns, True
+    try:
+        cfg = _effective_oracle_config(run_config, namespace)
+    except ValueError as exc:
+        if namespace_from_env:
+            # De-footgun: get_evaluator() SILENTLY inherits F3DASM_NAMESPACE, so a
+            # namespace-scoped delegation asking for the DEFAULT/baseline oracle
+            # gets a confusing "unknown namespace". Name the env source + the fix.
+            raise ValueError(
+                f"{exc} NOTE: namespace {namespace!r} was inherited from the "
+                "F3DASM_NAMESPACE environment variable, not passed explicitly. "
+                "For the default/baseline oracle, clear it first "
+                "(`env -u F3DASM_NAMESPACE ...`) or call from a process where it "
+                "is unset."
+            ) from exc
+        raise
 
     store_dir = Path(cfg["store_dir"])
     lock_path_str = cfg.get("lock_path")
@@ -789,10 +805,13 @@ def _resolve_delegation_id() -> str:
         return env_id
 
     raise ValueError(
-        "get_evaluator must run inside a delegation workspace (cwd "
-        "D###) or with F3DASM_DELEGATION_ID set to a D### value. "
+        "get_evaluator() needs a delegation id: either run inside a workspace "
+        "whose directory is named D### (cwd), OR set F3DASM_DELEGATION_ID=D###. "
         f"Got cwd='{cwd_name}', "
-        f"F3DASM_DELEGATION_ID='{env_id or '(unset)'}'."
+        f"F3DASM_DELEGATION_ID='{env_id or '(unset)'}'. "
+        "For an off-delegation or validation eval, just "
+        "`export F3DASM_DELEGATION_ID=D000` — the id is only used to stamp "
+        "provenance, so no directory needs to exist (no mkdir/cd required)."
     )
 
 

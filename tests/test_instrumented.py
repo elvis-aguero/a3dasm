@@ -548,3 +548,39 @@ def test_dedup_within_a_single_flush_batch(tmp_path):
 
     _, df_out = ExperimentData.from_file(project_dir=tmp_path).to_pandas()
     assert len(df_out) == 2   # x0=0.5 once + x0=0.9
+
+
+# ---------------------------------------------------------------------------
+# get_evaluator footguns (#2): self-explaining, no mkdir/cd, visible env source
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_delegation_id_prefers_env_when_cwd_not_ddir(tmp_path, monkeypatch):
+    from a3dasm._src.instrumented import _resolve_delegation_id
+    monkeypatch.chdir(tmp_path)                       # cwd not named D###
+    monkeypatch.setenv("F3DASM_DELEGATION_ID", "D007")
+    assert _resolve_delegation_id() == "D007"         # no mkdir/cd needed
+
+
+def test_resolve_delegation_id_error_is_actionable(tmp_path, monkeypatch):
+    from a3dasm._src.instrumented import _resolve_delegation_id
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("F3DASM_DELEGATION_ID", raising=False)
+    with pytest.raises(ValueError) as ei:
+        _resolve_delegation_id()
+    msg = str(ei.value)
+    assert "F3DASM_DELEGATION_ID" in msg
+    assert "no directory needs to exist" in msg       # the de-footgun hint
+
+
+def test_get_evaluator_names_env_namespace_as_the_cause(tmp_path, monkeypatch):
+    """A get_evaluator() that silently inherits an unregistered F3DASM_NAMESPACE
+    must say SO in the error, so the fix (unset it) is obvious (D007 footgun)."""
+    import a3dasm._src.instrumented as _inst
+    monkeypatch.setattr(_inst, "_resolve_delegation_id", lambda: "D001")
+    monkeypatch.setattr(_inst, "_load_run_config", lambda: {"oracles": {}})
+    monkeypatch.setenv("F3DASM_NAMESPACE", "graded")   # not registered
+    with pytest.raises(ValueError) as ei:
+        _inst.get_evaluator()                          # namespace=None -> env
+    msg = str(ei.value)
+    assert "F3DASM_NAMESPACE" in msg and "graded" in msg
