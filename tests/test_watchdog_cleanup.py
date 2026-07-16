@@ -266,3 +266,21 @@ def test_resource_envelope_never_raises_on_bad_path():
     env = resource_envelope("/nonexistent/path/xyz", None)
     assert env["ram_cap_bytes"] is None  # cap unset → None, no crash
     assert "cores" in env
+
+
+def test_usable_cores_respects_cpu_affinity(monkeypatch):
+    """The cores fact given to agents must be what THIS process may use (a
+    SLURM/cgroup cpuset), not the host total — os.sched_getaffinity, not the
+    old os.cpu_count() that reported 48 while the job was pinned to 1."""
+    import a3dasm._src.watchdog_cleanup as wc
+    monkeypatch.setattr(wc.os, "sched_getaffinity", lambda pid: {0, 1, 2},
+                        raising=False)
+    assert wc._usable_cores() == 3          # cpuset size, not the host's total
+
+
+def test_usable_cores_falls_back_without_affinity(monkeypatch):
+    """Off-Linux (no sched_getaffinity) falls back to os.cpu_count()."""
+    import a3dasm._src.watchdog_cleanup as wc
+    monkeypatch.delattr(wc.os, "sched_getaffinity", raising=False)
+    monkeypatch.setattr(wc.os, "cpu_count", lambda: 8)
+    assert wc._usable_cores() == 8

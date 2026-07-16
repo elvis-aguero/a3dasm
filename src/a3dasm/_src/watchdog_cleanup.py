@@ -201,15 +201,29 @@ def delegation_peak_rss(delegation_id: str) -> int:
         return _PEAK_RSS.get(str(delegation_id), 0)
 
 
+def _usable_cores() -> int | None:
+    """CPUs this PROCESS may actually use — not the host's total. Respects a
+    SLURM/cgroup cpuset via ``os.sched_getaffinity`` (Linux); falls back to
+    ``os.cpu_count()`` where affinity is unavailable (macOS/Windows dev). The old
+    ``os.cpu_count()`` reported host cores (e.g. 48) even when the job was pinned
+    to 1, mis-priming agents to oversubscribe parallel evaluations."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return os.cpu_count()
+
+
 def resource_envelope(run_dir, mem_cap_bytes: int | None) -> dict:
     """The static resource envelope surfaced to an agent at delegation start —
     "what you HAVE": ``{cores, ram_cap_bytes, disk_free_bytes}``.
 
-    All O(1): ``os.cpu_count()`` (cached by the OS), the passed cap (no syscall),
-    and ``shutil.disk_usage(run_dir).free`` (a single ``statvfs`` — NOT a
-    recursive walk). ``disk_free_bytes`` is the host filesystem's free space, not
-    a per-run quota. Never raises; fields fall back to None on error."""
-    cores = os.cpu_count()
+    All O(1): the usable-core count (``os.sched_getaffinity`` — the CPUs THIS
+    process may use under a SLURM/cgroup cpuset — falling back to
+    ``os.cpu_count()`` off-Linux), the passed cap (no syscall), and
+    ``shutil.disk_usage(run_dir).free`` (a single ``statvfs`` — NOT a recursive
+    walk). ``disk_free_bytes`` is the host filesystem's free space, not a per-run
+    quota. Never raises; fields fall back to None on error."""
+    cores = _usable_cores()
     disk_free = None
     try:
         disk_free = shutil.disk_usage(str(run_dir)).free
