@@ -342,7 +342,22 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             filtered_in = df_in[mask] if df_in is not None else None
 
             if filtered.empty:
-                return "No rows match the given filters."
+                applied = []
+                if d_ids is not None:
+                    applied.append(f"delegation_ids={d_ids}")
+                if source is not None:
+                    applied.append(f"source={source!r}")
+                if where:
+                    applied.append(f"where={where!r}")
+                crit = "; ".join(applied) or "(no filter)"
+                # Unambiguous absence: state how many rows were SCANNED. A true
+                # zero (columns exist, predicate excluded everything) is distinct
+                # from a bad column, which returns an ERROR above — never a 0.
+                return (
+                    f"0 of {len(df_out)} scanned ledger row(s) match "
+                    f"[{crit}]. TRUE zero — the columns exist and were scanned "
+                    "(a non-existent column returns an ERROR, not 0)."
+                )
 
             # n_best: return the n rows with smallest output_name value.
             # MCP string-in tools may pass n_best as a string ("5") — coerce
@@ -410,11 +425,20 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                     ]
                 return combined.to_string(index=False)
 
-            # Default: return count + first `limit` rows (default 20). Narrow
-            # with where=/delegation_ids= or rank with n_best= to see the rest.
+            # Default: count + first `limit` rows (default 20), with INPUT
+            # columns included so a design's coordinates (ratio_a, ratio_b, …)
+            # are directly verifiable — not just its outputs. Narrow with
+            # where=/delegation_ids= or rank with n_best= to see the rest.
             cap = 20 if limit is None else limit
             n_shown = min(cap, len(filtered))
-            subset = filtered.iloc[:n_shown]
+            if filtered_in is not None:
+                show = _pd.concat(
+                    [filtered_in.reset_index(drop=True),
+                     filtered.reset_index(drop=True)], axis=1)
+                show = show.loc[:, ~show.columns.duplicated()]
+            else:
+                show = filtered
+            subset = show.iloc[:n_shown]
             more = len(filtered) - n_shown
             tail = (
                 f"\n… {more} more not shown — pass limit=<n>, a tighter "

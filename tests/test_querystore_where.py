@@ -128,3 +128,31 @@ def test_no_args_lists_all_under_cap(tmp_path):
     out = q()
     assert "5 rows match" in out
     assert "more not shown" not in out      # 5 < default 20
+
+
+def test_default_list_view_includes_input_columns(tmp_path):
+    """Observability (#1): the list/where view must surface INPUT columns so a
+    design's coordinates are directly verifiable — all 3 critics hit this."""
+    q = _querystore(tmp_path)
+    out = q()
+    assert "x0" in out, f"input column not surfaced in list view: {out!r}"
+    # a specific coordinate value is visible (x0=0.1, the first row)
+    assert "0.1" in out
+
+
+def test_where_input_columns_also_surface(tmp_path):
+    q = _querystore(tmp_path)
+    out = q(where="coilable==1 and mcs>=0.90")
+    assert "x0" in out          # inputs shown alongside the where-filtered rows
+
+
+def test_zero_match_reports_scanned_total_unambiguously(tmp_path):
+    """Observability (#1): a true zero must state how many rows were scanned, so
+    it can't be confused with a missing column (which returns an ERROR)."""
+    q = _querystore(tmp_path)
+    out = q(where="coilable==1 and mcs>=9.0")   # nothing matches
+    assert "0 of 5 scanned" in out
+    assert "TRUE zero" in out
+    # and a genuinely bad column still ERRORs (not a silent 0)
+    bad = q(where="nonexistent_col==1")
+    assert bad.startswith("ERROR:")
