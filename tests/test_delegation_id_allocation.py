@@ -61,3 +61,26 @@ def test_milestone_blocked_delegation_does_not_consume_an_id(tmp_path):
     # the first ID. (With the bug — allocation before the gate — the blocked
     # attempt would have consumed D001, so this would return "D002".)
     assert n._delegation_log.next_id() == "D001", "blocked attempt burned an ID"
+
+
+def test_delegation_log_resumes_past_existing_ids(tmp_path):
+    """RESUME-SAFE (#3): a fresh DelegationLog over an existing log must CONTINUE
+    the D### sequence, not restart at D001 — which collided with a crashed turn's
+    D001/D003/… workspaces in run 20260715T191329."""
+    p = tmp_path / "debug" / "delegation_log.jsonl"
+    log = DelegationLog(p)
+    for _ in range(3):
+        did = log.next_id()                 # D001 D002 D003
+        log.record_started(
+            id=did, from_node="strategizer", to_node="implementer",
+            task="t", hypothesis_ids=[],
+            started_at="2026-01-01T00:00:00+00:00")
+
+    resumed = DelegationLog(p)              # simulate a resumed session
+    assert resumed.next_id() == "D004", "resume restarted the id sequence"
+
+
+def test_delegation_log_fresh_run_starts_at_d001(tmp_path):
+    """A fresh run (no/empty log) is unchanged: first id is D001."""
+    log = DelegationLog(tmp_path / "debug" / "delegation_log.jsonl")
+    assert log.next_id() == "D001"

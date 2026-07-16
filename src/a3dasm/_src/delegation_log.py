@@ -30,13 +30,40 @@ class DelegationLog:
     def __init__(self, log_path: Path) -> None:
         self._path = Path(log_path)
         self._lock = threading.Lock()
+        # Ensure parent directory exists
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         # Monotonic sequence counter for globally-unique delegation IDs.
         # Shared across all orchestrating nodes that hold a reference to
         # this log — guarantees D### uniqueness even when datagenerator
         # and implementer both delegate to literature_reviewer.
-        self._seq: int = 0
-        # Ensure parent directory exists
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        # RESUME-SAFE: seed PAST any D### ids already in the log, so a resumed
+        # session does not restart at D001 and collide with a crashed turn's
+        # D001/D003/… workspaces (run 20260715T191329). A fresh run (no/empty
+        # log) starts at 0 → first id D001, unchanged.
+        self._seq: int = self._max_existing_seq()
+
+    def _max_existing_seq(self) -> int:
+        """Highest D### number already recorded in the log (0 if none/absent),
+        so next_id() continues from the true high-water mark on resume."""
+        import re as _re
+        if not self._path.exists():
+            return 0
+        hi = 0
+        try:
+            for line in self._path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rid = json.loads(line).get("id") or ""
+                except json.JSONDecodeError:
+                    continue
+                m = _re.fullmatch(r"D(\d+)", str(rid))
+                if m:
+                    hi = max(hi, int(m.group(1)))
+        except OSError:
+            return 0
+        return hi
 
     def next_id(self) -> str:
         """Return the next globally-unique delegation ID (e.g. ``"D001"``).
