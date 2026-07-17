@@ -406,7 +406,6 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                 show_cols.append(output_name)
                 if "_delegation_id" in best_rows.columns:
                     show_cols.append("_delegation_id")
-                show_cols = [c for c in show_cols if c in best_rows.columns]
 
                 if filtered_in is not None:
                     best_in = filtered_in.loc[best_idx, [

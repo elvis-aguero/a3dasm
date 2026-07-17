@@ -103,6 +103,20 @@ def test_where_plus_n_best_ranks_feasible_only(tmp_path):
     assert "3.0" not in out                # infeasible top-f excluded by where
 
 
+def test_n_best_output_includes_input_columns(tmp_path):
+    # Regression: a stray post-filter (`c in best_rows.columns`, the OUTPUTS
+    # frame) silently dropped every input column just added for this branch,
+    # so n_best regressed to output_name + _delegation_id only — the exact
+    # friction two independent agents (critic + strategizer) hit in run
+    # 20260717T014507, needing several manual where= calls to reconstruct a
+    # multi-column table that n_best was already supposed to return in one.
+    q = _querystore(tmp_path)
+    out = q(where="coilable==1 and mcs>=0.90", n_best=1,
+            output_name="f", minimize=False)
+    assert "x0" in out
+    assert "0.4" in out
+
+
 def test_where_arithmetic_on_input_columns(tmp_path):
     q = _querystore(tmp_path)
     out = q(where="x0*10 >= 3")             # x0 in {0.3,0.4,0.5} -> 3 rows
