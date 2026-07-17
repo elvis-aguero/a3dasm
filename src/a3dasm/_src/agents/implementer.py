@@ -525,7 +525,8 @@ class F3dasmImplementerAgent(Agent):
     tools = frozenset({
         "Bash", "Edit", "Read", "Write", "Glob", "Grep", "ReportEvals",
         # read-only ledger/store access (single source of truth for tools)
-        "RecallStore", "QueryStore", "HypothesisList", "HypothesisGet",
+        "RecallStore", "QueryStore", "OracleStatus",
+        "HypothesisList", "HypothesisGet",
         # manage a backgrounded long job (e.g. Abaqus): poll it / stop it.
         # Bash auto-backgrounds a command past its timeout and returns a
         # bash_id; these are its SDK companions.

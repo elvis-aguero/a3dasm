@@ -207,6 +207,51 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             return "\n\n".join(f"[{label}]\n{body}" for label, body in blocks)
         out["RecallStore"] = RecallStore
 
+    if "OracleStatus" in agent_tools:
+        def OracleStatus() -> str:
+            """The CURRENT canonical oracle registration — reads
+            run_config.json fresh on every call, never from memory of an
+            earlier notification. Call this before asserting anything about
+            "the registered entrypoint" (e.g. in a delegation brief):
+            register_evaluator_entrypoint() can repoint it BETWEEN
+            delegations — a datagenerator delegation that authors/extends
+            the generator repoints the canonical entrypoint the moment its
+            report is processed — and trusting a stale assumption here has
+            already cost one wasted real evaluation job (a delegation
+            silently exercising the wrong generator, caught only by an
+            agent noticing bit-identical outputs across differing inputs;
+            run 20260717T014507)."""
+            rd = node._resolve_run_dir()
+            if rd is None:
+                return "ERROR: run directory not resolved yet."
+            cfg_path = rd / "debug" / "run_config.json"
+            if not cfg_path.exists():
+                return "No run_config.json yet — no oracle registered."
+            import json as _json
+            try:
+                cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
+            except (OSError, _json.JSONDecodeError) as exc:
+                return f"ERROR: could not read run_config.json: {exc}"
+            ep = cfg.get("evaluator_entrypoint")
+            lookup = cfg.get("evaluator_lookup")
+            lines = []
+            if ep:
+                lines.append(f"canonical entrypoint: {ep}")
+            elif lookup:
+                lines.append(f"canonical lookup pool: {lookup}")
+            else:
+                lines.append("canonical oracle: NOT YET REGISTERED")
+            out_names = cfg.get("evaluator_output_names")
+            if out_names:
+                lines.append(f"output_names: {out_names}")
+            for ns, ns_cfg in (cfg.get("oracles") or {}).items():
+                lines.append(
+                    f"namespace {ns!r}: "
+                    f"{ns_cfg.get('evaluator_entrypoint')}"
+                )
+            return "\n".join(lines)
+        out["OracleStatus"] = OracleStatus
+
     if "QueryStore" in agent_tools:
         def QueryStore(
             delegation_ids: str | list | None = None,

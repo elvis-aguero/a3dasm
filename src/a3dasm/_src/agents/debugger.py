@@ -92,7 +92,7 @@ class DebuggerAgent(Agent):
     role = "debugger"
     tools = frozenset({"Bash", "Read", "Grep", "Edit", "Write",
                        # read-only ledger/store access for diagnosis
-                       "RecallStore", "QueryStore",
+                       "RecallStore", "QueryStore", "OracleStatus",
                        "HypothesisList", "HypothesisGet",
                        # manage a backgrounded job: poll it / stop it
                        "BashOutput", "KillShell"})

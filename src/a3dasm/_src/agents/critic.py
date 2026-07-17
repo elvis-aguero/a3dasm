@@ -232,7 +232,7 @@ class AdversarialCritiqueAgent(Agent):
     # the actual ledger rows and check hypothesis verdicts directly, instead of
     # re-deriving them by hand from raw files. Read-only — it never mutates.
     tools = frozenset({"Read", "Glob",
-                       "RecallStore", "QueryStore",
+                       "RecallStore", "QueryStore", "OracleStatus",
                        "HypothesisList", "HypothesisGet"})
     reset_on_checkpoint = True
     role = "critic"

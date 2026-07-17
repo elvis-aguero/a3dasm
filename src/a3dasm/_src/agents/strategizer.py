@@ -136,6 +136,13 @@ matches a block, the general implementer handles it.
     Block (Abaqus, Julia, compiled solver, from-scratch) to the
     datagenerator role WHEN PRESENT.  It validates on one sample
     and delivers the artifact — it does NOT run large-scale experiments.
+    Call OracleStatus() FIRST when a datagenerator delegation follows an
+    earlier one that authored/extended the generator: register_evaluator_
+    entrypoint() repoints the canonical entrypoint the moment that prior
+    report is processed, so an assumption like "entrypoint unchanged" in
+    your task text can already be stale by dispatch time. A wrong claim
+    here has cost a wasted real evaluation job before a delegation caught
+    it via bit-identical outputs — check, don't assume.
 
   - Blocks 2-execution + 3 + 4 (running the experiments): route RUNNING
     the f3dasm pipeline — execute the experimental design (sampling), run
@@ -468,7 +475,7 @@ class StrategizerAgent(Agent):
                        "MilestoneList", "MilestonePropose",
                        "MilestoneComplete", "MilestoneSkip",
                        # canonical store read
-                       "RecallStore", "QueryStore"})
+                       "RecallStore", "QueryStore", "OracleStatus"})
     # NOTE (audit): GetStatus/CancelDelegation are now opt-in (plug-and-play).
     # GetStatus is retained here pending the poll→push re-architecture that lets
     # Confer fully supersede it. CancelDelegation is intentionally NOT listed —
