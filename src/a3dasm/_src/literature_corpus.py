@@ -207,6 +207,25 @@ def _reset_429(domain: str) -> None:
         _domain_consecutive_429.pop(domain, None)
 
 
+def _cooldown_message(domain: str) -> str:
+    """Human-readable remaining-cooldown text for domain's circuit breaker.
+
+    Shared by every caller that trips the breaker (direct HTTP fetches here
+    and the semanticscholar client-library path in agents/literature.py) so
+    both report the SAME remaining time for the SAME underlying quota.
+    """
+    with _rate_lock:
+        remaining = int(
+            _domain_cooldown_until.get(domain, 0.0)
+            - _time_module.monotonic()
+        )
+    return (
+        f"{domain} is rate-limited (cooldown {_COOLDOWN_SECONDS}s remaining: "
+        f"{max(remaining, 0)}s). Use a different literature source or retry "
+        "later."
+    )
+
+
 # ---------------------------------------------------------------------------
 # On-disk HTTP GET cache
 # ---------------------------------------------------------------------------
@@ -349,17 +368,7 @@ def _robust_get(
                 wait = 2 ** attempt
             if fired:
                 # Circuit breaker just fired
-                with _rate_lock:
-                    remaining = int(
-                        _domain_cooldown_until.get(domain, 0)
-                        - _time_module.monotonic()
-                    )
-                raise SourceCooldownError(
-                    f"{domain} is rate-limited (cooldown"
-                    f" {_COOLDOWN_SECONDS}s remaining:"
-                    f" {remaining}s). Use a different literature"
-                    " source or retry later."
-                )
+                raise SourceCooldownError(_cooldown_message(domain))
             last_exc = Exception(
                 f"HTTP {resp.status_code} from {domain}"
             )
@@ -438,17 +447,7 @@ def _robust_post(
             else:
                 wait = 2 ** attempt
             if fired:
-                with _rate_lock:
-                    remaining = int(
-                        _domain_cooldown_until.get(domain, 0)
-                        - _time_module.monotonic()
-                    )
-                raise SourceCooldownError(
-                    f"{domain} is rate-limited (cooldown"
-                    f" {_COOLDOWN_SECONDS}s remaining:"
-                    f" {remaining}s). Use a different literature"
-                    " source or retry later."
-                )
+                raise SourceCooldownError(_cooldown_message(domain))
             last_exc = Exception(
                 f"HTTP {resp.status_code} from {domain}"
             )

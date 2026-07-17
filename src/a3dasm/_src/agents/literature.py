@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 import time
 
 from ..backends.base import Agent
@@ -32,12 +31,16 @@ def _call_in_fresh_thread(fn, *args, timeout=30.0, **kwargs):
 # ---------------------------------------------------------------------------
 # Semantic Scholar rate throttle
 # ---------------------------------------------------------------------------
-# Authenticated key: 100 req / 5 min ≈ 1 per 3 s.  Same interval as arXiv.
-# Pattern mirrors literature_corpus._rate_limit_wait: read under lock,
-# sleep outside, record under lock — never hold the lock during sleep.
-_SS_MIN_INTERVAL: float = 3.0
-_ss_throttle_lock = threading.Lock()
-_ss_last_call_t: list = [0.0]  # mutable so closures can rebind
+# The semanticscholar CLIENT LIBRARY issues its own HTTP requests, bypassing
+# literature_corpus's _robust_get/_robust_post — but it hits the exact same
+# remote quota as api.semanticscholar.org fetches made through those helpers
+# (get_semantic_scholar_recommendations, citation-graph lookups). Both paths
+# share ONE per-domain rate limiter + circuit breaker (literature_corpus's
+# _rate_limit_wait/_record_429/_reset_429) so a 429 seen by either path
+# counts against the same cooldown, instead of the client-library path
+# tracking nothing and hard-failing on the first 403/429 it hits.
+_SS_DOMAIN = "api.semanticscholar.org"
+_SS_MAX_RETRIES = 3
 
 # A single raw search/read payload can be enormous (full paper text, hundreds of
 # hits) and overflow the tool-result token cap — the harness then drops the whole
@@ -59,14 +62,46 @@ def _cap_result(result) -> str:
 
 
 def _throttled_ss(fn, *args, **kwargs):
-    """Call fn via _call_in_fresh_thread after honouring _SS_MIN_INTERVAL."""
-    with _ss_throttle_lock:
-        gap = _SS_MIN_INTERVAL - (time.monotonic() - _ss_last_call_t[0])
-    if gap > 0:
-        time.sleep(gap)
-    with _ss_throttle_lock:
-        _ss_last_call_t[0] = time.monotonic()
-    return _call_in_fresh_thread(fn, *args, **kwargs)
+    """Call fn via _call_in_fresh_thread, sharing literature_corpus's
+    per-domain rate limiter + circuit breaker for api.semanticscholar.org.
+
+    429 (the semanticscholar library raises ConnectionRefusedError for HTTP
+    429 — "too many requests", transient) retries with exponential backoff,
+    same discipline as _robust_get/_robust_post; three consecutive trips the
+    shared breaker (SourceCooldownError, same message _robust_get raises).
+    403 (raised as PermissionError — the shared UNAUTHENTICATED quota is
+    exhausted) is NOT retried here, mirroring _robust_get's "4xx (non-429):
+    raise immediately, no retry" rule: waiting a few seconds does not help a
+    quota that resets on a much longer window.
+    """
+    # Deferred import: literature_corpus is an optional-dependency module
+    # (see the try/except ImportError around its import a few frames up the
+    # call stack) — by the time _throttled_ss is ever actually called, that
+    # import has already succeeded (the whole tool set returns {} otherwise).
+    from ..literature_corpus import (
+        SourceCooldownError,
+        _cooldown_message,
+        _rate_limit_wait,
+        _record_429,
+        _reset_429,
+    )
+
+    last_exc: Exception | None = None
+    for attempt in range(_SS_MAX_RETRIES):
+        _rate_limit_wait(_SS_DOMAIN)  # may raise SourceCooldownError
+        try:
+            result = _call_in_fresh_thread(fn, *args, **kwargs)
+        except ConnectionRefusedError as exc:
+            last_exc = exc
+            if _record_429(_SS_DOMAIN):
+                raise SourceCooldownError(
+                    _cooldown_message(_SS_DOMAIN)) from exc
+            if attempt < _SS_MAX_RETRIES - 1:
+                time.sleep(2 ** attempt)
+            continue
+        _reset_429(_SS_DOMAIN)
+        return result
+    raise last_exc
 
 
 log = logging.getLogger(__name__)
@@ -388,14 +423,41 @@ class LiteratureReviewAgent(Agent):
         # Semantic Scholar tools via the semanticscholar library.
         try:
             from semanticscholar import SemanticScholar as _SS
-            _ss_api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
+
+            from ..settings import get_str
+            # config.yaml's runtime: block (or F3DASM_SEMANTIC_SCHOLAR_API_KEY)
+            # is the explicit-config channel; the bare env var is honoured too
+            # since it is Semantic Scholar's own documented convention, not
+            # ours to rename out from under anyone already using it.
+            _ss_api_key = (
+                get_str("semantic_scholar_api_key", "")
+                or os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
+            )
             if not _ss_api_key:
                 log.warning(
-                    "SEMANTIC_SCHOLAR_API_KEY not set — proceeding with "
-                    "unauthenticated Semantic Scholar access (very low rate "
-                    "limit). Set SEMANTIC_SCHOLAR_API_KEY for reliable access."
+                    "semantic_scholar_api_key not configured — proceeding "
+                    "with unauthenticated Semantic Scholar access (very low "
+                    "rate limit). Set it in config.yaml's runtime: block "
+                    "(or SEMANTIC_SCHOLAR_API_KEY / "
+                    "F3DASM_SEMANTIC_SCHOLAR_API_KEY) for reliable access."
                 )
-            _sch = _SS(api_key=_ss_api_key)
+            _sch = _SS(api_key=_ss_api_key or None)
+
+            def _ss_forbidden_error() -> str:
+                """Message for a 403 (PermissionError): NOT retried, since
+                the shared unauthenticated quota resets on a much longer
+                window than a request backoff — retrying immediately would
+                just burn the delegation's time on a door that is shut."""
+                hint = (
+                    "" if _ss_api_key else
+                    ", or set semantic_scholar_api_key in config.yaml's "
+                    "runtime: block for reliable access"
+                )
+                return (
+                    "ERROR: Semantic Scholar access forbidden (403) — the "
+                    "shared unauthenticated quota is exhausted; retrying "
+                    f"will not help. Use OpenAlex/arXiv instead{hint}."
+                )
 
             def search_semantic_scholar(
                 query: str, num_results: int = 10
@@ -416,6 +478,10 @@ class LiteratureReviewAgent(Agent):
                         "ERROR: Semantic Scholar request timed out"
                         " after 30s. Try again or use OpenAlex."
                     )
+                except PermissionError:
+                    return _ss_forbidden_error()
+                except SourceCooldownError as exc:
+                    return f"ERROR: {exc}"
                 except Exception as exc:
                     return f"ERROR: Semantic Scholar search failed: {exc}"
                 papers = []
@@ -454,6 +520,10 @@ class LiteratureReviewAgent(Agent):
                         "ERROR: Semantic Scholar request timed out"
                         " after 30s. Try again or use OpenAlex."
                     )
+                except PermissionError:
+                    return _ss_forbidden_error()
+                except SourceCooldownError as exc:
+                    return f"ERROR: {exc}"
                 except Exception as exc:
                     return (
                         f"ERROR: Semantic Scholar paper details failed: {exc}"
@@ -493,6 +563,10 @@ class LiteratureReviewAgent(Agent):
                         "ERROR: Semantic Scholar request timed out"
                         " after 30s. Try again or use OpenAlex."
                     )
+                except PermissionError:
+                    return _ss_forbidden_error()
+                except SourceCooldownError as exc:
+                    return f"ERROR: {exc}"
                 except Exception as exc:
                     return (
                         f"ERROR: Semantic Scholar author details failed: {exc}"
@@ -521,6 +595,10 @@ class LiteratureReviewAgent(Agent):
                         "ERROR: Semantic Scholar request timed out"
                         " after 30s. Try again or use OpenAlex."
                     )
+                except PermissionError:
+                    return _ss_forbidden_error()
+                except SourceCooldownError as exc:
+                    return f"ERROR: {exc}"
                 except Exception as exc:
                     return (
                         "ERROR: Semantic Scholar citations/references"

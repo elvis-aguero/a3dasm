@@ -21,37 +21,111 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Deterministic: SS throttle
+# Deterministic: SS throttle / circuit breaker / API key sourcing
 # ---------------------------------------------------------------------------
 
-def test_ss_throttle_enforces_interval(monkeypatch):
-    """_throttled_ss sleeps when the prior call was too recent."""
-    import a3dasm._src.agents.literature as lit
+@pytest.fixture(autouse=True)
+def _reset_ss_rate_state():
+    """Isolate literature_corpus's shared per-domain rate state and
+    settings._config across tests — both are module globals."""
+    from a3dasm._src import literature_corpus as lc_mod
+    from a3dasm._src import settings as settings_mod
+    domain = "api.semanticscholar.org"
+    lc_mod._domain_consecutive_429.pop(domain, None)
+    lc_mod._domain_cooldown_until.pop(domain, None)
+    lc_mod._domain_last_request.pop(domain, None)
+    settings_mod.configure({})
+    yield
+    lc_mod._domain_consecutive_429.pop(domain, None)
+    lc_mod._domain_cooldown_until.pop(domain, None)
+    lc_mod._domain_last_request.pop(domain, None)
+    settings_mod.configure({})
 
-    slept = []
-    monkeypatch.setattr(lit.time, "sleep", lambda s: slept.append(s))
+
+def test_ss_throttle_shares_domain_rate_limiter(monkeypatch):
+    """_throttled_ss paces itself through literature_corpus's per-domain
+    limiter (the SAME one _robust_get/_robust_post use for this host) rather
+    than a private, unauthenticated-tier-blind fixed interval."""
+    import a3dasm._src.agents.literature as lit
+    from a3dasm._src import literature_corpus as lc_mod
+
+    calls = []
+    monkeypatch.setattr(
+        lc_mod, "_rate_limit_wait", lambda domain: calls.append(domain))
     monkeypatch.setattr(lit, "_call_in_fresh_thread", lambda fn, *a, **kw: fn())
 
-    # Reset throttle state: last call at epoch → first call never sleeps.
-    with lit._ss_throttle_lock:
-        lit._ss_last_call_t[0] = 0.0
-
     dummy = lambda: "ok"  # noqa: E731
+    assert lit._throttled_ss(dummy) == "ok"
+    assert calls == [lit._SS_DOMAIN]
 
-    lit._throttled_ss(dummy)
-    assert slept == [], "first call (no recent history) must not sleep"
 
-    # Simulate a call that happened "just now" so the next one must wait.
-    with lit._ss_throttle_lock:
-        lit._ss_last_call_t[0] = lit.time.monotonic()
+def test_ss_429_retries_with_backoff_then_succeeds(monkeypatch):
+    """A 429 (ConnectionRefusedError) is transient — retry with backoff
+    instead of hard-failing the tool call on the first attempt."""
+    import a3dasm._src.agents.literature as lit
+    from a3dasm._src import literature_corpus as lc_mod
 
-    lit._throttled_ss(dummy)
-    assert len(slept) == 1, "second call (hot path) must sleep"
-    assert 0 < slept[0] <= lit._SS_MIN_INTERVAL
+    monkeypatch.setattr(lc_mod, "_rate_limit_wait", lambda domain: None)
+    slept = []
+    monkeypatch.setattr(lit.time, "sleep", lambda s: slept.append(s))
+
+    attempts = {"n": 0}
+
+    def flaky():
+        attempts["n"] += 1
+        if attempts["n"] < 2:
+            raise ConnectionRefusedError("HTTP status 429 Too Many Requests.")
+        return "ok"
+
+    monkeypatch.setattr(
+        lit, "_call_in_fresh_thread", lambda fn, *a, **kw: fn())
+    assert lit._throttled_ss(flaky) == "ok"
+    assert attempts["n"] == 2
+    assert len(slept) == 1, "one backoff sleep expected before the retry"
+
+
+def test_ss_403_is_not_retried(monkeypatch):
+    """A 403 (PermissionError) means the shared unauthenticated quota is
+    exhausted — retrying immediately cannot help, so it must propagate
+    without _throttled_ss silently eating time on doomed retries."""
+    import a3dasm._src.agents.literature as lit
+    from a3dasm._src import literature_corpus as lc_mod
+
+    monkeypatch.setattr(lc_mod, "_rate_limit_wait", lambda domain: None)
+    attempts = {"n": 0}
+
+    def forbidden():
+        attempts["n"] += 1
+        raise PermissionError("HTTP status 403 Forbidden.")
+
+    monkeypatch.setattr(
+        lit, "_call_in_fresh_thread", lambda fn, *a, **kw: fn())
+    with pytest.raises(PermissionError):
+        lit._throttled_ss(forbidden)
+    assert attempts["n"] == 1, "403 must not be retried"
+
+
+def test_ss_three_consecutive_429s_trip_shared_breaker(monkeypatch):
+    """Three consecutive 429s trip literature_corpus's circuit breaker —
+    the SAME breaker _robust_get/_robust_post use for this host — raising
+    SourceCooldownError instead of a bare ConnectionRefusedError."""
+    import a3dasm._src.agents.literature as lit
+    from a3dasm._src import literature_corpus as lc_mod
+
+    monkeypatch.setattr(lc_mod, "_rate_limit_wait", lambda domain: None)
+    monkeypatch.setattr(lit.time, "sleep", lambda s: None)
+
+    def always_429():
+        raise ConnectionRefusedError("HTTP status 429 Too Many Requests.")
+
+    monkeypatch.setattr(
+        lit, "_call_in_fresh_thread", lambda fn, *a, **kw: fn())
+    with pytest.raises(lc_mod.SourceCooldownError):
+        lit._throttled_ss(always_429)
 
 
 def test_ss_missing_key_warns(monkeypatch, caplog):
-    """A missing SEMANTIC_SCHOLAR_API_KEY emits a warning, not an error."""
+    """A missing semantic_scholar_api_key emits a warning, not an error."""
     import logging
     import tempfile
     import a3dasm._src.agents.literature as lit
@@ -67,9 +141,42 @@ def test_ss_missing_key_warns(monkeypatch, caplog):
         with caplog.at_level(logging.WARNING, logger=lit.__name__):
             agent.build_closure_tools(study)
 
-    assert any("SEMANTIC_SCHOLAR_API_KEY" in r.message for r in caplog.records), (
-        "expected a warning about missing SEMANTIC_SCHOLAR_API_KEY"
+    assert any("semantic_scholar_api_key" in r.message for r in caplog.records), (
+        "expected a warning about missing semantic_scholar_api_key"
     )
+
+
+def test_ss_key_settable_via_config_yaml(monkeypatch):
+    """semantic_scholar_api_key resolves through settings (config.yaml's
+    runtime: block, or F3DASM_SEMANTIC_SCHOLAR_API_KEY), not only via the
+    bare SEMANTIC_SCHOLAR_API_KEY env var — matching every other run knob."""
+    import tempfile
+    from pathlib import Path
+    import a3dasm._src.agents.literature as lit
+    from a3dasm._src import settings as settings_mod
+
+    monkeypatch.delenv("SEMANTIC_SCHOLAR_API_KEY", raising=False)
+    monkeypatch.delenv("F3DASM_SEMANTIC_SCHOLAR_API_KEY", raising=False)
+    settings_mod.configure({"semantic_scholar_api_key": "from-config-yaml"})
+
+    captured = {}
+
+    class _FakeSS:
+        def __init__(self, api_key=None):
+            captured["api_key"] = api_key
+
+    monkeypatch.setattr(
+        "semanticscholar.SemanticScholar", _FakeSS, raising=False)
+
+    with tempfile.TemporaryDirectory() as td:
+        study = Path(td)
+        (study / "runs").mkdir()
+        agent = lit.LiteratureReviewAgent()
+        tools = agent.build_closure_tools(study)
+
+    if "search_semantic_scholar" not in tools:
+        pytest.skip("semanticscholar not installed")
+    assert captured["api_key"] == "from-config-yaml"
 
 
 def test_openalex_missing_key_warns(monkeypatch, caplog):
