@@ -41,6 +41,16 @@ def _call_in_fresh_thread(fn, *args, timeout=30.0, **kwargs):
 # tracking nothing and hard-failing on the first 403/429 it hits.
 _SS_DOMAIN = "api.semanticscholar.org"
 _SS_MAX_RETRIES = 3
+# The search/paper/author/citations endpoints this module calls are ~100
+# req/5min authenticated (~1 per 3s) — stricter than the domain's shared
+# 1.0s default (calibrated for the recommendations endpoint's looser quota
+# via _robust_post). Passing this override to _rate_limit_wait keeps the
+# shared circuit breaker while pacing THIS traffic at its own real limit —
+# using the domain default here silently paced 3x too fast, which is real
+# heavy throttling even WITH a correctly-configured, correctly-resolved
+# SEMANTIC_SCHOLAR_API_KEY (a key raises the ceiling; it does not exempt you
+# from the pacing needed to stay under it over a sustained session).
+_SS_MIN_INTERVAL = 3.0
 
 # A single raw search/read payload can be enormous (full paper text, hundreds of
 # hits) and overflow the tool-result token cap — the harness then drops the whole
@@ -88,7 +98,7 @@ def _throttled_ss(fn, *args, **kwargs):
 
     last_exc: Exception | None = None
     for attempt in range(_SS_MAX_RETRIES):
-        _rate_limit_wait(_SS_DOMAIN)  # may raise SourceCooldownError
+        _rate_limit_wait(_SS_DOMAIN, _SS_MIN_INTERVAL)  # may raise SourceCooldownError
         try:
             result = _call_in_fresh_thread(fn, *args, **kwargs)
         except ConnectionRefusedError as exc:

@@ -45,18 +45,40 @@ def _reset_ss_rate_state():
 def test_ss_throttle_shares_domain_rate_limiter(monkeypatch):
     """_throttled_ss paces itself through literature_corpus's per-domain
     limiter (the SAME one _robust_get/_robust_post use for this host) rather
-    than a private, unauthenticated-tier-blind fixed interval."""
+    than a private, unauthenticated-tier-blind fixed interval — but with an
+    interval OVERRIDE (see test_ss_uses_stricter_interval_than_domain_default
+    for why the shared domain default alone is too fast for this endpoint)."""
     import a3dasm._src.agents.literature as lit
     from a3dasm._src import literature_corpus as lc_mod
 
     calls = []
     monkeypatch.setattr(
-        lc_mod, "_rate_limit_wait", lambda domain: calls.append(domain))
+        lc_mod, "_rate_limit_wait",
+        lambda domain, min_interval=None: calls.append(
+            (domain, min_interval)))
     monkeypatch.setattr(lit, "_call_in_fresh_thread", lambda fn, *a, **kw: fn())
 
     dummy = lambda: "ok"  # noqa: E731
     assert lit._throttled_ss(dummy) == "ok"
-    assert calls == [lit._SS_DOMAIN]
+    assert calls == [(lit._SS_DOMAIN, lit._SS_MIN_INTERVAL)]
+
+
+def test_ss_uses_stricter_interval_than_domain_default(monkeypatch):
+    """Regression: _throttled_ss must NOT rely on _DOMAIN_MIN_INTERVAL's
+    shared default for api.semanticscholar.org (1.0s — calibrated for the
+    recommendations endpoint via _robust_post). The search/paper/author/
+    citations endpoints this module calls are ~100 req/5min authenticated
+    (~1 per 3s); pacing at 1.0s silently exceeds that over a sustained
+    session and produces real, heavy throttling even with a correctly
+    configured and correctly resolved SEMANTIC_SCHOLAR_API_KEY — a key
+    raises the ceiling, it does not exempt a caller from pacing under it."""
+    import a3dasm._src.agents.literature as lit
+    from a3dasm._src import literature_corpus as lc_mod
+
+    assert lit._SS_MIN_INTERVAL > lc_mod._DOMAIN_MIN_INTERVAL[lit._SS_DOMAIN], (
+        "the client-library path's interval must be stricter (larger) than "
+        "the shared domain default, or it silently under-paces this endpoint"
+    )
 
 
 def test_ss_429_retries_with_backoff_then_succeeds(monkeypatch):
@@ -65,7 +87,8 @@ def test_ss_429_retries_with_backoff_then_succeeds(monkeypatch):
     import a3dasm._src.agents.literature as lit
     from a3dasm._src import literature_corpus as lc_mod
 
-    monkeypatch.setattr(lc_mod, "_rate_limit_wait", lambda domain: None)
+    monkeypatch.setattr(
+        lc_mod, "_rate_limit_wait", lambda domain, min_interval=None: None)
     slept = []
     monkeypatch.setattr(lit.time, "sleep", lambda s: slept.append(s))
 
@@ -91,7 +114,8 @@ def test_ss_403_is_not_retried(monkeypatch):
     import a3dasm._src.agents.literature as lit
     from a3dasm._src import literature_corpus as lc_mod
 
-    monkeypatch.setattr(lc_mod, "_rate_limit_wait", lambda domain: None)
+    monkeypatch.setattr(
+        lc_mod, "_rate_limit_wait", lambda domain, min_interval=None: None)
     attempts = {"n": 0}
 
     def forbidden():
@@ -112,7 +136,8 @@ def test_ss_three_consecutive_429s_trip_shared_breaker(monkeypatch):
     import a3dasm._src.agents.literature as lit
     from a3dasm._src import literature_corpus as lc_mod
 
-    monkeypatch.setattr(lc_mod, "_rate_limit_wait", lambda domain: None)
+    monkeypatch.setattr(
+        lc_mod, "_rate_limit_wait", lambda domain, min_interval=None: None)
     monkeypatch.setattr(lit.time, "sleep", lambda s: None)
 
     def always_429():

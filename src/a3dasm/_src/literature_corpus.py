@@ -156,12 +156,23 @@ def _min_interval_for(domain: str) -> float:
     return _DOMAIN_MIN_INTERVAL.get(domain, _DEFAULT_MIN_INTERVAL)
 
 
-def _rate_limit_wait(domain: str) -> None:
+def _rate_limit_wait(domain: str, min_interval: float | None = None) -> None:
     """Sleep if needed to honour min-interval for *domain*.
 
     Must be called OUTSIDE the rate lock to avoid holding the lock
     during sleep.  We use a two-step approach: read under lock,
     sleep outside, then record under lock.
+
+    min_interval overrides the domain's registered default (_DOMAIN_MIN_
+    INTERVAL) for THIS call only — the shared _domain_last_request timestamp
+    and circuit breaker state are untouched, so combined traffic to the same
+    domain from a stricter caller and a looser one still paces off one
+    another correctly. Needed because different endpoints under the same
+    domain can have different real quotas (e.g. api.semanticscholar.org's
+    search/paper-details endpoints are ~100 req/5min authenticated — needing
+    ~3s between calls — while its recommendations endpoint tolerates the
+    domain's looser 1.0s default); passing the domain default here for
+    every caller would silently under-pace the stricter endpoint.
     """
     with _rate_lock:
         now = _time_module.monotonic()
@@ -176,7 +187,8 @@ def _rate_limit_wait(domain: str) -> None:
             )
         # Rate-limit wait calculation
         last = _domain_last_request.get(domain, 0.0)
-        min_interval = _min_interval_for(domain)
+        if min_interval is None:
+            min_interval = _min_interval_for(domain)
         jitter = random.uniform(0, 1.0) if "arxiv.org" in domain else 0.0
         required = min_interval + jitter
         wait = required - (now - last)
