@@ -386,18 +386,23 @@ def test_write_deliverable_rejects_path_separators(tmp_path):
 
 
 def test_strategizer_recall_history_with_log(tmp_path):
-    """StrategizerNode.RecallHistory returns entries received by strategizer."""
+    """StrategizerNode.RecallHistory returns entries received by a node that
+    is NOT the graph's entry (the entry node is always the from_node, never
+    the to_node — see test_recall_history_entry_node_gets_orchestrator_message
+    in test_nodes.py for that dedicated, structurally-always-empty case).
+    Uses a custom spec with entry="hub" so the "strategizer"-named node under
+    test keeps its usual Done/FollowUp tool set while genuinely being able to
+    receive delegations."""
     from a3dasm._src.nodes import StrategizerNode
     from a3dasm._src.delegation_log import DelegationLog
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     log_path = tmp_path / "delegation_log.jsonl"
     log = DelegationLog(log_path)
-    # RecallHistory for strategizer queries records where to_node == "strategizer"
     log.record(
         id="D001",
-        from_node="supervisor",
-        to_node="strategizer",  # records received BY strategizer
+        from_node="hub",
+        to_node="strategizer",  # records received BY this node
         task="Run experiment",
         deliverable="Result: 42",
         hypothesis_ids=[],
@@ -417,10 +422,22 @@ def test_strategizer_recall_history_with_log(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "done"
 
+    class _Hub(Agent):
+        description = "hub"
+
+    class _Strategizer(Agent):
+        role = "strategizer"
+        tools = frozenset({"Done", "FollowUp", "WriteNote", "ReadNote",
+                            "WriteDeliverable"})
+        description = "Test strategizer, not the graph entry."
+
+    spec = Graph(
+        nodes={"hub": _Hub(), "strategizer": _Strategizer()},
+        edges=(Edge("hub", "strategizer"),), entry="hub")
+
     adapter = RecallAdapter()
-    spec = _minimal_spec()
     node = StrategizerNode(
-        adapter, name="strategizer", outgoing=["implementer"], spec=spec,
+        adapter, name="strategizer", outgoing=[], spec=spec,
         study_dir=str(tmp_path),
         delegation_log=log,
     )

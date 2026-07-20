@@ -2361,6 +2361,26 @@ def build_routing_tools(node) -> dict:
                 n = int(n)  # the model may pass "5"; query_received does [-n:]
             except (TypeError, ValueError):
                 n = 5
+            # The graph's entry/orchestrating node is ALWAYS the from_node on
+            # every delegation, never the to_node — query_received filters on
+            # to_node, so this is structurally, permanently empty for it (not
+            # a transient "nothing happened yet" state). Granting the tool
+            # here at all is a topology accident (StrategizerNode is reused
+            # for any node with outgoing edges, entry or not); a plain "No
+            # prior delegations found" reads as amnesia rather than as
+            # "wrong tool for this role" (misdiagnosed as a context/turn-
+            # boundary memory bug in run 20260718T132852's DONE retrospective
+            # — 7 delegations and 102 evals already existed at the time).
+            _entry = getattr(node._spec, "entry", None)
+            if _entry is not None and node._name == _entry:
+                return (
+                    "RecallHistory recalls delegations RECEIVED by this "
+                    "node — the entry/orchestrating node dispatches "
+                    "delegations, it never receives one, so this is always "
+                    "empty here (not a memory gap). Use RecallStore/"
+                    "QueryStore for evaluation history, or HypothesisList/"
+                    "HypothesisGet for the hypothesis ledger, instead."
+                )
             records = _dlog.query_received(node._name, n)
             if not records:
                 return "No prior delegations found."

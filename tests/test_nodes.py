@@ -2476,7 +2476,12 @@ def test_recall_history_tool_present_in_strategizer_closures(tmp_path):
 
 
 def test_recall_history_returns_empty_when_no_prior(tmp_path):
-    """RecallHistory returns 'No prior delegations found.' when log is empty."""
+    """RecallHistory returns 'No prior delegations found.' when log is empty
+    for a node that CAN receive delegations (a non-entry, sub-delegating
+    node — e.g. datagenerator/implementer, which have their own outgoing
+    edges per agents/_graphs.py). The entry node has its own dedicated
+    message (see test_recall_history_entry_node_gets_orchestrator_message)
+    since its 'nothing found' is structural, not a transient empty log."""
     from a3dasm._src.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
@@ -2484,11 +2489,44 @@ def test_recall_history_returns_empty_when_no_prior(tmp_path):
     adapter = StubAdapter()
     spec = _minimal_spec()
     node = StrategizerNode(
+        adapter, name="implementer", outgoing=["literature_reviewer"],
+        spec=spec, delegation_log=delegation_log,
+    )
+    result = node.adapter.closure_tools["RecallHistory"]()
+    assert "No prior delegations found." in result
+
+
+def test_recall_history_entry_node_gets_orchestrator_message(tmp_path):
+    """Regression (run 20260718T132852): the entry/orchestrating node is
+    ALWAYS the from_node, never the to_node, so RecallHistory is
+    structurally, permanently empty for it — a generic 'No prior
+    delegations found.' reads as amnesia (misdiagnosed as a context/turn-
+    boundary memory bug in that run's DONE retrospective, despite 7
+    delegations and 102 evals already existing). The entry node must get an
+    explanatory message pointing at the right tools instead."""
+    from a3dasm._src.delegation_log import DelegationLog
+    from a3dasm._src.nodes import StrategizerNode
+
+    delegation_log = DelegationLog(tmp_path / "delegation_log.jsonl")
+    # Even with records that WOULD match a naive to_node="strategizer"
+    # query, the entry node still gets the orchestrator-specific message —
+    # this is a structural fact about the role, not about the log's state.
+    delegation_log.record(
+        id="D001", from_node="other", to_node="strategizer",
+        task="t", deliverable="d", hypothesis_ids=["H1"],
+        started_at="2026-01-01T00:00:00+00:00",
+        completed_at="2026-01-01T00:01:00+00:00", status="DONE",
+    )
+    adapter = StubAdapter()
+    spec = _minimal_spec()  # entry="strategizer"
+    node = StrategizerNode(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         delegation_log=delegation_log,
     )
     result = node.adapter.closure_tools["RecallHistory"]()
-    assert "No prior delegations found." in result
+    assert "No prior delegations found." not in result
+    assert "never receives one" in result
+    assert "RecallStore" in result or "QueryStore" in result
 
 
 def test_recall_history_returns_formatted_pairs(tmp_path):
@@ -2499,9 +2537,11 @@ def test_recall_history_returns_formatted_pairs(tmp_path):
     jsonl_path = tmp_path / "delegation_log.jsonl"
     delegation_log = DelegationLog(jsonl_path)
 
-    # Write two records directed to "strategizer"
+    # Write two records directed to "implementer" (a non-entry, sub-
+    # delegating node per agents/_graphs.py — the entry node can never be
+    # a to_node, see test_recall_history_entry_node_gets_orchestrator_message)
     delegation_log.record(
-        id="D001", from_node="other", to_node="strategizer",
+        id="D001", from_node="other", to_node="implementer",
         task="First task", deliverable="First result",
         hypothesis_ids=["H1"],
         started_at="2026-01-01T00:00:00+00:00",
@@ -2509,7 +2549,7 @@ def test_recall_history_returns_formatted_pairs(tmp_path):
         status="DONE",
     )
     delegation_log.record(
-        id="D002", from_node="other", to_node="strategizer",
+        id="D002", from_node="other", to_node="implementer",
         task="Second task", deliverable="Second result",
         hypothesis_ids=["H2"],
         started_at="2026-01-01T00:02:00+00:00",
@@ -2520,8 +2560,8 @@ def test_recall_history_returns_formatted_pairs(tmp_path):
     adapter = StubAdapter()
     spec = _minimal_spec()
     node = StrategizerNode(
-        adapter, name="strategizer", outgoing=["implementer"], spec=spec,
-        delegation_log=delegation_log,
+        adapter, name="implementer", outgoing=["literature_reviewer"],
+        spec=spec, delegation_log=delegation_log,
     )
     result = node.adapter.closure_tools["RecallHistory"](n=5)
     assert "First task" in result
