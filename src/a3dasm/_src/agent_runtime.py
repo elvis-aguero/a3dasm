@@ -1184,12 +1184,23 @@ class AgenticRun:
         run_dir = self._run_dir
         _role = getattr(agent, "role", None)
 
-        has_outgoing = (
-            run_dir
-            and hasattr(self._graph_spec, "outgoing")
-            and self._graph_spec.outgoing(name)
-        )
-        if has_outgoing:
+        # The run-aware cwd=study_dir + full <run_paths> preamble is for the
+        # graph's ENTRY/orchestrator node ONLY — it alone needs full-repo
+        # visibility and doesn't itself write delegation-scoped worker files.
+        # This used to key off "has ANY outgoing edge", which also matched
+        # datagenerator/implementer (each has its own edge to
+        # literature_reviewer, for sub-delegating a lookup — see _graphs.py)
+        # even though both are sandboxed WORKERS everywhere else in their
+        # contract (Delegate's own docstring: "writes exclusively to {id}/
+        # relative to their workspace in debug/delegations/"). That mismatch
+        # split delegation output across TWO physical trees for these two
+        # roles — study_dir/debug/delegations/D### (this cwd) vs the
+        # run-scoped run_dir/debug/delegations/D### their own preamble
+        # promised — different inodes, same D### ids, no single source of
+        # truth (run 20260718T132852, D010's retrospective: "cost an extra
+        # stat/inode-comparison round-trip to notice").
+        is_entry = run_dir and name == getattr(self._graph_spec, "entry", None)
+        if is_entry:
             notes_dir = Path(run_dir) / "debug" / "strategizer_notes"
             debug_dir = Path(run_dir) / "debug"
             preamble = RUN_PATHS_PREAMBLE_TEMPLATE.format(
