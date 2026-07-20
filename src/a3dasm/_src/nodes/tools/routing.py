@@ -256,6 +256,7 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
         def QueryStore(
             delegation_ids: str | list | None = None,
             source: str | None = None,
+            namespace: str | None = None,
             n_best: int | None = None,
             output_name: str | None = None,
             minimize: bool = True,
@@ -265,6 +266,16 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             """Filtered view of the evaluation ledger (e.g. rows from D001+D003
             only). Use to ground claims or to select training subsets; cite row
             values from here as evidence.
+
+            Every row is tagged with a `_namespace` column ("default" for the
+            baseline study, or the design-namespace name for a row that landed
+            in an experiment opened via Delegate(namespace=...)) — this is
+            ALWAYS shown, not just when filtering, since a namespace row can
+            otherwise look indistinguishable from a baseline row (e.g. a
+            near-identical value with a different mechanism). Pass namespace=
+            to restrict to one store; note `source=` is NOT this — it filters
+            the `_source` provenance column (the study name, identical across
+            every namespace), so it can never disambiguate namespaces.
 
             n_best returns the best rows by output_name: smallest when
             minimize=True (default), largest when minimize=False (set this for
@@ -308,7 +319,7 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             # store.
             import pandas as _pd
             df_ins, df_outs = [], []
-            for store in stores:
+            for i, store in enumerate(stores):
                 try:
                     data = ExperimentData.from_file(project_dir=store)
                     d_in, d_out = data.to_pandas()
@@ -317,6 +328,12 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                     continue
                 if d_out.empty:
                     continue
+                # Tag every row with its source store BEFORE concatenating —
+                # once merged, a namespace row is otherwise indistinguishable
+                # from a baseline row (same convention as RecallStore's
+                # "default" if i == 0 else store.name).
+                d_out = d_out.copy()
+                d_out["_namespace"] = "default" if i == 0 else store.name
                 df_ins.append(d_in)
                 df_outs.append(d_out)
             if not df_outs:
@@ -361,6 +378,8 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                 mask &= df_out["_delegation_id"].isin(d_ids)
             if source is not None and "_source" in df_out.columns:
                 mask &= df_out["_source"] == source
+            if namespace is not None:
+                mask &= df_out["_namespace"] == namespace
 
             # where: compound predicate over the joined inputs+outputs frame.
             # Read-only (query on an in-memory copy); folds into the mask so both
@@ -392,6 +411,8 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                     applied.append(f"delegation_ids={d_ids}")
                 if source is not None:
                     applied.append(f"source={source!r}")
+                if namespace is not None:
+                    applied.append(f"namespace={namespace!r}")
                 if where:
                     applied.append(f"where={where!r}")
                 crit = "; ".join(applied) or "(no filter)"
@@ -451,6 +472,8 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                 show_cols.append(output_name)
                 if "_delegation_id" in best_rows.columns:
                     show_cols.append("_delegation_id")
+                if "_namespace" in best_rows.columns:
+                    show_cols.append("_namespace")
 
                 if filtered_in is not None:
                     best_in = filtered_in.loc[best_idx, [

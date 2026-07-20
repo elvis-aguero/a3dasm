@@ -167,6 +167,97 @@ def test_zero_match_reports_scanned_total_unambiguously(tmp_path):
     out = q(where="coilable==1 and mcs>=9.0")   # nothing matches
     assert "0 of 5 scanned" in out
     assert "TRUE zero" in out
+
+
+def _querystore_with_namespace(tmp_path):
+    """Same 5-row default store as _querystore, PLUS a 'meander' namespace
+    store with its own rows sharing _source='test' with the default store —
+    matching real runs, where _source is always the study name and can never
+    disambiguate a namespace (run 20260718T031519: 4 agents independently hit
+    this, one got a false-positive baseline row back believing it belonged to
+    a design family)."""
+    run_dir = tmp_path / "runs" / "T1"
+    (run_dir / "debug").mkdir(parents=True)
+    _build_store(run_dir / "experiment_data", [
+        (0.1, 1.0, 1, 0.95, "D001"),
+        (0.4, 2.5, 1, 0.92, "D002"),
+    ])
+    _build_store(run_dir / "experiment_data" / "meander", [
+        (0.4, 2.5, 1, 0.92, "D003"),   # deliberately same f/coilable/mcs as
+        (0.9, 9.0, 1, 0.99, "D004"),   # the default store's D002 row above
+    ])
+
+    class S(Agent):
+        role = "strategizer"
+        tools = frozenset({"Done"})
+        description = "s"
+
+    class Impl(Agent):
+        role = "implementer"
+        description = "i"
+        tools = frozenset({"QueryStore"})
+
+    class Lit(Agent):
+        role = "literature_reviewer"
+        description = "l"
+
+    spec = Graph(
+        nodes={"strategizer": S(), "implementer": Impl(),
+               "literature_reviewer": Lit()},
+        edges=(Edge("strategizer", "implementer"),
+               Edge("implementer", "literature_reviewer")),
+        entry="strategizer")
+    dlog = DelegationLog(run_dir / "debug" / "delegation_log.jsonl")
+    n = StrategizerNode(
+        _Stub(), name="implementer", outgoing=["literature_reviewer"],
+        spec=spec, worker_adapters={"literature_reviewer": _Stub()},
+        notes_dir=None, delegation_log=dlog)
+    return n._build_routing_closures()["QueryStore"]
+
+
+def test_namespace_column_always_shown(tmp_path):
+    """_namespace must be visible even with NO namespace= filter — a
+    namespace row must never be silently indistinguishable from a baseline
+    row just because nobody asked to filter by namespace yet."""
+    q = _querystore_with_namespace(tmp_path)
+    out = q()
+    assert "4 rows match" in out
+    assert "_namespace" in out
+    assert "default" in out
+    assert "meander" in out
+
+
+def test_namespace_filters_to_one_store(tmp_path):
+    q = _querystore_with_namespace(tmp_path)
+    out = q(namespace="meander")
+    assert "2 rows match" in out
+    assert "D003" in out and "D004" in out
+    assert "D001" not in out and "D002" not in out
+
+
+def test_source_cannot_disambiguate_namespace(tmp_path):
+    """source= filters _source (the study name — identical across every
+    namespace); it must NOT be mistaken for a namespace filter."""
+    q = _querystore_with_namespace(tmp_path)
+    out = q(source="test")
+    assert "4 rows match" in out, (
+        "source= matched all 4 rows across both stores, as expected — "
+        f"it cannot isolate a namespace: {out!r}"
+    )
+
+
+def test_namespace_surfaces_in_n_best_view(tmp_path):
+    q = _querystore_with_namespace(tmp_path)
+    out = q(n_best=1, output_name="f", minimize=False)
+    assert "9.0" in out          # meander's D004 row is the global best
+    assert "meander" in out
+
+
+def test_zero_match_reports_namespace_in_applied_filters(tmp_path):
+    q = _querystore_with_namespace(tmp_path)
+    out = q(namespace="elliptical_rings")   # never opened in this test
+    assert "0 of 4 scanned" in out
+    assert "namespace='elliptical_rings'" in out
     # and a genuinely bad column still ERRORs (not a silent 0)
     bad = q(where="nonexistent_col==1")
     assert bad.startswith("ERROR:")
