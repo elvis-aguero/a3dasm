@@ -15,17 +15,35 @@ def _call_in_fresh_thread(fn, *args, timeout=30.0, **kwargs):
     The semanticscholar sync client manages its own asyncio loop and
     breaks when called from within an already-running loop (the
     Claude SDK closure context). A fresh thread has no loop.
+
+    Deliberately does NOT use `with ThreadPoolExecutor(...) as pool:` —
+    that form's __exit__ calls shutdown(wait=True), which BLOCKS until the
+    worker thread actually finishes, even after future.result(timeout=...)
+    has already raised TimeoutError to us. If fn is genuinely stuck (e.g.
+    the semanticscholar library's own internal 429 retry — 10 attempts,
+    5-60s exponential backoff each — can legitimately run several minutes
+    on ONE call), that silently re-introduces an unbounded wait on top of
+    the timeout this function exists to enforce, hanging the whole agent
+    turn. Observed directly: search_semantic_scholar hung 10+ minutes
+    despite this function's 30s timeout, traced to exactly this. shutdown
+    (wait=False) lets the caller return the instant the timeout fires; the
+    one leaked worker thread finishing on its own later is an acceptable
+    trade for never hanging the caller.
     """
     import concurrent.futures as _cf
-    with _cf.ThreadPoolExecutor(max_workers=1) as pool:
-        try:
-            return pool.submit(fn, *args, **kwargs).result(timeout=timeout)
-        except _cf.TimeoutError as exc:
-            # On Python 3.10 concurrent.futures.TimeoutError is a DISTINCT class
-            # from builtins.TimeoutError (they were merged in 3.11). Normalise to
-            # builtins.TimeoutError so every caller's `except TimeoutError`
-            # catches a pool timeout on all supported Python versions.
-            raise TimeoutError(str(exc)) from exc
+    pool = _cf.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(fn, *args, **kwargs)
+    try:
+        result = future.result(timeout=timeout)
+    except _cf.TimeoutError as exc:
+        pool.shutdown(wait=False)
+        # On Python 3.10 concurrent.futures.TimeoutError is a DISTINCT class
+        # from builtins.TimeoutError (they were merged in 3.11). Normalise to
+        # builtins.TimeoutError so every caller's `except TimeoutError`
+        # catches a pool timeout on all supported Python versions.
+        raise TimeoutError(str(exc)) from exc
+    pool.shutdown(wait=False)
+    return result
 
 
 # ---------------------------------------------------------------------------

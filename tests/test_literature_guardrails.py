@@ -1309,6 +1309,34 @@ class TestS2EventLoopSafety:
         assert isinstance(data, list)
         assert data[0]["title"] == "Fake Paper"
 
+    def test_call_in_fresh_thread_does_not_block_on_shutdown_after_timeout(self):
+        """Regression: `with ThreadPoolExecutor(...) as pool:` blocks on
+        shutdown(wait=True) in __exit__ even after future.result(timeout=...)
+        has already raised TimeoutError — silently re-introducing an
+        unbounded wait on top of the timeout. Observed directly:
+        search_semantic_scholar hung 10+ minutes despite a 30s timeout,
+        traced to exactly this (the semanticscholar library's own internal
+        429 retry can legitimately run several minutes on one call, and the
+        blocking shutdown waited for it regardless of the timeout firing).
+        Assert the CALLER gets control back near the declared timeout, not
+        after however long the hung function actually takes."""
+        import time as _time
+        import a3dasm._src.agents.literature as lit_mod
+
+        def hangs_forever():
+            _time.sleep(5.0)  # much longer than the 0.1s timeout below
+            return "should never get here in time"
+
+        t0 = _time.monotonic()
+        with pytest.raises(TimeoutError):
+            lit_mod._call_in_fresh_thread(hangs_forever, timeout=0.1)
+        elapsed = _time.monotonic() - t0
+        assert elapsed < 1.0, (
+            f"_call_in_fresh_thread took {elapsed:.2f}s to return after a "
+            "0.1s timeout — it blocked on the hung worker thread instead of "
+            "returning immediately (the exact regression this test guards)"
+        )
+
     def test_search_semantic_scholar_timeout_returns_error_string(
         self, tmp_path, monkeypatch
     ):
