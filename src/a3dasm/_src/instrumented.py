@@ -129,6 +129,39 @@ class InstrumentedDataGenerator(DataGenerator):
 
     # ------------------------------------------------------------------
 
+    def call(self, data, mode: str = "sequential", pass_id: bool = False,
+              **kwargs):
+        """Same as f3dasm's ``DataGenerator.call`` — EXCEPT ``mode="parallel"``
+        is refused outright, never delegated to ``super().call()``.
+
+        f3dasm's own ``mode="parallel"`` falls through to a LOCAL
+        ``multiprocessing.Pool`` — it spawns every solve as a subprocess on
+        THIS process's own host, which in this architecture is the run's
+        shared, resource-constrained orchestration node (not a SLURM
+        allocation). N concurrent Abaqus solves there is CPU oversubscription
+        and OOM that kills the whole run, not just this evaluation — a
+        documentation warning telling agents "never use this" is not a
+        control; a host-safety hard cap that never lets the call start is
+        (mem_cap_bytes is the other one, §4 of the working contract — a run
+        must not be able to OOM the shared node it runs on). Real
+        parallelism belongs on a cluster scheduler (e.g. one evaluation per
+        SLURM array task, each with its own node's resources) — whatever
+        submission helper the study provides for that — never a local pool.
+        """
+        if mode == "parallel":
+            raise ValueError(
+                "gen.call(mode='parallel', ...) is disallowed — it falls "
+                "through to f3dasm's local multiprocessing.Pool, spawning "
+                "every solve as a subprocess on THIS run's own shared "
+                "orchestration node (CPU oversubscription + OOM that kills "
+                "the whole run, not just this evaluation). Use "
+                "mode='sequential' here; get real parallelism through the "
+                "study's cluster-array submission path (one evaluation per "
+                "SLURM array task, each with its own node's resources) "
+                "instead."
+            )
+        return super().call(data, mode=mode, pass_id=pass_id, **kwargs)
+
     def execute(
         self, experiment_sample: ExperimentSample, **kwargs
     ) -> ExperimentSample:

@@ -263,6 +263,20 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   `instrumented.py` `delegation_footer` peak-RAM line.
 - **Status:** awareness only — the hard memory cap stays the one enforced boundary.
 
+### `mode="parallel"` host-safety hard cap
+- **What:** `InstrumentedDataGenerator.call()` refuses `mode="parallel"`
+  outright (raises `ValueError` before f3dasm's `DataGenerator.call()` ever
+  runs) instead of relying on a prompt warning. f3dasm's own `mode="parallel"`
+  falls through to a LOCAL `multiprocessing.Pool` — every solve spawns as a
+  subprocess on the run's own shared orchestration node, which is CPU
+  oversubscription and OOM that kills the whole run, not just one evaluation.
+  A companion hard cap to `mem_cap_bytes` (§4 of the working contract): a run
+  must not be able to OOM the shared node it runs on. `mode="sequential"` is
+  unaffected; real parallelism belongs on a cluster scheduler (one evaluation
+  per SLURM array task), not a local pool.
+- **Where:** `instrumented.py` `InstrumentedDataGenerator.call`.
+- **Status:** done.
+
 ### Per-delegation ledger KPIs auto-appended to the report
 - **What:** when a delegation completes, a KPI footer is appended to the result
   the strategizer auto-receives (GetStatus/Confer/Done) — per-eval wall-time

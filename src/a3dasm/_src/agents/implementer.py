@@ -147,7 +147,13 @@ PREFER f3dasm primitives over raw numpy/scipy equivalents.
   sampler = create_sampler("latin_sampler", seed=0)
   data = sampler.call(data=data, n_samples=500)
   gen = get_evaluator()
-  data = gen.call(data, mode="sequential")   # or mode="parallel"
+  data = gen.call(data, mode="sequential")
+  # mode="parallel" is REFUSED (raises ValueError, host-safety hard cap): it
+  # falls through to f3dasm's local multiprocessing.Pool, spawning every
+  # solve as a subprocess on THIS run's own shared orchestration node — CPU
+  # oversubscription and OOM that kills the whole run. For real parallelism,
+  # use the study's cluster-array submission path (one evaluation per SLURM
+  # array task, each with its own node's resources), never a local pool.
   gen.flush()
   # get_evaluator() + flush() already wrote every FINISHED row to the canonical
   # store. Do NOT call data.store() afterwards — it would re-write those rows as

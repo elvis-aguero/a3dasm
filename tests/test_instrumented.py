@@ -638,3 +638,42 @@ def test_supersede_replaces_stale_row_net_count_preserving(tmp_path):
     a_f = [float(v) for v, x in zip(df_out["f"], df_in["x0"])
            if round(float(x), 6) == 0.5]
     assert a_f == [1.0]
+
+
+# ---------------------------------------------------------------------------
+# mode="parallel" host-safety hard cap
+# ---------------------------------------------------------------------------
+
+
+def _make_call_data(*x0s) -> ExperimentData:
+    domain = _make_domain()
+    samples = {i: _make_sample(x0) for i, x0 in enumerate(x0s)}
+    return ExperimentData.from_data(data=samples, domain=domain)
+
+
+def test_call_mode_parallel_is_refused_before_it_spawns_anything(tmp_path):
+    """gen.call(mode='parallel') must never reach f3dasm's local
+    multiprocessing.Pool — it would spawn N Abaqus-style solves as
+    subprocesses on the run's own shared, resource-constrained orchestration
+    node (CPU oversubscription + OOM that kills the whole run). A
+    documentation warning is not a control; refusing the call itself is."""
+    from a3dasm._src.instrumented import InstrumentedDataGenerator
+
+    gen = InstrumentedDataGenerator(
+        inner=_SumGenerator(), store_dir=tmp_path, delegation_id="D001")
+    data = _make_call_data(0.1, 0.2)
+    with pytest.raises(ValueError, match="mode='parallel'"):
+        gen.call(data, mode="parallel", nodes=4)
+
+
+def test_call_mode_sequential_still_delegates_normally(tmp_path):
+    """The hard cap targets mode='parallel' specifically — sequential must be
+    completely unaffected, still evaluating every sample via execute()."""
+    from a3dasm._src.instrumented import InstrumentedDataGenerator
+
+    gen = InstrumentedDataGenerator(
+        inner=_SumGenerator(), store_dir=tmp_path, delegation_id="D001")
+    data = _make_call_data(0.1, 0.2)
+    result = gen.call(data, mode="sequential")
+    _, df_out = result.to_pandas()
+    assert sorted(float(v) for v in df_out["f"]) == [0.1, 0.2]
