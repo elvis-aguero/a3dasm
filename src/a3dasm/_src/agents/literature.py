@@ -101,11 +101,23 @@ def _throttled_ss(fn, *args, **kwargs):
     exhausted) is NOT retried here, mirroring _robust_get's "4xx (non-429):
     raise immediately, no retry" rule: waiting a few seconds does not help a
     quota that resets on a much longer window.
+
+    fn is constructed with retry=False (see the _SS(...) construction site),
+    which routes through the library's OWN tenacity wrapper with
+    stop_after_attempt(1) rather than bypassing tenacity entirely — so a
+    failure still surfaces as tenacity.RetryError wrapping the real
+    exception, not the real exception directly. Unwrapped here (inside the
+    background thread, before it crosses back to the caller) via
+    RetryError.reraise(), so the except clauses below see the actual
+    ConnectionRefusedError/PermissionError exactly as if retry= didn't
+    exist, with no duplicated handling logic.
     """
     # Deferred import: literature_corpus is an optional-dependency module
     # (see the try/except ImportError around its import a few frames up the
     # call stack) — by the time _throttled_ss is ever actually called, that
     # import has already succeeded (the whole tool set returns {} otherwise).
+    from tenacity import RetryError
+
     from ..literature_corpus import (
         SourceCooldownError,
         _cooldown_message,
@@ -114,11 +126,18 @@ def _throttled_ss(fn, *args, **kwargs):
         _reset_429,
     )
 
+    def _fn_unwrapping_retry_error(*a, **kw):
+        try:
+            return fn(*a, **kw)
+        except RetryError as exc:
+            exc.reraise()
+
     last_exc: Exception | None = None
     for attempt in range(_SS_MAX_RETRIES):
         _rate_limit_wait(_SS_DOMAIN, _SS_MIN_INTERVAL)  # may raise SourceCooldownError
         try:
-            result = _call_in_fresh_thread(fn, *args, **kwargs)
+            result = _call_in_fresh_thread(
+                _fn_unwrapping_retry_error, *args, **kwargs)
         except ConnectionRefusedError as exc:
             last_exc = exc
             if _record_429(_SS_DOMAIN):
@@ -469,7 +488,19 @@ class LiteratureReviewAgent(Agent):
                     "(or SEMANTIC_SCHOLAR_API_KEY / "
                     "F3DASM_SEMANTIC_SCHOLAR_API_KEY) for reliable access."
                 )
-            _sch = _SS(api_key=_ss_api_key or None)
+            # retry=False: the library's OWN internal 429 retry (tenacity,
+            # up to 10 attempts, 5-60s exponential backoff EACH — legitimately
+            # several minutes for one call) would otherwise silently absorb
+            # every 429 before it ever reaches _throttled_ss, so our own
+            # pacing/backoff/circuit-breaker (literature_corpus's
+            # _rate_limit_wait/_record_429, meant to be the SOLE retry
+            # authority for this traffic — see _throttled_ss) never sees a
+            # 429 until an entire hidden multi-minute retry storm has
+            # already run underneath it. Disabling it here makes every
+            # individual request's real outcome surface immediately, which
+            # is also what makes _call_in_fresh_thread's 30s timeout
+            # actually bound the call to ~30s instead of ~12 minutes.
+            _sch = _SS(api_key=_ss_api_key or None, retry=False)
 
             def _ss_forbidden_error() -> str:
                 """Message for a 403 (PermissionError): NOT retried, since
@@ -491,16 +522,29 @@ class LiteratureReviewAgent(Agent):
                 query: str, num_results: int = 10
             ) -> str:
                 """Search for papers on Semantic Scholar."""
-                try:
-                    results = _throttled_ss(
-                        _sch.search_paper,
+                def _search():
+                    # search_paper() itself is NON-blocking — it returns a
+                    # LAZY PaginatedResults shell with no network call made
+                    # yet (unlike get_paper/get_author, which fetch eagerly
+                    # inside the call). The real HTTP request + retry only
+                    # fires on iteration — materializing it HERE, inside the
+                    # _throttled_ss-wrapped call, is what actually puts the
+                    # network I/O under the timeout/rate-limiter/circuit-
+                    # breaker. Iterating outside (the original shape) left
+                    # the real work completely unprotected: _throttled_ss
+                    # would return instantly having "successfully" produced
+                    # an empty shell, and the genuine multi-minute hang
+                    # happened afterwards, in code with no timeout at all.
+                    return list(_sch.search_paper(
                         query,
                         limit=int(num_results),
                         fields=[
                             "title", "authors", "year", "abstract",
                             "externalIds", "venue", "citationCount",
                         ],
-                    )
+                    ))
+                try:
+                    results = _throttled_ss(_search)
                 except TimeoutError:
                     return (
                         "ERROR: Semantic Scholar request timed out"

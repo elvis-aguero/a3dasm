@@ -1309,6 +1309,24 @@ class TestS2EventLoopSafety:
         assert isinstance(data, list)
         assert data[0]["title"] == "Fake Paper"
 
+    def test_semanticscholar_client_constructed_with_retry_disabled(self, tmp_path):
+        """retry=False so the library's OWN internal 429 retry (tenacity, up
+        to 10 attempts, 5-60s backoff EACH) never runs — every request's
+        real outcome must surface to _throttled_ss immediately, since our
+        own pacing/backoff/circuit-breaker is meant to be the SOLE retry
+        authority for this traffic (see _throttled_ss's docstring). Without
+        this, a single call can legitimately hang several minutes inside
+        the library before ever raising to our code."""
+        with patch("semanticscholar.SemanticScholar") as MockSS:
+            MockSS.return_value = MockSS
+            _make_s2_tools(tmp_path)
+
+        assert MockSS.call_args is not None, "SemanticScholar was never constructed"
+        assert MockSS.call_args.kwargs.get("retry") is False, (
+            f"SemanticScholar constructed with retry={MockSS.call_args.kwargs.get('retry')!r} "
+            "— must be False"
+        )
+
     def test_call_in_fresh_thread_does_not_block_on_shutdown_after_timeout(self):
         """Regression: `with ThreadPoolExecutor(...) as pool:` blocks on
         shutdown(wait=True) in __exit__ even after future.result(timeout=...)

@@ -187,7 +187,7 @@ def test_ss_key_settable_via_config_yaml(monkeypatch):
     captured = {}
 
     class _FakeSS:
-        def __init__(self, api_key=None):
+        def __init__(self, api_key=None, retry=True):
             captured["api_key"] = api_key
 
     monkeypatch.setattr(
