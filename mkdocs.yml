@@ -81,9 +81,8 @@ nav:
         - 'concepts.md'
     - Guides:
         - 'Authoring a study': 'authoring-a-study.md'
-        - 'Configuring the backend': 'backends.md'
         - "Understanding a run's output": 'reading-a-run.md'
-        - 'Customizing the graph': 'customizing-a-run.md'
+        - 'Customizing a run': 'customizing-a-run.md'
     - API reference:
         - 'api/run.md'
         - 'api/agents.md'

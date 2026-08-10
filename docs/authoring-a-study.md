@@ -53,7 +53,9 @@ can set:
 | `required_deliverables` | extra files that must exist before the run can finish | none |
 | `evaluator` | how a design gets scored, see below | honor-system |
 
-See [Configuring the backend](backends.md) for the `backend`/`model` details.
+See [Customizing a run](customizing-a-run.md#the-available-backends) for the
+`backend`/`model` details, including setting them per agent instead of for
+the whole run.
 
 ## How designs get evaluated (the evaluator)
 
@@ -97,9 +99,9 @@ and a status file. See [Understanding a run's output](reading-a-run.md) for what
 in there and how to read it.
 
 Everything above is `config.yaml` and `PROBLEM_STATEMENT.md`; the graph itself
-(which agents exist, how they delegate) and each agent's system prompt are
-Python-level extension points instead. See
-[Customizing the graph](customizing-a-run.md) if the built-in strategizer and
+(which agents exist, how they delegate), each agent's system prompt, and each
+agent's backend/model are Python-level extension points instead. See
+[Customizing a run](customizing-a-run.md) if the built-in strategizer and
 four specialists aren't the shape your problem needs.
 
 ## Before a long run, check
