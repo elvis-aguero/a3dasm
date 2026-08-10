@@ -15,7 +15,10 @@ your own, rather than treating it as a black box.
     --a3l-line: color-mix(in srgb, var(--md-default-fg-color) 20%, transparent);
     --a3l-agent-fill: color-mix(in srgb, var(--md-default-fg-color) 4%, var(--md-default-bg-color));
     --a3l-store-fill: color-mix(in srgb, var(--md-accent-fg-color) 8%, var(--md-default-bg-color));
-    margin: 1.6em 0;
+    width: 100vw;
+    margin: 1.6em 0 1.6em calc(50% - 50vw);
+    padding: 0 max(20px, calc((100vw - 1200px) / 2));
+    box-sizing: border-box;
   }
   .a3l svg { width: 100%; height: auto; display: block; }
   .a3l .node-title { font-family: var(--md-text-font, sans-serif); font-weight: 600; font-size: 12.5px; fill: var(--a3l-ink); letter-spacing: 0.01em; }
@@ -39,10 +42,10 @@ your own, rather than treating it as a black box.
 <svg viewBox="0 0 1000 680" role="img"
   aria-label="The strategizer delegates to four specialists: literature reviewer, data generator, implementer, and critic, and loops on their reports. The implementer's evaluations and the strategizer's hypothesis verdicts feed two ledgers. Both ledgers are checked at a reproduction gate before the deliverable, pipeline.ipynb, is allowed out; failing the gate sends control back to the strategizer instead of ending the run.">
   <defs>
-    <marker id="a3l-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <marker id="a3l-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="11" markerHeight="11" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="var(--a3l-dim)" />
     </marker>
-    <marker id="a3l-arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <marker id="a3l-arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="11" markerHeight="11" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="var(--a3l-accent)" />
     </marker>
 
