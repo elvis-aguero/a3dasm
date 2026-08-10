@@ -123,10 +123,10 @@ actually expects).
 ```yaml
 model: claude-haiku-4-5-20251001
 backend: claude
-eval_budget: 200
+eval_budget: 200  # soft cap on real calls to evaluate(), not a hard stop
 evaluator:
-  entrypoint: "workspace/evaluator.py:evaluate"
-  output_names: [y]
+  entrypoint: "workspace/evaluator.py:evaluate"  # module:function, relative to the study
+  output_names: [y]  # names the one value evaluate() returns
 ```
 
 `workspace/evaluator.py`:
@@ -134,7 +134,7 @@ evaluator:
 ```python
 def evaluate(x1: float, x2: float) -> float:
     """One argument per input; returns the output named in output_names."""
-    return (x1 - 1.0) ** 2 + (x2 + 2.0) ** 2
+    return (x1 - 1.0) ** 2 + (x2 + 2.0) ** 2  # the ground truth being scored
 ```
 
 `PROBLEM_STATEMENT.md`:

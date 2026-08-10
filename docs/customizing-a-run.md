@@ -17,22 +17,23 @@ from a3dasm import Agent, Edge, Graph, AgenticRun
 
 
 class Strategist(Agent):
-    role = "strategizer"
-    description = "Decides what to try next."
+    role = "strategizer"  # the hub; other roles default to "worker"
+    description = "Decides what to try next."  # required, or Graph() raises
     system_prompt = "You are the strategizer. Delegate to the implementer."
 
 
 class Implementer(Agent):
     description = "Writes and runs the evaluation code."
+    # no system_prompt override here: falls back to Agent's default ""
 
 
 graph = Graph(
     nodes={"strategizer": Strategist(), "implementer": Implementer()},
-    edges=(Edge("strategizer", "implementer"),),
-    entry="strategizer",
+    edges=(Edge("strategizer", "implementer"),),  # who may delegate to whom
+    entry="strategizer",  # who gets the initial briefing
 )
 
-AgenticRun(study_dir="my_study", graph=graph).execute()
+AgenticRun(study_dir="my_study", graph=graph).execute()  # swaps in this graph
 ```
 
 - **`nodes`** maps a name to an `Agent` instance. Every node needs a non-empty
