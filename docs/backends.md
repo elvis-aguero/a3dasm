@@ -7,7 +7,7 @@ comparable across them.
 
 ## Claude CLI (default)
 
-Uses the local `claude` CLI — see [Installation](installation.md) if you
+Uses the local `claude` CLI: see [Installation](installation.md) if you
 haven't set it up yet. Once `claude` runs on its own in your terminal,
 there's nothing else to configure beyond the model:
 

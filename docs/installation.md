@@ -16,7 +16,7 @@ pip install "a3dasm @ git+https://github.com/elvis-aguero/a3dasm.git"
 
 ## 2. A model to drive the agents
 
-By default a3dasm talks to models through the **Claude CLI** — a separate
+By default a3dasm talks to models through the **Claude CLI**, a separate
 tool, not part of the `pip install` above.
 
 ```bash
@@ -24,7 +24,7 @@ npm install -g @anthropic-ai/claude-code
 claude   # first run prompts you to log in (subscription or API key)
 ```
 
-That's it — once `claude` works on its own from your terminal, a3dasm can use
+That's it: once `claude` works on its own from your terminal, a3dasm can use
 it. No Node.js? Or already have an API key and want to skip the login prompt?
 
 ```bash
@@ -32,7 +32,7 @@ export ANTHROPIC_API_KEY=sk-...
 ```
 
 Don't have Claude access at all, or want to use a different model? a3dasm
-also drives Ollama, any OpenAI-compatible endpoint, and vLLM — see
+also drives Ollama, any OpenAI-compatible endpoint, and vLLM: see
 [Configuring the backend](backends.md).
 
 ## Optional extras
@@ -45,5 +45,5 @@ also drives Ollama, any OpenAI-compatible endpoint, and vLLM — see
 
 ## Next
 
-[Run the Quickstart](notebooks/quickstart.ipynb) — a couple of minutes to
+[Run the Quickstart](notebooks/quickstart.ipynb): a couple of minutes to
 your first result.
