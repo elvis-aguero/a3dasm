@@ -15,12 +15,10 @@ your own, rather than treating it as a black box.
     --a3l-line: color-mix(in srgb, var(--md-default-fg-color) 20%, transparent);
     --a3l-agent-fill: color-mix(in srgb, var(--md-default-fg-color) 4%, var(--md-default-bg-color));
     --a3l-store-fill: color-mix(in srgb, var(--md-accent-fg-color) 8%, var(--md-default-bg-color));
-    width: 100vw;
-    margin: 1.6em 0 1.6em calc(50% - 50vw);
-    padding: 0 max(20px, calc((100vw - 1200px) / 2));
-    box-sizing: border-box;
+    margin: 1.6em 0;
   }
-  .a3l svg { width: 100%; height: auto; display: block; }
+  .a3l .a3l-scroll { overflow-x: auto; }
+  .a3l svg { display: block; width: 100%; min-width: 950px; height: auto; }
   .a3l .node-title { font-family: var(--md-text-font, sans-serif); font-weight: 600; font-size: 12.5px; fill: var(--a3l-ink); letter-spacing: 0.01em; }
   .a3l .blurb      { font-family: var(--md-text-font, sans-serif); font-size: 12px; font-style: italic; fill: var(--a3l-dim); }
   .a3l .tag        { font-family: var(--md-code-font, monospace); font-size: 9.5px; fill: var(--a3l-dim); }
@@ -39,6 +37,7 @@ your own, rather than treating it as a black box.
   .a3l .legend .trail-key i { border-color: var(--a3l-accent); }
   .a3l figcaption { font-size: 13px; color: var(--a3l-dim); margin-top: 10px; }
 </style>
+<div class="a3l-scroll">
 <svg viewBox="0 0 1000 680" role="img"
   aria-label="The strategizer delegates to four specialists: literature reviewer, data generator, implementer, and critic, and loops on their reports. The implementer's evaluations and the strategizer's hypothesis verdicts feed two ledgers. Both ledgers are checked at a reproduction gate before the deliverable, pipeline.ipynb, is allowed out; failing the gate sends control back to the strategizer instead of ending the run.">
   <defs>
@@ -148,6 +147,7 @@ your own, rather than treating it as a black box.
   <path class="arrow" marker-end="url(#a3l-arrow)"
     d="M 420,580 C 260,640 40,600 40,480 L 40,90 C 40,40 280,20 378,45" />
 </svg>
+</div>
 <div class="legend">
   <span class="dim"><i></i>delegate, report, retry</span>
   <span class="trail-key"><i></i>the evidence trail</span>
