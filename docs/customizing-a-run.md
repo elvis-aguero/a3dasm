@@ -1,17 +1,60 @@
 # Customizing a run
 
-Everything in [Authoring a study](authoring-a-study.md) works with the built-in
-graph: a **strategizer** delegating to **literature reviewer**, **data
-generator**, **implementer**, and **critic**, all driven by one backend. The
-graph, each shipped agent's system prompt, and which backend/model drives
-each agent are all Python-level extension points, not `config.yaml`
-settings. This page covers all three, and where each stops being a
-supported, tested surface.
+The [Quickstart](notebooks/quickstart.ipynb) ran the Branin problem with
+a3dasm's own defaults: the built-in graph, the shipped agents' own prompts,
+one backend for everything. This page reuses that same problem to show what
+changes, and how, as you reach for something different.
 
-## A custom graph
+## The starting point
 
-`AgenticRun` takes an optional `graph=` argument: an `a3dasm.Graph` built from
-`a3dasm.Agent` subclasses and `a3dasm.Edge`s.
+```python
+from pathlib import Path
+from a3dasm import AgenticRun
+
+study_dir = Path("studies/branin")
+study_dir.mkdir(parents=True, exist_ok=True)
+(study_dir / "PROBLEM_STATEMENT.md").write_text(
+    "Minimise the 2D Branin function over its standard domain.\n"
+    "Report the best design found and the objective value there.\n"
+)
+
+AgenticRun(study_dir=study_dir, model="claude-haiku-4-5-20251001").execute()
+```
+
+No `config.yaml` here; `model` is the only thing set, and there's no
+`backend` at all (it defaults to Claude). This runs the built-in graph
+(strategizer plus four specialists), every agent on the same backend, every
+agent using its own shipped prompt.
+
+## A different backend for the whole run: `config.yaml`
+
+Say the run should go through Ollama instead. Drop a `config.yaml` next to
+`PROBLEM_STATEMENT.md`:
+
+```yaml
+backend: ollama
+model: qwen2.5:7b
+```
+
+Nothing else changes. Same graph, same prompts, same
+`AgenticRun(study_dir=study_dir).execute()` call (`model`/`backend` now come
+from `config.yaml`, so the constructor doesn't need them). Every agent in
+the built-in graph now runs on Ollama, because none of the shipped agents
+(`StrategizerAgent`, `LiteratureReviewAgent`, `DataGeneratorAgent`,
+`F3dasmImplementerAgent`, `AdversarialCritiqueAgent`) sets its own
+`backend`, so each one falls back to the run's default:
+`agent.backend or self._backend` (`agent_runtime.py`'s `_make_adapter`,
+line 1250).
+
+## A different backend for one agent: this needs Python, not YAML
+
+`config.yaml`'s `backend`/`model` are run-wide; there's no YAML key for
+"just the implementer." Getting that means setting `backend`/`model` on one
+node, which means that node is your own `Agent` subclass, which means
+building the graph yourself: swapping a hand-rolled agent into the shipped
+graph while keeping the rest isn't a pattern this project tests. So a custom
+graph, a custom prompt, and a different backend for one node usually arrive
+together, in one `Graph`:
 
 ```python
 from a3dasm import Agent, Edge, Graph, AgenticRun
@@ -21,91 +64,45 @@ class Strategist(Agent):
     role = "strategizer"  # the hub; other roles default to "worker"
     description = "Decides what to try next."  # required, or Graph() raises
     system_prompt = "You are the strategizer. Delegate to the implementer."
+    # backend/model unset: this node falls back to the run's own default
 
 
 class Implementer(Agent):
     description = "Writes and runs the evaluation code."
-    # no system_prompt override here: falls back to Agent's default ""
+    backend = "ollama"  # a class attribute override, only for this node
 
 
 graph = Graph(
-    nodes={"strategizer": Strategist(), "implementer": Implementer()},
+    nodes={
+        "strategizer": Strategist(),
+        "implementer": Implementer(model="qwen2.5:7b"),  # model is a
+        # constructor arg, not a class attribute: Agent.__init__ always
+        # does self.model = model, which would silently shadow a
+        # class-level override
+    },
     edges=(Edge("strategizer", "implementer"),),  # who may delegate to whom
     entry="strategizer",  # who gets the initial briefing
 )
 
-AgenticRun(study_dir="my_study", graph=graph).execute()  # swaps in this graph
+AgenticRun(study_dir=study_dir, graph=graph).execute()
 ```
 
-- **`nodes`** maps a name to an `Agent` instance. Every node needs a non-empty
-  `description`; `Graph` raises `ValueError` if one is missing.
-- **`edges`** are directed: `Edge("strategizer", "implementer")` lets the
-  strategizer delegate to the implementer, and is what gives the implementer
-  its `Delegate` tool. Both endpoints must be declared nodes, or `Graph`
-  raises `ValueError`.
-- **`entry`** is the node that receives the initial briefing; it must be a
-  declared node.
-
-This is the same shape the built-in graph uses (see `_default_graph()`): five
-nodes, six edges, `entry="strategizer"`. There is no `config.yaml` key for
-this: a custom graph is a constructor argument, full stop.
+Run this with no `config.yaml` (or one that just says `backend: claude`) and
+the strategizer runs on Claude, the run's default, while the implementer
+alone runs on Ollama with `qwen2.5:7b`. Nothing here reads `config.yaml` for
+the implementer's backend at all; `Implementer(model=...)` and
+`backend = "ollama"` are the only source of truth for that one node.
 
 A bare `Agent` subclass starts from zero tools (`Agent.tools` defaults to
-`frozenset()`) and zero epistemic machinery. The shipped agents
-(`StrategizerAgent`, `LiteratureReviewAgent`, `DataGeneratorAgent`,
-`F3dasmImplementerAgent`, `AdversarialCritiqueAgent`) wire up the hypothesis
-ledger, the reproduction gate, and each other's delegation tools already.
-Swapping in a hand-rolled `Agent` for one shipped role, while keeping the
-rest of the built-in graph, isn't a pattern this project tests today, so
-it isn't documented here as supported: build a full custom graph from
-scratch instead, as above.
+`frozenset()`) and zero epistemic machinery. The shipped agents wire up the
+hypothesis ledger, the reproduction gate, and each other's delegation tools
+already; a hand-rolled one, like `Strategist`/`Implementer` above, does not.
+This is also why no shipped agent sets a per-agent `backend`, and no test in
+this project exercises a graph that mixes backends: it's a real, working
+lever (as shown above), but running most of a graph on Claude and one node
+on a local model is a combination you'd be the first to try.
 
-## A custom system prompt
-
-`system_prompt` is a plain class attribute on `Agent` (default `""`); the
-runtime reads `agent.system_prompt` whenever it builds that node's session.
-Setting it is exactly what the example above does for `Strategist`. There is
-no `system_prompt=` constructor keyword and no `config.yaml` key for it
-either: subclassing and overriding the class attribute is the only lever.
-
-One thing this does *not* give you: a3dasm always prepends its own run-paths
-or workspace preamble to whatever you set in `system_prompt`. You can control
-your agent's own instructions; you cannot suppress the preamble a3dasm adds
-ahead of them.
-
-## A different backend or model, per agent
-
-When the runtime builds an agent's session, it resolves the backend and
-model independently: `agent.backend or self._backend` and
-`agent.model or self._model` (`agent_runtime.py`'s `_make_adapter`), where
-`self._backend`/`self._model` are the run's own defaults, whatever
-`config.yaml` or `AgenticRun`'s constructor set. But the two are set
-differently, because `backend` and `model` aren't handled the same way on
-`Agent`:
-
-- **`backend`** is a plain class attribute, default `None`. Override it like
-  `system_prompt`, by setting it on the subclass.
-- **`model`** is constructor-only: `Agent.__init__` always does
-  `self.model = model`, so a class-level `model = "..."` is silently
-  shadowed by that assignment. Pass it when you instantiate instead.
-
-```python
-class Implementer(Agent):
-    description = "Writes and runs the evaluation code."
-    backend = "ollama"  # class attribute; every Implementer() gets this
-
-implementer = Implementer(model="qwen2.5:7b")  # constructor arg, per instance
-```
-
-This agent alone runs local; everyone else in the graph still uses whatever
-the run's default backend/model is. This is the same lever `system_prompt`
-uses (a class attribute the runtime reads generically), so the same caveat
-applies: no shipped agent sets a per-agent `backend`, and no test in this
-project exercises a graph that mixes backends across agents. It's real
-(`agent_runtime.py:1250`), but running most of your graph on Claude and one
-specialist on a local model is a combination you'd be the first to try.
-
-## The available backends
+## Reference: the available backends
 
 Whichever backend a run defaults to, whether set globally in `config.yaml`
 or per agent above, all backends report token usage through the same

@@ -33,7 +33,7 @@ export ANTHROPIC_API_KEY=sk-...
 
 Don't have Claude access at all, or want to use a different model? a3dasm
 also drives Ollama, any OpenAI-compatible endpoint, and vLLM: see
-[Customizing a run](customizing-a-run.md#the-available-backends).
+[Customizing a run](customizing-a-run.md#reference-the-available-backends).
 
 ## Optional extras
 

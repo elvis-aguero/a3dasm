@@ -53,7 +53,7 @@ can set:
 | `required_deliverables` | extra files that must exist before the run can finish | none |
 | `evaluator` | how a design gets scored, see below | honor-system |
 
-See [Customizing a run](customizing-a-run.md#the-available-backends) for the
+See [Customizing a run](customizing-a-run.md#reference-the-available-backends) for the
 `backend`/`model` details, including setting them per agent instead of for
 the whole run.
 
