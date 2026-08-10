@@ -28,7 +28,7 @@ your own, rather than treating it as a black box.
   .a3l .agent   { fill: var(--a3l-agent-fill); stroke: var(--a3l-line); stroke-width: 1.2; }
   .a3l .store   { fill: var(--a3l-store-fill); stroke: var(--a3l-accent); stroke-width: 1.2; stroke-dasharray: 4 3; }
   .a3l .gateline{ stroke: var(--a3l-accent); stroke-width: 1.6; stroke-dasharray: 2 4; }
-  .a3l .icon    { fill: none; stroke: var(--a3l-ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .a3l .icon    { fill: none; stroke: var(--a3l-ink); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .a3l .icon-fill { fill: var(--a3l-ink); stroke: none; }
   .a3l .legend { display: flex; gap: 20px; margin-top: 14px; font-size: 12.5px; color: var(--a3l-dim); }
   .a3l .legend span { display: inline-flex; align-items: center; gap: 7px; }
@@ -49,10 +49,15 @@ your own, rather than treating it as a black box.
     </marker>
 
     <g id="a3l-icon-strategy">
-      <circle class="icon" cx="16" cy="16" r="11"/>
-      <line class="icon" x1="16" y1="16" x2="22" y2="9"/>
-      <polygon class="icon-fill" points="22,9 17.6,10.6 20.4,13.4"/>
-      <circle class="icon-fill" cx="16" cy="16" r="1.6"/>
+      <line class="icon" x1="16" y1="16" x2="9" y2="9"/>
+      <line class="icon" x1="16" y1="16" x2="23" y2="9"/>
+      <line class="icon" x1="16" y1="16" x2="23" y2="23"/>
+      <line class="icon" x1="16" y1="16" x2="9" y2="23"/>
+      <circle class="icon" cx="9" cy="9" r="2.4"/>
+      <circle class="icon" cx="23" cy="9" r="2.4"/>
+      <circle class="icon" cx="23" cy="23" r="2.4"/>
+      <circle class="icon" cx="9" cy="23" r="2.4"/>
+      <circle class="icon-fill" cx="16" cy="16" r="3.4"/>
     </g>
 
     <g id="a3l-icon-book">
