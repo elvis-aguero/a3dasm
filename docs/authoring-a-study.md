@@ -96,6 +96,12 @@ also writes a timestamped folder under `runs/` with the evaluation record, logs,
 and a status file. See [Understanding a run's output](reading-a-run.md) for what's
 in there and how to read it.
 
+Everything above is `config.yaml` and `PROBLEM_STATEMENT.md`; the graph itself
+(which agents exist, how they delegate) and each agent's system prompt are
+Python-level extension points instead. See
+[Customizing the graph](customizing-a-run.md) if the built-in strategizer and
+four specialists aren't the shape your problem needs.
+
 ## Before a long run, check
 
 - `PROBLEM_STATEMENT.md` states explicit success criteria, the design space
