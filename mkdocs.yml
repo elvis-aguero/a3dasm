@@ -2,6 +2,7 @@ theme:
     name: material
     features:
         - navigation.sections
+        - navigation.footer
         - toc.integrate
         - header.autohide
         - content.code.copy
