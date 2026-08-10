@@ -1,14 +1,39 @@
 # Installation
 
-a3dasm requires Python 3.10 or newer and depends on
-[f3dasm](https://github.com/bessagroup/f3dasm) (installed automatically from
-PyPI).
+Two things, in order: the Python package, and a way to actually talk to a
+model. Both are one command each.
 
-It isn't on PyPI yet, so install it from the repository:
+## 1. The package
+
+Requires Python 3.10+. [f3dasm](https://github.com/bessagroup/f3dasm) comes
+along automatically from PyPI.
 
 ```bash
 pip install "a3dasm @ git+https://github.com/elvis-aguero/a3dasm.git"
 ```
+
+(Not on PyPI yet, so it installs straight from the repository.)
+
+## 2. A model to drive the agents
+
+By default a3dasm talks to models through the **Claude CLI** — a separate
+tool, not part of the `pip install` above.
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude   # first run prompts you to log in (subscription or API key)
+```
+
+That's it — once `claude` works on its own from your terminal, a3dasm can use
+it. No Node.js? Or already have an API key and want to skip the login prompt?
+
+```bash
+export ANTHROPIC_API_KEY=sk-...
+```
+
+Don't have Claude access at all, or want to use a different model? a3dasm
+also drives Ollama, any OpenAI-compatible endpoint, and vLLM — see
+[Configuring the backend](backends.md).
 
 ## Optional extras
 
@@ -18,8 +43,7 @@ pip install "a3dasm @ git+https://github.com/elvis-aguero/a3dasm.git"
 - `a3dasm[tests]` installs the test toolchain.
 - `a3dasm[dev]` installs pre-commit and ruff.
 
-## Backends
+## Next
 
-a3dasm can drive the agents with the Claude CLI (default), an OpenAI-compatible
-endpoint, Ollama, OpenRouter, or a vLLM server. See
-[Configuring the backend](backends.md).
+[Run the Quickstart](notebooks/quickstart.ipynb) — a couple of minutes to
+your first result.

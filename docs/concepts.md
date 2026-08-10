@@ -1,10 +1,10 @@
 # Core concepts
 
-a3dasm runs a small team of language-model agents to solve a data-driven
-engineering problem end to end. You give it a written problem statement; it
-decides what to try, runs real evaluations, argues with itself about whether the
-result holds up, and hands back a notebook that reproduces the answer. This page
-explains the pieces and the words a3dasm uses for them.
+If you've just run the [Quickstart](notebooks/quickstart.ipynb), you've already
+seen a3dasm work end to end: one problem statement in, one reproducible
+notebook out. This page names the pieces that made that happen, so you can
+reason about what a run is doing — and write a better problem statement for
+your own — rather than treating it as a black box.
 
 ## The graph and the open loop
 

@@ -78,7 +78,8 @@ tests = [
 ]
 
 [project.urls]
-Repository = "https://github.com/bessagroup/a3dasm"
+Repository = "https://github.com/elvis-aguero/a3dasm"
+Documentation = "https://elvis-aguero.github.io/a3dasm/"
 
 [tool.coverage.report]
 exclude_lines = [

@@ -2,23 +2,29 @@
 
 Agentic Data-driven Design and Analysis of Structures and Materials.
 
-a3dasm is a graph of LLM agents that solves data-driven engineering problems.
-A hub strategizer delegates to specialist nodes (literature reviewer, data
-generator, implementer, critic) on an open-loop architecture, keeps a Popperian
-hypothesis ledger, and produces a reproducible `pipeline.ipynb` deliverable that
-must pass a reproduction gate before a run is considered closed.
+You write one file describing an engineering design or data problem — the
+objective, the design space, what counts as valid. a3dasm runs a team of LLM
+agents that decide what to try, build the code to evaluate it, run real
+experiments, review their own conclusions before accepting them, and hand you
+back a notebook that reproduces the result end to end.
 
-a3dasm builds on [f3dasm](https://github.com/bessagroup/f3dasm) for the
+It builds on [f3dasm](https://github.com/bessagroup/f3dasm) for the
 data-driven primitives (`ExperimentData`, `Domain`, `DataGenerator`, the
-`Pipeline` and its SLURM execution). f3dasm is a pinned dependency; a3dasm adds
-the agentic layer on top and carries no copy of f3dasm core.
+`Pipeline`); a3dasm is the agentic layer on top and carries no copy of f3dasm
+core.
 
 ## Install
 
-The repository is private for now, so install from Git:
+```bash
+pip install "a3dasm @ git+https://github.com/elvis-aguero/a3dasm.git"
+```
+
+You'll also need a model to drive the agents — by default, the
+[Claude CLI](https://docs.claude.com/en/docs/claude-code):
 
 ```bash
-pip install "a3dasm @ git+ssh://git@github.com/bessagroup/a3dasm.git@v0.1.0"
+npm install -g @anthropic-ai/claude-code
+claude   # first run prompts you to log in
 ```
 
 ## Quick start
@@ -35,10 +41,12 @@ report = AgenticRun(
 print(report)
 ```
 
+See the [Quickstart](https://elvis-aguero.github.io/a3dasm/notebooks/quickstart/)
+for a worked example, start to finish.
+
 ## Documentation
 
-Built with MkDocs. Run `mkdocs serve` locally, or see the hosted docs once
-published.
+<https://elvis-aguero.github.io/a3dasm/> — or run `mkdocs serve` locally.
 
 ## License
 
