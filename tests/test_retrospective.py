@@ -277,9 +277,15 @@ class TestStrategizerGranularity:
         from a3dasm._src.agents.strategizer import (
             STRATEGIZER_SYSTEM_PROMPT,
         )
-        # domain-neutral: no leaked example framings, but the principle is there
-        assert "not a bet on which method" in STRATEGIZER_SYSTEM_PROMPT.lower() \
-            or "NOT a bet on which method" in STRATEGIZER_SYSTEM_PROMPT
+        # domain-neutral: no leaked example framings, but the principle is
+        # there. The old wording ("NOT a bet on which method or algorithm
+        # will win") contradicted the prompt's own matched-conditions A/B
+        # comparison guidance a few lines earlier — corrected so a property
+        # framing is preferred WHEN THE QUESTION PERMITS IT, not a categorical
+        # ban on comparison hypotheses (full corpus audit, see MEMORY.md).
+        assert "when the question permits" in STRATEGIZER_SYSTEM_PROMPT.lower()
+        assert "legitimate, cleanly falsifiable hypothesis" in \
+            STRATEGIZER_SYSTEM_PROMPT.lower()
 
 
 class TestRetrospectiveTextCap:
