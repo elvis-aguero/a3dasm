@@ -1,0 +1,46 @@
+name: Wet docs smoke test
+
+on:
+  schedule:
+    # Once daily — a real, live-LLM run against a free-tier OpenRouter model.
+    # Deliberately NOT on push/pull_request: these runs are non-deterministic
+    # (a real agentic run, not a mocked one), and this repo is public, so
+    # OPENROUTER_API_KEY must never be reachable from a fork's PR code.
+    # schedule/workflow_dispatch only ever run against the trusted default
+    # branch, which is what makes exposing the secret here safe.
+    - cron: "0 8 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  wet-docs-smoke:
+    runs-on: ubuntu-latest
+    # Backstop above the runtime's own watchdog/wall-clock budget, in case a
+    # free-tier model gets stuck rather than erroring cleanly.
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[tests,all]'
+      - name: Run docs-tutorial wet smoke test
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          pytest tests/test_docs_tutorials_wet.py -v -s --no-cov -m integration
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wet-docs-smoke-artifacts
+          path: |
+            /tmp/pytest-of-*/**/pipeline.ipynb
+            /tmp/pytest-of-*/**/run_status.json
+            /tmp/pytest-of-*/**/debug/**
+          if-no-files-found: ignore
+          retention-days: 14
