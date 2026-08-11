@@ -71,10 +71,24 @@ def test_critic_uses_falsification_flags():
 
 
 def test_prompts_are_case_generic():
-    # no references to specific past studies in any prompt
+    # no references to specific past studies in any prompt. Covers every
+    # shipped agent prompt, not just the three a past incident happened to
+    # touch — that undercount is exactly how 'coilable' etc. survived
+    # elsewhere until a full corpus audit found them (see
+    # test_agent_prompts.test_no_domain_specific_leakage_extended for the
+    # broader forbidden-term list and the shared-tool-docstring check).
+    from a3dasm._src.agents.datagenerator import DATA_GENERATOR_SYSTEM_PROMPT
+    from a3dasm._src.agents.debugger import DEBUGGER_SYSTEM_PROMPT
+    from a3dasm._src.agents.implementer import IMPLEMENTER_SYSTEM_PROMPT
+    from a3dasm._src.agents.literature import LITERATURE_REVIEW_SYSTEM_PROMPT
+
     for prompt in (STRATEGIZER_SYSTEM_PROMPT,
                    CHECKPOINT_STRATEGIZER_PROMPT,
-                   ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT):
+                   ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT,
+                   IMPLEMENTER_SYSTEM_PROMPT,
+                   LITERATURE_REVIEW_SYSTEM_PROMPT,
+                   DATA_GENERATOR_SYSTEM_PROMPT,
+                   DEBUGGER_SYSTEM_PROMPT):
         for stale in ("supercompressible", "black_box_8d",
                       "sigma_crit"):
             assert stale not in prompt, stale

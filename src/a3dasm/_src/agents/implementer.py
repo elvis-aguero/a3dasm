@@ -156,9 +156,10 @@ PREFER f3dasm primitives over raw numpy/scipy equivalents.
   # array task, each with its own node's resources), never a local pool.
   gen.flush()
   # get_evaluator() + flush() already wrote every FINISHED row to the canonical
-  # store. Do NOT call data.store() afterwards — it would re-write those rows as
-  # IN_PROGRESS and corrupt the ledger. Reload with ExperimentData.from_file()
-  # if you need the updated outputs.
+  # store. Do NOT call data.store() afterwards — the runtime REFUSES a write
+  # that would reset a FINISHED row (RuntimeError), so this is a safe refusal,
+  # not silent corruption, but the write never happens either way. Reload with
+  # ExperimentData.from_file() if you need the updated outputs.
 
 ─── SURROGATE FIT (ML block) ────────────────────────────────────────────
   # f3dasm ships no built-in GP. Use sklearn or botorch — both are
@@ -179,8 +180,10 @@ PREFER f3dasm primitives over raw numpy/scipy equivalents.
   # Always report CV quality before trusting the surrogate:
   cv_r2 = cross_val_score(gp, X_train, y_train, cv=5,
                           scoring="r2").mean()
-  # If cv_r2 < 0.7, flag the surrogate as unreliable and recommend
-  # more exploration before trusting the optimum.
+  # Flag the surrogate as unreliable whenever cv_r2 is inconsistent with the
+  # problem's expected noise floor and achievable fit quality — state that
+  # expectation explicitly rather than assuming a universal cutoff;
+  # recommend more exploration before trusting the optimum when it is.
 
 ─── SURROGATE-GUIDED EXPLOIT LOOP ──────────────────────────────────────
   # (f3dasm also ships native ask/tell optimizers via
@@ -188,13 +191,16 @@ PREFER f3dasm primitives over raw numpy/scipy equivalents.
   #  output_name=..., input_name=...) — confirm its signature before use.)
 
   # EVAL BUDGET GUARD: read remaining budget from the task brief and cap
-  # n_bo_steps (and any gradient-based optimizer's maxiter/max_nfev) so
-  # total metered calls cannot exceed it. For gradient methods (L-BFGS-B,
-  # Nelder-Mead, scipy.optimize.minimize), each iteration consumes multiple
-  # oracle calls via finite-difference gradient estimation (~4–6 per step);
-  # multiply maxiter × n_starts by this factor and compare against remaining.
-  # Example: if remaining = 200 and L-BFGS-B uses ~5 calls/iter,
-  #   max_iter = max(1, remaining // (n_starts * 5))
+  # n_bo_steps (and any optimizer's maxiter/max_nfev) so total metered calls
+  # cannot exceed it. Derivative-free methods (Nelder-Mead) cost ~1 oracle
+  # call per iteration. Gradient-based methods with finite-difference
+  # gradients (L-BFGS-B, scipy.optimize.minimize with jac=None) cost ~d+1
+  # calls/iteration (forward difference) or ~2d+1 (central difference),
+  # where d is the input dimensionality — compute this from the actual
+  # domain size, not a fixed factor.
+  # Example: if remaining = 200, d = 4, and L-BFGS-B uses forward-difference
+  # gradients (~d+1 = 5 calls/iter),
+  #   max_iter = max(1, remaining // (n_starts * (d + 1)))
   # Cap BEFORE entering the loop — `if budget_remaining <= 0: return` at the top.
 
   # PATTERN B — sklearn GP with Expected Improvement (BO):
@@ -284,8 +290,11 @@ Need a signature not listed here? Read source files.
 
 3. SURROGATE QUALITY FIRST
    Before reporting a best design from exploitation, report surrogate
-   quality (5-fold CV R² or RMSE).  If R² < 0.7, flag the surrogate
-   as unreliable and recommend more exploration.
+   quality (5-fold CV R² or RMSE).  Flag the surrogate as unreliable
+   whenever that value is inconsistent with the problem's expected noise
+   floor and achievable fit quality — state that expectation explicitly
+   rather than assuming a universal cutoff — and recommend more
+   exploration when it is.
 
 4. REPORT THE BEST FEASIBLE DESIGN
    State the best input vector, the objective value, and how many
@@ -360,7 +369,7 @@ USE Bash() to:
   - Call external simulators named in the briefing.
   - Execute Python scripts for numerical work.
 
-LONG JOBS (e.g. an Abaqus solve): a Bash command that runs past its timeout is
+LONG JOBS (e.g. a long-running external simulator): a Bash command that runs past its timeout is
 BACKGROUNDED — NOT killed — and returns a `bash_id`. Do NOT assume it finished:
 poll it with BashOutput(bash_id) until it reports exited, then read its result
 file; use KillShell(bash_id) to stop it. For a job you know is long, pass a
@@ -533,7 +542,7 @@ class F3dasmImplementerAgent(Agent):
         # read-only ledger/store access (single source of truth for tools)
         "RecallStore", "QueryStore", "OracleStatus",
         "HypothesisList", "HypothesisGet",
-        # manage a backgrounded long job (e.g. Abaqus): poll it / stop it.
+        # manage a backgrounded long job (e.g. an external simulator): poll it / stop it.
         # Bash auto-backgrounds a command past its timeout and returns a
         # bash_id; these are its SDK companions.
         "BashOutput", "KillShell",

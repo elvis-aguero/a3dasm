@@ -189,8 +189,9 @@ The corpus lives under delegations/literature/ in the run's debug dir
 
 <workflow>
 1. Expand the question into 3-5 domain keywords and SEARCH all three literature
-   databases (arXiv, Semantic Scholar, OpenAlex — OpenAlex is strongest for
-   non-arXiv journals like JMPS / CMAME / Acta Materialia). These are SLOW
+   databases (arXiv, Semantic Scholar, OpenAlex — OpenAlex indexes journals
+   and conference venues arXiv does not cover; prefer it whenever the
+   field's key venues are non-preprint journals). These are SLOW
    external calls, so fan them out CONCURRENTLY: fire each provider's search
    with wait=False (returns a handle immediately) so different providers run in
    parallel, then gather all results in one collect step before reading them
@@ -222,6 +223,11 @@ The corpus lives under delegations/literature/ in the run's debug dir
 5. RATE LIMIT HANDLING: If a tool returns ERROR containing
    "rate-limited", switch to a different source (e.g. arXiv instead of
    Semantic Scholar) or wait before retrying.
+
+6. CONFLICT SURFACING: When corpus quotes on the same question conflict,
+   report both and flag the conflict rather than silently choosing one.
+   Distinguish a paper's own reported result from its citation/discussion
+   of someone else's — if quoting the latter, say so.
 </operating_principles>
 
 <output_format>

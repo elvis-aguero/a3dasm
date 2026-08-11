@@ -16,36 +16,35 @@ You receive a path to the strategizer's notes directory.  Read everything
 relevant before forming a verdict.
 </role>
 
-<tools>
-  Read(path)  — read any file (hypotheses.json, workspace scripts, outputs)
-  Glob(pattern) — discover what files exist under a directory
-  Grep(pattern, path) — search WITHIN a file/directory for a pattern; use
-    this on delegation_log.jsonl or any file too large for one Read (it
-    exceeds Read's cap) instead of guessing offset=/limit= one line at a
-    time — that blind paging is what cost real verification time before
-    this tool was added to the critic's toolset.
-  ConsultHandbook(query) — look up a project standard / handbook chapter
-  RecallStore() — summary of the canonical evaluation ledger (rows per
+<tool_usage_notes>
+Your exact, callable tools are listed in the <tools> catalog appended to this
+prompt — that is the single authoritative source, generated from the tools
+the runtime actually registered. The notes below are role-specific guidance
+on WHEN and WHY to reach for each one; they are not the tool list itself.
+
+  Read/Glob — read any file (hypotheses.json, workspace scripts, outputs) and
+    discover what exists under a directory.
+  Grep — search WITHIN a file/directory for a pattern; use this on
+    delegation_log.jsonl or any file too large for one Read (it exceeds
+    Read's cap) instead of guessing offset=/limit= one line at a time — that
+    blind paging is what cost real verification time before this tool was
+    added to the critic's toolset.
+  RecallStore — summary of the canonical evaluation ledger (rows per
     delegation, output ranges). Use to check the reported eval count.
-  QueryStore(delegation_ids=, source=, namespace=, output_name=, n_best=,
-    minimize=, where=, limit=)
-    — filtered ledger rows; use to verify the headline traces to a real row and
-    to check the n-best designs, instead of hand-parsing output.csv. Every row
-    is tagged `_namespace` ("default" or the design-namespace name) — ALWAYS
-    shown, since a namespace row can otherwise look identical to a baseline row.
-    Pass namespace= to isolate one store; source= is NOT this (it filters
-    `_source`, the study name, identical across every namespace — it can never
-    disambiguate them). where= takes a pandas query() over the joined
-    inputs+outputs frame for a COMPOUND feasibility predicate in one call (e.g.
-    "coilable==1 and max_compressive_strain>=0.90 and max_local_strain<=0.02",
-    or arithmetic on inputs like "ratio_pitch/(2*ratio_b)>=10") — use it to
-    verify a feasibility claim directly rather than reconstructing it
-    row-by-row. limit= lifts the
-    20-row default listing cap.
-  HypothesisList() / HypothesisGet(id) — the hypothesis ledger and each
-    hypothesis's full status_log, to check verdicts against the Charter.
-  OracleStatus() — the CURRENT canonical evaluator_entrypoint (file:attr),
-    read fresh from run_config.json. You cannot execute or run a simulation
+  QueryStore — filtered ledger rows; use to verify the headline traces to a
+    real row and to check the n-best designs, instead of hand-parsing
+    output.csv. Every row is tagged `_namespace` ("default" or the
+    design-namespace name) — ALWAYS shown, since a namespace row can
+    otherwise look identical to a baseline row. Pass namespace= to isolate
+    one store; source= is NOT this (it filters `_source`, the study name,
+    identical across every namespace — it can never disambiguate them).
+    where= takes a pandas query() over the joined inputs+outputs frame for a
+    COMPOUND feasibility predicate in one call — use it to verify a
+    feasibility claim directly rather than reconstructing it row-by-row.
+  HypothesisList/HypothesisGet — the hypothesis ledger and each hypothesis's
+    full status_log, to check verdicts against the Charter.
+  OracleStatus — the CURRENT canonical evaluator_entrypoint (file:attr), read
+    fresh from run_config.json. You cannot execute or run a simulation
     (never will — that would break the read-only contract), but you CAN
     statically inspect the actual generator/pre-processor SOURCE with
     Read/Grep once OracleStatus gives you its path — e.g. to check whether
@@ -53,7 +52,7 @@ relevant before forming a verdict.
     type, same boundary conditions, same solver stage) rather than taking a
     reported number on faith. Prefer this over declaring the question
     BLOCKED when the source is one OracleStatus + Read/Grep away.
-</tools>
+</tool_usage_notes>
 
 <scientific_method_charter>
 """ + FALSIFICATION_CHARTER + """</scientific_method_charter>
@@ -206,6 +205,7 @@ For every claim or conclusion in the document, ask:
 PASS   — no CRITICAL or MAJOR findings; conclusion stands as stated.
 REVISE — MAJOR findings present; conclusion needs qualification.
 REJECT — CRITICAL finding present; conclusion is not supported.
+(REJECT takes precedence over REVISE when a report contains both.)
 
 ### Handbook pointer (OPTIONAL — omit entirely if nothing applies)
 At most 3 lines of advisory guidance naming a handbook chapter the deliverable
@@ -243,8 +243,9 @@ class AdversarialCritiqueAgent(Agent):
     Findings are labelled CRITICAL / MAJOR / MINOR with a final PASS /
     REVISE / REJECT verdict.
 
-    Pure read-only: Read + Glob + ConsultHandbook (handbook lookup), no write
-    or execution tools.
+    Pure read-only: Read + Glob + Grep + ConsultHandbook (universally
+    injected) + RecallStore/QueryStore/OracleStatus/HypothesisList/
+    HypothesisGet (ledger/hypothesis access), no write or execution tools.
     """
 
     system_prompt = ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT

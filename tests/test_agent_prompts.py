@@ -640,18 +640,43 @@ def test_implementer_reasoning_protocol_content():
 # ---------------------------------------------------------------------------
 
 def test_no_domain_specific_leakage_extended():
-    """No prompt contains 'coilable', 'sigma_crit', or 'Bessa'."""
+    """No prompt, and no shared tool docstring rendered into every agent's
+    catalog, contains vocabulary from one specific prior study.
+
+    Regression: this test previously covered only 4 of the (now 6) agent
+    prompt constants — literature.py, datagenerator.py, critic.py, and
+    debugger.py were never checked, which is exactly why 'coilable' /
+    'sigma_crit' / 'max_compressive_strain' leaked into three of them (and
+    into QueryStore's own docstring in routing.py, rendered into every
+    agent's generated <tools> catalog regardless of which file you'd think
+    to check) before anyone noticed. Scope this to every shipped agent
+    prompt AND every tool docstring a real audit found leaking, not just
+    the ones a past incident happened to touch.
+    """
     from a3dasm._src.agent_prompts import (
         CHECKPOINT_STRATEGIZER_PROMPT,
         IMPLEMENTER_RESET_PROMPT_TEMPLATE,
-        IMPLEMENTER_SYSTEM_PROMPT,
-        STRATEGIZER_SYSTEM_PROMPT,
     )
+    from a3dasm._src.agents.critic import ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT
+    from a3dasm._src.agents.datagenerator import DATA_GENERATOR_SYSTEM_PROMPT
+    from a3dasm._src.agents.debugger import DEBUGGER_SYSTEM_PROMPT
+    from a3dasm._src.agents.implementer import IMPLEMENTER_SYSTEM_PROMPT
+    from a3dasm._src.agents.literature import LITERATURE_REVIEW_SYSTEM_PROMPT
+    from a3dasm._src.agents.strategizer import STRATEGIZER_SYSTEM_PROMPT
 
-    forbidden_terms = ["coilable", "sigma_crit", "bessa"]
+    forbidden_terms = [
+        "coilable", "sigma_crit", "bessa", "max_compressive_strain",
+        "max_local_strain", "ratio_pitch", "ratio_d", "abaqus", "riks",
+    ]
     prompts = {
         "STRATEGIZER_SYSTEM_PROMPT": STRATEGIZER_SYSTEM_PROMPT,
         "IMPLEMENTER_SYSTEM_PROMPT": IMPLEMENTER_SYSTEM_PROMPT,
+        "LITERATURE_REVIEW_SYSTEM_PROMPT": LITERATURE_REVIEW_SYSTEM_PROMPT,
+        "DATA_GENERATOR_SYSTEM_PROMPT": DATA_GENERATOR_SYSTEM_PROMPT,
+        "ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT": (
+            ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT
+        ),
+        "DEBUGGER_SYSTEM_PROMPT": DEBUGGER_SYSTEM_PROMPT,
         "CHECKPOINT_STRATEGIZER_PROMPT": CHECKPOINT_STRATEGIZER_PROMPT,
         "IMPLEMENTER_RESET_PROMPT_TEMPLATE": (
             IMPLEMENTER_RESET_PROMPT_TEMPLATE
@@ -663,6 +688,38 @@ def test_no_domain_specific_leakage_extended():
             assert term not in lower, (
                 f"{const_name} leaks term '{term}'"
             )
+
+
+def test_shared_tool_docstrings_have_no_domain_specific_leakage():
+    """A tool docstring is rendered into EVERY agent's generated <tools>
+    catalog that declares it (tool_catalog.render_tool_catalog) — so a study-
+    specific example baked in there leaks into every agent's assembled
+    prompt at runtime, invisibly to a per-agent-file audit. QueryStore's own
+    docstring in routing.py was the actual source of the 'coilable' /
+    'max_compressive_strain' leak found in critic.py's hand-copy of it; fix
+    it once, here, and it never needs fixing per-agent again.
+    """
+    import inspect
+    import re
+
+    from a3dasm._src.nodes.tools import routing
+
+    # Word-boundary, not substring: routing.py's maintainer comments legitimately
+    # reference the upstream f3dasm GitHub org ("bessagroup/f3dasm#351"), which a
+    # plain substring check on "bessa" would misfire on. This checks the same
+    # forbidden vocabulary as test_no_domain_specific_leakage_extended, just
+    # scoped to the tool-definition source instead of a prompt string.
+    forbidden_terms = [
+        "coilable", "sigma_crit", "max_compressive_strain",
+        "max_local_strain", "ratio_pitch", "ratio_d", "abaqus", "riks",
+    ]
+    source = inspect.getsource(routing)
+    lower = source.lower()
+    for term in forbidden_terms:
+        assert not re.search(rf"\b{re.escape(term)}\b", lower), (
+            f"routing.py (tool definitions rendered into every agent's "
+            f"<tools> catalog) leaks term '{term}'"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1078,6 +1135,43 @@ def test_no_agent_bare_advertises_its_closures():
             "the model can only call the qualified catalog name, so it will hit "
             "'No such tool available'. Present capabilities and defer to the "
             "<tools> catalog for exact names (as the strategizer does)."
+        )
+
+
+def test_every_declared_tool_is_named_or_deferred_to_the_catalog():
+    """Every non-native tool an agent declares in `tools` must either be named
+    somewhere in the agent's OWN prompt text, or the prompt must defer to the
+    generated <tools> catalog (which is always accurate — it's rendered from
+    the live closure set at prompt-assembly time, see tool_catalog.py).
+
+    Regression guard for the debugger-class bug: DebuggerAgent's <role> block
+    hand-listed 5 tools while its `tools` frozenset granted 11 — a static
+    enumeration that silently went stale the moment a 6th tool was added to
+    the frozenset, in a file that never said "this list isn't authoritative."
+    Every OTHER shipped agent avoids this by explicitly deferring to the
+    catalog; this test makes that the enforced convention, not a convention
+    five agents happen to follow and a sixth doesn't.
+    """
+    from a3dasm._src.agents.critic import AdversarialCritiqueAgent
+    from a3dasm._src.agents.datagenerator import DataGeneratorAgent
+    from a3dasm._src.agents.debugger import DebuggerAgent
+    from a3dasm._src.agents.implementer import F3dasmImplementerAgent
+    from a3dasm._src.agents.literature import LiteratureReviewAgent
+    from a3dasm._src.agents.strategizer import StrategizerAgent
+
+    native = {"Bash", "Edit", "Read", "Write", "Glob", "Grep"}
+    catalog_phrase = "<tools> catalog"
+
+    for Ag in (StrategizerAgent, F3dasmImplementerAgent, LiteratureReviewAgent,
+               DataGeneratorAgent, AdversarialCritiqueAgent, DebuggerAgent):
+        ag = Ag()
+        non_native = sorted(ag.tools - native)
+        defers = catalog_phrase in ag.system_prompt
+        missing = [t for t in non_native if t not in ag.system_prompt]
+        assert defers or not missing, (
+            f"{Ag.__name__} declares tools {missing} that are neither named "
+            f"in its own prompt nor covered by a '{catalog_phrase}' deferral "
+            "— either mention them by name or defer to the generated catalog."
         )
 
 
