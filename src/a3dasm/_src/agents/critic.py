@@ -181,9 +181,12 @@ For every claim or conclusion in the document, ask:
 - VERDICT MODE: the task message carries a mode tag that determines
   whether PASS is available.
   * <mode>FEEDBACK</mode> — a synchronous, find-only audit triggered by
-    AskForFeedback() mid-run.  PASS is NOT available here; your
-    ### Verdict must be REVISE or REJECT.  Report every objection you
-    find; the calling agent decides whether to act on them.
+    AskForFeedback() mid-run.  PASS is NOT available here (that is reserved
+    for the final Done() gate).  Return REVISE (MAJOR finding present),
+    REJECT (CRITICAL finding present), or NOTED (no CRITICAL or MAJOR
+    finding — a clean read is a valid outcome; NOTED is not an acceptance,
+    only Done()'s GATE-mode review can close the run).  Report every
+    objection you find; the calling agent decides whether to act on them.
   * <mode>GATE</mode> — the final Done() acceptance check.  PASS IS
     available and means "the conclusion is accepted as it stands."
     Return PASS when you find no CRITICAL or MAJOR objection; otherwise
@@ -202,9 +205,11 @@ For every claim or conclusion in the document, ask:
   [SEVERITY] Claim: "<exact quote>".  Objection: <your argument>.>
 
 ### Verdict
-PASS   — no CRITICAL or MAJOR findings; conclusion stands as stated.
+PASS   — GATE mode only: no CRITICAL or MAJOR findings; conclusion stands as stated.
 REVISE — MAJOR findings present; conclusion needs qualification.
 REJECT — CRITICAL finding present; conclusion is not supported.
+NOTED  — FEEDBACK mode only: no CRITICAL or MAJOR findings. Not an
+         acceptance — only a GATE-mode PASS closes the run.
 (REJECT takes precedence over REVISE when a report contains both.)
 
 ### Handbook pointer (OPTIONAL — omit entirely if nothing applies)

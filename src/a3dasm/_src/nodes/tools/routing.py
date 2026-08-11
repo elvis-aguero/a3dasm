@@ -3249,7 +3249,8 @@ def build_routing_tools(node) -> dict:
 
         AskForFeedback.__doc__ = (
             f"Synchronous find-only audit by: {_critic_desc} "
-            "PASS is not a valid verdict — only REVISE or REJECT. "
+            "PASS is not a valid verdict here — REVISE, REJECT, or NOTED "
+            "(no CRITICAL/MAJOR issue found; not an acceptance). "
             "hypothesis_ids: H-ids to focus on; None = all hypotheses auto-injected. "
             "Use Done() for the final gate check."
         )

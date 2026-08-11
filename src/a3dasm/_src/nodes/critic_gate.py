@@ -380,8 +380,10 @@ class CriticGateMixin:
         return (
             "<mode>FEEDBACK</mode>\n\n"
             "Perform a synchronous find-only adversarial audit.  "
-            "PASS is not an available verdict — return REVISE or "
-            "REJECT with your findings.\n\n"
+            "PASS is not an available verdict here — return REVISE or "
+            "REJECT with your findings, or NOTED if you find no CRITICAL "
+            "or MAJOR issue (NOTED is not an acceptance; only Done()'s "
+            "GATE-mode review can close the run).\n\n"
             "<paths>\n"
             f"study_dir             = {_study_dir}\n"
             f"debug_dir             = {_debug_dir}\n"
