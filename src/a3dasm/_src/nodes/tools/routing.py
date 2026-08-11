@@ -284,12 +284,11 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
 
             where is a pandas query() expression over the JOINED inputs+outputs
             frame, for a compound feasibility predicate in one call — e.g.
-            where="coilable==1 and max_compressive_strain>=0.90 and
-            max_local_strain<=0.02". Arithmetic on input columns works too, so a
-            derived quantity needs no stored column:
-            where="ratio_pitch/(2*ratio_b) >= 10". Combine with n_best to rank
-            the feasible subset. A bad expression returns an ERROR string listing
-            the available columns; it never raises.
+            where="feasible==1 and margin>=0.10 and stress_ratio<=1.0".
+            Arithmetic on input columns works too, so a derived quantity needs
+            no stored column: where="x2/(2*x1) >= 10". Combine with n_best to
+            rank the feasible subset. A bad expression returns an ERROR string
+            listing the available columns; it never raises.
 
             limit caps the default (non-n_best) listing (default 20); raise it to
             pull a larger feasible set once where= has narrowed the rows."""
