@@ -93,12 +93,18 @@ class DelegationLog:
         is_falsification_attempt: bool = False,
         evals: int = 0,
         phase: str | None = None,
+        constraints: dict | None = None,
     ) -> None:
         """Append one delegation record.
 
         task and deliverable are stored in full. ``phase`` is the optional
         f3dasm process phase this delegation belongs to (DoE / DataGeneration /
         ML / Optimization / …); additive, default None for old/untagged records.
+        ``constraints`` is the run's ConstraintSnapshot.as_dict() at completion
+        (eval/wall-clock budget and usage) — additive, default None for
+        old/untagged records; see constraint_snapshot.py for the single source
+        of truth this comes from (every node-node interaction, human->
+        strategizer included, is a delegation and gets the same snapshot).
         """
         record: dict[str, Any] = {
             "id": id,
@@ -116,6 +122,7 @@ class DelegationLog:
             "is_falsification_attempt": is_falsification_attempt,
             "evals": evals,
             "phase": phase,
+            "constraints": constraints,
         }
         with self._lock:
             with self._path.open("a", encoding="utf-8") as f:
@@ -132,6 +139,7 @@ class DelegationLog:
         started_at: str,
         is_falsification_attempt: bool = False,
         phase: str | None = None,
+        constraints: dict | None = None,
     ) -> None:
         """Append a RUNNING entry at DISPATCH, before the worker runs.
 
@@ -142,7 +150,8 @@ class DelegationLog:
         entry — orphan evals that break the provenance audit trail and escape
         the eval-budget counter. This RUNNING entry guarantees every dispatched
         delegation is traceable; the terminal record (same id) supersedes it via
-        the last-wins collapse in _load_all.
+        the last-wins collapse in _load_all. ``constraints`` is the
+        ConstraintSnapshot.as_dict() at DISPATCH time (see constraint_snapshot.py).
         """
         record: dict[str, Any] = {
             "id": id,
@@ -160,6 +169,7 @@ class DelegationLog:
             "is_falsification_attempt": is_falsification_attempt,
             "evals": 0,
             "phase": phase,
+            "constraints": constraints,
         }
         with self._lock:
             with self._path.open("a", encoding="utf-8") as f:
