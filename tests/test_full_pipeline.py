@@ -238,6 +238,41 @@ def test_notebook_has_provenance_metadata(pipeline_run):
     assert agentic.get("timestamp")
 
 
+def test_notebook_carries_problem_statement_provenance(pipeline_run):
+    """A study is meant to be run once per PROBLEM_STATEMENT.md; when it isn't
+    (the file drifts and gets re-run against), a reader of a later
+    pipeline.ipynb needs a way to check what statement THAT run actually
+    answered. debug/PROBLEM_STATEMENT_snapshot.md is the verbatim, recoverable
+    copy; the notebook only carries its hash (both the visible Run metadata
+    cell and nb.metadata['agentic']) so a reader can confirm which snapshot
+    matches without needing to inspect raw notebook JSON.
+    """
+    import hashlib
+
+    import nbformat
+    run, study = pipeline_run
+    run_dir = next((study / "runs").iterdir())
+    snapshot_path = run_dir / "debug" / "PROBLEM_STATEMENT_snapshot.md"
+    assert snapshot_path.exists()
+    assert snapshot_path.read_text(encoding="utf-8") == (
+        study / "PROBLEM_STATEMENT.md"
+    ).read_text(encoding="utf-8")
+
+    expected_hash = hashlib.sha256(
+        snapshot_path.read_text(encoding="utf-8").encode("utf-8")
+    ).hexdigest()
+
+    nb = nbformat.read(str(study / "pipeline.ipynb"), as_version=4)
+    assert nb.metadata["agentic"]["problem_statement_sha256"] == expected_hash
+
+    stamp_cell = next(
+        c for c in nb.cells
+        if (getattr(c, "metadata", None) or {}).get("name") == "_run_provenance"
+    )
+    assert expected_hash in stamp_cell.source
+    assert "PROBLEM_STATEMENT_snapshot.md" in stamp_cell.source
+
+
 # ---------------------------------------------------------------------------
 # run.log
 # ---------------------------------------------------------------------------

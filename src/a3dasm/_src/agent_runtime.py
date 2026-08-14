@@ -723,6 +723,25 @@ class AgenticRun:
             _archive_prior_pipeline_notebook(self.study_dir)
         debug_dir = run_dir / "debug"
         debug_dir.mkdir(parents=True, exist_ok=True)
+        # Snapshot the EXACT PROBLEM_STATEMENT.md this run read, verbatim —
+        # the live study_dir/PROBLEM_STATEMENT.md drifts between runs (a study
+        # is meant to be run once per statement; when it isn't, a human
+        # auditing a later run needs to see the statement THAT run actually
+        # answered, not whatever the file has since been edited to say). The
+        # notebook's Run metadata cell carries only the hash so a reader can
+        # confirm which snapshot matches; the snapshot is the recoverable copy.
+        # write-if-absent: a resumed run must keep its ORIGINAL snapshot, not
+        # overwrite it with whatever PROBLEM_STATEMENT.md says at resume time.
+        # The hash is derived from the SNAPSHOT's content, never re-read from
+        # the live file, so a resume's stamp always matches what this run
+        # actually answered even if PROBLEM_STATEMENT.md has since drifted.
+        _ps_snapshot_path = debug_dir / "PROBLEM_STATEMENT_snapshot.md"
+        if not _ps_snapshot_path.exists():
+            _ps_snapshot_path.write_text(problem, encoding="utf-8")
+        import hashlib
+        _problem_statement_sha256 = hashlib.sha256(
+            _ps_snapshot_path.read_text(encoding="utf-8").encode("utf-8")
+        ).hexdigest()
         notes_dir = debug_dir / "strategizer_notes"
         notes_dir.mkdir(parents=True, exist_ok=True)
         lit_reviewer_notes_dir = debug_dir / "lit_reviewer_notes"
@@ -984,7 +1003,10 @@ class AgenticRun:
             f"- total_delegations: {len(delegation_log.query_all())}\n"
             f"- evals_used: {evals}\n"
             f"- run_dir: {run_dir}\n"
-            f"- time_used: {h:02d}:{m:02d}:{s:02d}\n\n"
+            f"- time_used: {h:02d}:{m:02d}:{s:02d}\n"
+            f"- problem_statement_sha256: {_problem_statement_sha256}\n"
+            f"  (verbatim snapshot: {debug_dir}/PROBLEM_STATEMENT_snapshot.md — "
+            f"study_dir/PROBLEM_STATEMENT.md may since have been edited)\n\n"
             f"## Token usage\n\n"
             f"| Metric | Value |\n"
             f"|--------|-------|\n"
@@ -1022,7 +1044,8 @@ class AgenticRun:
                 stamp_run_provenance(nb, meta_md)
                 nb.metadata.setdefault("agentic", {}).update(
                     {"model": self._model, "run": str(run_dir),
-                     "timestamp": now_ts, "gate_outcome": _gate_outcome})
+                     "timestamp": now_ts, "gate_outcome": _gate_outcome,
+                     "problem_statement_sha256": _problem_statement_sha256})
                 nbformat.write(nb, str(nb_path))
             except Exception:  # noqa: BLE001
                 log.warning("notebook provenance stamp failed", exc_info=True)
