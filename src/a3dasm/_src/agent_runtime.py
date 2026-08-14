@@ -1064,7 +1064,10 @@ class AgenticRun:
         log.info(
             f"Run complete. Evals: {evals}. "
             f"Tokens in/out: {tokens_in}/{tokens_out}. "
-            f"Cost: {cost_str}. pipeline.ipynb stamped."
+            f"Cost: {cost_str}. "
+            + ("pipeline.ipynb stamped." if nb_path.exists()
+               else "pipeline.ipynb was NEVER WRITTEN — the agent never "
+               "called WriteDeliverable().")
         )
         log.removeHandler(handler)
         handler.close()

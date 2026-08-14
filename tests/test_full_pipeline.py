@@ -320,3 +320,61 @@ def test_first_strategizer_message_carries_constraint_snapshot(tmp_path):
     )
     assert "Evaluation budget" in first_content
     assert "Wall-clock budget" in first_content
+
+
+def test_run_log_does_not_falsely_claim_the_notebook_was_stamped(tmp_path):
+    """Regression: a live wet-test run (an under-capable model that closed
+    the run without ever calling WriteDeliverable) showed run.log claiming
+    "pipeline.ipynb stamped" even though pipeline.ipynb never existed — the
+    log line was unconditional while the actual stamping code was gated on
+    nb_path.exists(). If the notebook was never written, run.log must say so
+    honestly instead of claiming success.
+    """
+    study = _make_study(tmp_path)
+
+    class NoDeliverableStrategist:
+        """Closes the run without ever calling WriteDeliverable()."""
+
+        def __init__(self):
+            self.closure_tools: dict = {}
+            self.route_watcher = None
+            self.last_usage: dict = {}
+
+        def invoke(self, messages):
+            tools = self.closure_tools
+            if "MilestoneList" in tools:
+                for mid in re.findall(r"M\d{3}", tools["MilestoneList"]()):
+                    tools["MilestoneSkip"](mid, "n/a for this test")
+            tools["Done"](summary="closing without a deliverable")
+            tools["Done"](summary="closing without a deliverable")
+            return "done"
+
+    class NoOpWorker:
+        closure_tools: dict = {}
+        last_usage: dict = {}
+
+        def invoke(self, messages):
+            return "## Report\n### Actions taken\n- n/a\n"
+
+    run = AgenticRun(study_dir=study, graph=_graph_spec())
+    strat = NoDeliverableStrategist()
+    worker = NoOpWorker()
+
+    def _mock_make_adapter(name, agent):
+        return strat if name == "strategizer" else worker
+
+    run._make_adapter = _mock_make_adapter
+    run.execute()
+
+    assert not (study / "pipeline.ipynb").exists(), (
+        "test setup invariant broken: the deliverable should not exist"
+    )
+    run_dir = next((study / "runs").iterdir())
+    log_text = (run_dir / "debug" / "run.log").read_text()
+    assert "pipeline.ipynb stamped" not in log_text, (
+        f"run.log falsely claims the notebook was stamped; log:\n{log_text}"
+    )
+    assert "NEVER WRITTEN" in log_text, (
+        f"Expected run.log to honestly report the missing deliverable; "
+        f"log:\n{log_text}"
+    )
