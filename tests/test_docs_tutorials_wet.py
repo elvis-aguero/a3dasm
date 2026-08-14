@@ -28,12 +28,15 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-# A genuinely free-tier OpenRouter model that supports tool-calling, confirmed
-# live against https://openrouter.ai/api/v1/models at the time this was
-# written. OpenRouter's free catalog shifts over time — if this model is
-# retired, swap it for a current `:free` entry with "tools" in
-# supported_parameters (query the API above to check).
-_FREE_MODEL = "openai/gpt-oss-20b:free"
+# OpenRouter's own free-tier meta-router: it auto-selects among whichever
+# free models are currently healthy, rather than pinning to one specific
+# `:free` model that can have a bad day (a single pinned model, gpt-oss-20b:
+# free, failed 2 of 3 scheduled runs here for infra reasons — rate limits/
+# outages — attributable to that one model, not this test or the docs).
+# Override via WET_TEST_MODEL for a specific model (e.g. to reproduce a
+# failure against one exact model), confirmed live against
+# https://openrouter.ai/api/v1/models at the time this was written.
+_FREE_MODEL = os.environ.get("WET_TEST_MODEL", "openrouter/free")
 
 # Wall-clock and eval caps sized for a free-tier model on a trivial problem —
 # tight enough that a stuck/looping run doesn't burn the whole scheduled slot.
