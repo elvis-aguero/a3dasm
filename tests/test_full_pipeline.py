@@ -249,3 +249,74 @@ def test_run_log_mentions_tokens(pipeline_run):
     run_dir = next((study / "runs").iterdir())
     log_text = (run_dir / "debug" / "run.log").read_text()
     assert "Tokens" in log_text or "tokens" in log_text
+
+
+# ---------------------------------------------------------------------------
+# constraint snapshot on the very first strategizer turn (human -> strategizer
+# is a delegation like any other; the budget/time state must be automatically
+# in the literal first message text, not something the agent has to go query
+# for — see constraint_snapshot.py)
+# ---------------------------------------------------------------------------
+
+
+def test_first_strategizer_message_carries_constraint_snapshot(tmp_path):
+    """The FIRST message the strategizer's underlying adapter.invoke() ever
+    receives — traced through the real AgenticRun.execute() path, not a
+    smaller unit test of one function in isolation — already contains the
+    <constraints> block, before the strategizer has taken any action at all.
+    """
+    study = _make_study(tmp_path)
+
+    captured_first_messages: list = []
+
+    class CapturingStrategist:
+        """Records the messages of its FIRST invoke() call, then closes the
+        run immediately (no critic in this graph, so Done() closes directly)."""
+
+        def __init__(self):
+            self.closure_tools: dict = {}
+            self.route_watcher = None
+            self.last_usage: dict = {}
+
+        def invoke(self, messages):
+            if not captured_first_messages:
+                captured_first_messages.append(list(messages))
+            tools = self.closure_tools
+            if "MilestoneList" in tools:
+                import re as _re
+                for mid in _re.findall(r"M\d{3}", tools["MilestoneList"]()):
+                    tools["MilestoneSkip"](mid, "n/a for this test")
+            tools["WriteDeliverable"](
+                "pipeline.py", "# pipeline\nprint('REPRODUCED: 0.0')"
+            )
+            tools["Done"](summary="closing immediately")
+            tools["Done"](summary="closing immediately")
+            return "done"
+
+    class NoOpWorker:
+        closure_tools: dict = {}
+        last_usage: dict = {}
+
+        def invoke(self, messages):
+            return "## Report\n### Actions taken\n- n/a\n"
+
+    run = AgenticRun(study_dir=study, graph=_graph_spec())
+    strat = CapturingStrategist()
+    worker = NoOpWorker()
+
+    def _mock_make_adapter(name, agent):
+        return strat if name == "strategizer" else worker
+
+    run._make_adapter = _mock_make_adapter
+    run.execute()
+
+    assert captured_first_messages, "Strategizer adapter was never invoked"
+    first_call_messages = captured_first_messages[0]
+    assert first_call_messages, "First invoke() call had no messages"
+    first_content = first_call_messages[0]["content"]
+    assert "<constraints>" in first_content, (
+        "Expected the constraint snapshot in the very first message the "
+        f"strategizer receives; got:\n{first_content[:300]!r}"
+    )
+    assert "Evaluation budget" in first_content
+    assert "Wall-clock budget" in first_content
