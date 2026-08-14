@@ -3159,6 +3159,134 @@ def test_done_critic_gate_embeds_ledger_and_falsification_flags(tmp_path):
     )
 
 
+def test_done_gate_mode_critic_call_is_logged_as_a_delegation(tmp_path):
+    """The GATE-mode critic call (Done()) is a delegation like any other
+    (strategizer -> critic) and must be logged as one via DelegationLog,
+    carrying a constraint snapshot — same as every worker delegation and
+    the FEEDBACK-mode critic call (AskForFeedback) already do.
+
+    Regression: before this, AskForFeedback logged itself as a delegation
+    (status="FEEDBACK") but the GATE-mode call inside Done() never touched
+    delegation_log.record() at all — the interaction that actually decides
+    whether the run closes was invisible to delegation_log.jsonl, while the
+    less consequential mid-run advisory call was logged. Also asserts the
+    GATE task message itself carries the <constraints> block (the same
+    snapshot, injected in-band rather than left for the critic to go find).
+    """
+    from a3dasm._src.delegation_log import DelegationLog
+    from a3dasm._src.nodes import StrategizerNode
+
+    captured_critic_messages: list[str] = []
+
+    class CapturingCriticAdapter(StubAdapter):
+        def invoke(self, messages: list) -> str:
+            for msg in messages:
+                captured_critic_messages.append(
+                    msg.get("content", "") if isinstance(msg, dict) else str(msg)
+                )
+            return "### Verdict\nPASS"
+
+        def copy(self):
+            fresh = CapturingCriticAdapter()
+            fresh.closure_tools = dict(self.closure_tools)
+            return fresh
+
+    class WorkerAdapter(StubAdapter):
+        def invoke(self, messages):
+            return (
+                "## Report\n### Actions taken\n- did\n"
+                "### Files touched\n- none\n### Conclusions\nok\n"
+                "### Numbers\nbest: 1\n"
+            )
+
+        def copy(self):
+            fresh = WorkerAdapter()
+            fresh.closure_tools = dict(self.closure_tools)
+            return fresh
+
+    study_dir = tmp_path / "study"
+    study_dir.mkdir()
+    notes_dir = tmp_path / "debug" / "strategizer_notes"
+    notes_dir.mkdir(parents=True)
+    jsonl_path = tmp_path / "delegation_log.jsonl"
+    delegation_log = DelegationLog(jsonl_path)
+
+    class FullFlowAdapter(StubAdapter):
+        def invoke(self, messages):
+            self.closure_tools["HypothesisPropose"](
+                statement="Claim below 1.0",
+                falsification_criterion="any run with best_y >= 1.0 falsifies this",
+                prediction="best_y will stay below 1.0",
+                prior=0.5,
+            )
+            self.closure_tools["Delegate"](
+                target="implementer",
+                intent="Run a check.",
+                expected_report="Report best_y.",
+                hypothesis_ids=["H1"],
+                is_falsification_attempt=True,
+                wait=True,
+            )
+            self.closure_tools["HypothesisUpdate"](
+                hypothesis_id="H1",
+                status="SUPPORTED",
+                comment="consistent with claim",
+                posterior=0.9,
+                evidence={"delegation": "D001", "numbers": {"best_y": 0.5}},
+            )
+            self.closure_tools["WriteDeliverable"](
+                "pipeline.py", "# pipeline\nprint('REPRODUCED: 0.0')"
+            )
+            import re as _re
+            for _mid in _re.findall(
+                    r"M\d{3}", self.closure_tools["MilestoneList"]()):
+                self.closure_tools["MilestoneSkip"](_mid, "n/a for this test")
+            self.closure_tools["Done"](summary="H1 is supported.")
+            self.closure_tools["Done"](summary="H1 is supported.")
+            return "Done."
+
+    adapter = FullFlowAdapter()
+    spec = _spec_with_critic_and_deliverable()
+    node = StrategizerNode(
+        adapter,
+        name="strategizer",
+        outgoing=["implementer", "critic"],
+        spec=spec,
+        worker_adapters={
+            "implementer": WorkerAdapter(),
+            "critic": CapturingCriticAdapter(),
+        },
+        notes_dir=notes_dir,
+        study_dir=str(study_dir),
+        delegation_log=delegation_log,
+    )
+    node._current_notes_dir = notes_dir
+    node(make_state(study_dir=str(study_dir)))
+
+    assert captured_critic_messages, "Critic adapter was never invoked"
+    full_msg = "\n".join(captured_critic_messages)
+    assert "<constraints>" in full_msg, (
+        f"Expected a <constraints> block in the GATE task message; "
+        f"got:\n{full_msg}"
+    )
+
+    gate_records = [
+        r for r in delegation_log.query_all()
+        if str(r.get("status", "")).startswith("GATE:")
+    ]
+    assert gate_records, (
+        "Expected at least one delegation_log entry with status starting "
+        f"'GATE:' — the GATE-mode critic call must be logged as a "
+        f"delegation. Got statuses: "
+        f"{[r.get('status') for r in delegation_log.query_all()]}"
+    )
+    assert gate_records[0].get("constraints") is not None, (
+        "GATE delegation record is missing its constraint snapshot"
+    )
+    assert gate_records[0]["to_node"] == "critic"
+    assert gate_records[0]["from_node"] == "strategizer"
+
+
 def test_delegate_decodes_json_and_comma_string_hypothesis_ids(tmp_path):
     """LLMs pass '["H1","H2"]' or 'H1, H2' — both decode to lists.
 

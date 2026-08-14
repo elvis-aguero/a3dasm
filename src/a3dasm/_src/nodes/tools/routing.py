@@ -877,6 +877,14 @@ def build_routing_tools(node) -> dict:
                 "reconciled": False,
             }
 
+        # Constraint snapshot NOW, at dispatch — single source of truth (see
+        # constraint_snapshot.py) shared by the logged RUNNING entry below and
+        # the banner prepended to the worker's own task message, so what gets
+        # persisted and what the agent is shown can never drift apart the way
+        # four independent, partial computations of this previously did.
+        from ...constraint_snapshot import snapshot_for_node
+        _snapshot = snapshot_for_node(node)
+
         # Provenance: log a RUNNING entry NOW, at dispatch — before the worker
         # runs and flushes ledger rows. If this delegation is cancelled or
         # killed mid-flight (wall/eval budget), its ledgered evals stay traceable
@@ -892,6 +900,7 @@ def build_routing_tools(node) -> dict:
                 started_at=started_at,
                 is_falsification_attempt=bool(is_falsification_attempt),
                 phase=_phase,
+                constraints=_snapshot.as_dict(),
             )
 
         # Build task message
@@ -909,19 +918,11 @@ def build_routing_tools(node) -> dict:
         if preamble:
             task_msg = preamble + "\n\n" + task_msg
 
-        # Prepend time-budget banner so every worker starts
-        # time-aware.  GetStatus handles mid-run updates.
-        _b = node._budget_seconds
-        _rs = node._run_start
-        if _b is not None and _rs is not None:
-            _el = time.time() - _rs
-            _pct = (_el / _b) * 100
-            _banner = (
-                f"[Time budget: {_el:.0f}s / {_b:.0f}s used"
-                f" ({_pct:.0f}%). Work efficiently and"
-                f" return a report promptly.]\n\n"
-            )
-            task_msg = _banner + task_msg
+        # Prepend the constraint snapshot so every worker starts budget-aware
+        # (eval AND wall-clock, not wall-clock only) — automatically, in-band;
+        # not something it has to go query for. GetStatus handles mid-run
+        # updates.
+        task_msg = _snapshot.as_text() + "\n\n" + task_msg
 
         # Inject PROBLEM_STATEMENT for agents that request it
         _target_agent = node._spec.nodes.get(target) if node._spec else None
@@ -1227,6 +1228,16 @@ def build_routing_tools(node) -> dict:
                 # that actually holds this delegation's rows (its experiment),
                 # found by provenance — not assumed to be the default store.
                 # Best-effort: a KPI footer must never fail a delegation.
+                # Constraint snapshot NOW, at completion — single source of
+                # truth (constraint_snapshot.py), shared with the RUNNING
+                # entry's snapshot logged at dispatch and the terminal record
+                # below. ALWAYS appended (unlike the eval-KPI footer below,
+                # which only makes sense when this delegation actually wrote
+                # ledger rows), so every delegation's report is budget-aware
+                # — not just the ones that happened to evaluate something.
+                from ...constraint_snapshot import snapshot_for_node
+                _snapshot = snapshot_for_node(node)
+                text = text + "\n\n" + _snapshot.as_text()
                 try:
                     from ...instrumented import (
                         RunStateSummary,
@@ -1241,18 +1252,11 @@ def build_routing_tools(node) -> dict:
                             _summary = _s
                             break
                     if _summary is not None:
-                            # Wall budget remaining (telemetry, not a hard stop):
-                            # makes the median above actionable. None when no
-                            # wall budget is set or the run hasn't started timing.
-                            _bs = getattr(node, "_budget_seconds", None)
-                            _rs = getattr(node, "_run_start", None)
-                            _rem = (
-                                _bs - (time.time() - _rs)
-                                if _bs and _rs else None
-                            )
                             # Peak RAM this delegation reached (watcher high-water,
                             # free) against the hard cap, so the strategizer learns
                             # the memory footprint like it learns the time cost.
+                            # (Wall/eval budget is in the constraint snapshot
+                            # above now, not recomputed here.)
                             from ...watchdog_cleanup import delegation_peak_rss
                             _peak = delegation_peak_rss(delegation_id)
                             _cap = None
@@ -1267,8 +1271,6 @@ def build_routing_tools(node) -> dict:
                                 _cap = None
                             _footer = _summary.delegation_footer(
                                 delegation_id,
-                                wall_remaining_s=_rem,
-                                wall_budget_s=_bs,
                                 peak_rss_bytes=_peak,
                                 ram_cap_bytes=_cap,
                             )
@@ -1352,6 +1354,7 @@ def build_routing_tools(node) -> dict:
                         ),
                         evals=_evals,
                         phase=_phase,
+                        constraints=_snapshot.as_dict(),
                     )
                     if node._science_monitor is not None:
                         try:
@@ -1441,6 +1444,7 @@ def build_routing_tools(node) -> dict:
                         f"[Delegation {delegation_id} Errored]"
                     )
                 if node._delegation_log is not None:
+                    from ...constraint_snapshot import snapshot_for_node
                     node._delegation_log.record(
                         id=delegation_id,
                         from_node=node._name,
@@ -1466,6 +1470,7 @@ def build_routing_tools(node) -> dict:
                             is_falsification_attempt
                         ),
                         phase=_phase,
+                        constraints=snapshot_for_node(node).as_dict(),
                     )
 
         t = threading.Thread(target=_run, daemon=True, name=delegation_id)
@@ -2112,36 +2117,14 @@ def build_routing_tools(node) -> dict:
                     )
                     for r in node._delegation_log.query_all()
                 ]
-            # Budget-aware framing: tell the critic what was actually
-            # spent so it judges the BEST HONEST conclusion reachable
+            # Constraint snapshot NOW — single source of truth
+            # (constraint_snapshot.py), the same one every worker delegation
+            # and the FEEDBACK-mode critic call get. Tell the critic what was
+            # actually spent so it judges the BEST HONEST conclusion reachable
             # within budget, rather than demanding falsification work the
             # budget no longer allows (which strands the close).
-            # Eval count = canonical ledger rows (the single source of truth),
-            # NOT the sum of logged delegations' self-reported evals: a
-            # delegation killed/cancelled mid-flight flushes rows whose evals
-            # never reach the log, so the log-sum undercounts and the budget
-            # silently overruns. Read the store directly; fall back to the
-            # log-sum only for lookup-direct studies that wrote no store.
-            _spent = 0
-            _notes_sp = getattr(node, "_current_notes_dir", None)
-            if _notes_sp is not None:
-                try:
-                    # Sum across the canonical store AND every design namespace,
-                    # so the critic's budget framing reflects ALL real evals (a
-                    # canonical-only count under-reports a multi-namespace run and
-                    # would have the critic demand work the budget can't afford).
-                    from ...instrumented import total_ledgered_evals
-                    _spent = int(total_ledgered_evals(
-                        _notes_sp.parent.parent / "experiment_data"))
-                except Exception:  # noqa: BLE001
-                    _spent = 0
-            if _spent == 0 and node._delegation_log is not None:
-                _spent = sum(
-                    (r.get("evals") or 0)
-                    for r in node._delegation_log.query_all()
-                )
-            _bud = getattr(node, "_eval_budget", None)
-            _exhausted = _bud is not None and _spent >= _bud
+            from ...constraint_snapshot import snapshot_for_node
+            _snapshot = snapshot_for_node(node)
             # Milestones: show the critic each process milestone's resolution +
             # note/reason, so it can flag a hollow SKIP (a study that skipped a
             # gate it actually needed) — skips are unilateral, audited here.
@@ -2161,25 +2144,46 @@ def build_routing_tools(node) -> dict:
                 "<delegation_flags>\n"
                 + "\n".join(attempts)
                 + "\n</delegation_flags>\n\n"
-                "<budget>\n"
-                f"Evaluation budget: {_bud if _bud else 'unspecified'}; "
-                f"ledgered evaluations spent: {_spent}"
-                + (" (EXHAUSTED)." if _exhausted else ".") + "\n"
+                + _snapshot.as_text() + "\n"
                 "If the budget is exhausted, judge the BEST HONEST "
                 "conclusion reachable within the evals actually spent: an "
                 "honest INCONCLUSIVE/negative result whose falsification "
                 "attempts were adequate FOR THE REMAINING BUDGET can PASS. "
                 "Do NOT REVISE solely to demand evaluations the budget no "
-                "longer allows — note them as future work instead.\n"
-                "</budget>\n\n"
+                "longer allows — note them as future work instead.\n\n"
                 "For each hypothesis, judge whether its stated "
                 "falsification_criterion was actually tested by "
                 "a delegation flagged is_falsification_attempt "
                 "— adequacy of the test (given the budget), not mere "
                 "presence of the flag."
             )
+            _gate_started_at = datetime.now(
+                tz=timezone.utc).isoformat(timespec="seconds")
             critique_text = node._invoke_critic(task_msg)
             verdict = _parse_verdict(critique_text)
+            # This is a delegation like any other (strategizer -> critic,
+            # GATE mode) — log it as one. Previously the ONLY node-node
+            # interaction never logged as a delegation, unlike the
+            # FEEDBACK-mode call (AskForFeedback), which was inconsistent:
+            # the interaction that actually decides whether the run closes
+            # was invisible to delegation_log.jsonl.
+            if node._delegation_log is not None:
+                node._delegation_log.record(
+                    id=f"GATE{datetime.now(tz=timezone.utc).strftime('%H%M%S')}",
+                    from_node=node._name,
+                    to_node=node._find_critic_name(),
+                    task="Done() GATE acceptance check",
+                    deliverable=critique_text,
+                    hypothesis_ids=[],
+                    started_at=_gate_started_at,
+                    completed_at=datetime.now(
+                        tz=timezone.utc).isoformat(timespec="seconds"),
+                    status=f"GATE:{verdict}",
+                    tokens_in=0,
+                    tokens_out=0,
+                    cost_usd=None,
+                    constraints=_snapshot.as_dict(),
+                )
 
             if verdict == "PASS":
                 # Conclusion accepted + recorded. Now — and only now —
@@ -3223,7 +3227,13 @@ def build_routing_tools(node) -> dict:
             started_at = datetime.now(tz=timezone.utc).isoformat(
                 timespec="seconds"
             )
-            task_msg = _node._build_feedback_task_msg(h_ids)
+            # This is a delegation like any other (strategizer -> critic) —
+            # same constraint snapshot, single source of truth, see
+            # constraint_snapshot.py.
+            from ...constraint_snapshot import snapshot_for_node
+            _snapshot = snapshot_for_node(_node)
+            task_msg = _node._build_feedback_task_msg(
+                h_ids, constraints_text=_snapshot.as_text())
             text = _node._invoke_critic(task_msg)
 
             # Log to delegation log
@@ -3243,6 +3253,7 @@ def build_routing_tools(node) -> dict:
                     tokens_in=0,
                     tokens_out=0,
                     cost_usd=None,
+                    constraints=_snapshot.as_dict(),
                 )
 
             return text

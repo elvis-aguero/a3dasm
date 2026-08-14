@@ -817,6 +817,21 @@ class AgenticRun:
         ):
             problem = self._review_problem_statement(problem, debug_dir)
 
+        # Human -> strategizer is a delegation like any other (strategizer ->
+        # worker, strategizer -> critic) — same constraint snapshot, single
+        # source of truth (constraint_snapshot.py), so the very first message
+        # the strategizer reads already states the budgets as facts instead
+        # of leaving them latent in AgenticState (present to the node's
+        # Python code, never rendered into words the model actually sees).
+        from .constraint_snapshot import compute_constraint_snapshot
+        _initial_snapshot = compute_constraint_snapshot(
+            eval_budget=getattr(self, "_eval_budget", None),
+            budget_seconds=getattr(self, "_budget", None),
+            run_start=start_time,
+            experiment_data_dir=run_dir / "experiment_data",
+        )
+        problem = _initial_snapshot.as_text() + "\n\n" + problem
+
         initial_state = AgenticState(
             messages=[HumanMessage(content=problem)],
             study_dir=str(self.study_dir),

@@ -369,8 +369,16 @@ class CriticGateMixin:
         except Exception:  # noqa: BLE001
             pass
 
-    def _build_feedback_task_msg(self, h_ids: list) -> str:
-        """<mode>FEEDBACK</mode> task message with paths block."""
+    def _build_feedback_task_msg(
+        self, h_ids: list, *, constraints_text: str = ""
+    ) -> str:
+        """<mode>FEEDBACK</mode> task message with paths block.
+
+        ``constraints_text`` is the run's ConstraintSnapshot.as_text()
+        (see constraint_snapshot.py) — this is a delegation like any other
+        (strategizer -> critic), so it carries the same live budget facts
+        automatically, not something the critic has to go query for.
+        """
         notes_path = str(self._current_notes_dir or "")
         _notes_dir = self._current_notes_dir
         _study_dir = self._study_dir
@@ -384,7 +392,8 @@ class CriticGateMixin:
             "REJECT with your findings, or NOTED if you find no CRITICAL "
             "or MAJOR issue (NOTED is not an acceptance; only Done()'s "
             "GATE-mode review can close the run).\n\n"
-            "<paths>\n"
+            + (constraints_text + "\n\n" if constraints_text else "")
+            + "<paths>\n"
             f"study_dir             = {_study_dir}\n"
             f"debug_dir             = {_debug_dir}\n"
             f"delegation_log        = {_debug_dir}/delegation_log.jsonl\n"

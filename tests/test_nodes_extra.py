@@ -418,7 +418,10 @@ def test_getstatus_unknown_id_returns_error():
 
 def test_delegate_task_msg_includes_budget_banner():
     """When _budget_seconds and _run_start are set, the task message
-    passed to the worker begins with a time-budget banner.
+    passed to the worker begins with a constraint snapshot showing the
+    wall-clock budget used so far (constraint_snapshot.py — the single
+    source of truth every delegation boundary shares, superseding the old
+    ad-hoc "Time budget" banner this test used to check for).
     """
     import time as _time
 
@@ -480,14 +483,22 @@ def test_delegate_task_msg_includes_budget_banner():
 
     assert captured_msgs, "Worker was never invoked"
     first_msg_content = captured_msgs[0][0]["content"]
-    assert "Time budget" in first_msg_content, (
-        f"Expected 'Time budget' in first worker message; "
+    assert "<constraints>" in first_msg_content, (
+        f"Expected a <constraints> block in first worker message; "
         f"got: {first_msg_content[:200]!r}"
+    )
+    assert "Wall-clock budget: 60s/10.0min used (10%)" in first_msg_content, (
+        f"Expected the wall-clock budget line to reflect 60s/600s; "
+        f"got: {first_msg_content[:300]!r}"
     )
 
 
 def test_delegate_no_budget_banner_when_budget_unset():
-    """When _budget_seconds is None, no time-budget banner is prepended."""
+    """When _budget_seconds is None, the constraint snapshot still gets
+    prepended (every delegation gets one — see constraint_snapshot.py) but
+    reports the wall-clock budget as unspecified rather than a computed
+    percentage; the old ad-hoc "Time budget" banner text is gone either
+    way."""
     import time as _time
 
     from a3dasm._src.nodes import StrategizerNode
