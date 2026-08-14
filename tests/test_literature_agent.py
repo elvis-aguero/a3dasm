@@ -26,10 +26,13 @@ def test_literature_agent_has_correct_tools():
     assert "Glob" in agent.tools
 
 
-def test_literature_agent_injects_problem_statement():
-    """LiteratureReviewAgent has inject_problem_statement=True."""
+def test_literature_agent_can_read_problem_statement():
+    """LiteratureReviewAgent gets the problem statement via the uniform
+    ReadProblemStatement() tool now, not the removed per-agent
+    inject_problem_statement push flag (every agent has this tool equally)."""
     agent = _make_agent()
-    assert agent.inject_problem_statement is True
+    assert "ReadProblemStatement" in agent.tools
+    assert not hasattr(agent, "inject_problem_statement")
 
 
 def test_literature_agent_has_system_prompt():

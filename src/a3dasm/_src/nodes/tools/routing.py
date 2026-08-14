@@ -551,6 +551,24 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             return _json.dumps(entry, indent=2)
         out["HypothesisGet"] = HypothesisGet
 
+    if "ReadProblemStatement" in agent_tools:
+        def ReadProblemStatement() -> str:
+            """The run's PROBLEM_STATEMENT.md verbatim: what this run is
+            actually trying to establish, and its stated success/termination
+            criteria (e.g. "do not stop until a good design is found or the
+            budget is exhausted"). Available to every agent, not just the
+            strategizer or literature reviewer — call this whenever a
+            delegation's own brief doesn't make clear what the run as a whole
+            is for, or before judging whether a result actually satisfies
+            what was asked."""
+            if not node._study_dir:
+                return "ERROR: study_dir not set for this run."
+            ps_path = Path(node._study_dir) / "PROBLEM_STATEMENT.md"
+            if not ps_path.exists():
+                return f"ERROR: {ps_path} not found."
+            return ps_path.read_text(encoding="utf-8")
+        out["ReadProblemStatement"] = ReadProblemStatement
+
     # NOTE: WaitForProcess was superseded by the SDK-compatible Bash surface
     # (run_in_background -> BashOutput -> KillShell), which lives with the Bash
     # tool per backend (SDK-native on Claude; openai_compatible on the rest).
@@ -924,17 +942,6 @@ def build_routing_tools(node) -> dict:
         # updates.
         task_msg = _snapshot.as_text() + "\n\n" + task_msg
 
-        # Inject PROBLEM_STATEMENT for agents that request it
-        _target_agent = node._spec.nodes.get(target) if node._spec else None
-        if getattr(_target_agent, "inject_problem_statement", False) and node._study_dir:
-            _ps_path = Path(node._study_dir) / "PROBLEM_STATEMENT.md"
-            if _ps_path.exists():
-                _ps_text = _ps_path.read_text(encoding="utf-8")
-                task_msg = (
-                    f"<problem_statement>\n{_ps_text}\n</problem_statement>\n\n"
-                    + task_msg
-                )
-
         # Each delegation gets its OWN adapter copy (D1/D2 concurrency fix).
         worker = worker_template.copy() if hasattr(worker_template, "copy") else worker_template
 
@@ -1125,7 +1132,7 @@ def build_routing_tools(node) -> dict:
                 # source of truth, not a hardcoded list), so e.g. a missing
                 # ### Retrospective earns one corrective retry.
                 _req_sections = list(
-                    getattr(_target_agent, "report_sections", None) or []
+                    getattr(_guard_agent, "report_sections", None) or []
                 ) or None
                 diagnosis = _classify_response(text, _req_sections)
                 if diagnosis is not None:

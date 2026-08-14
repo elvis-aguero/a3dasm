@@ -193,7 +193,6 @@ class Agent:
     backend: str | None = None
     mcp_servers: dict = {}
     extra_allowed_tools: frozenset[str] = frozenset()
-    inject_problem_statement: bool = False
     max_history_pairs: int = 5
     report_sections: tuple[str, ...] = (
         "### Actions taken",

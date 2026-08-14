@@ -271,7 +271,8 @@ class AdversarialCritiqueAgent(Agent):
     # re-deriving them by hand from raw files. Read-only — it never mutates.
     tools = frozenset({"Read", "Glob", "Grep",
                        "RecallStore", "QueryStore", "OracleStatus",
-                       "HypothesisList", "HypothesisGet"})
+                       "HypothesisList", "HypothesisGet",
+                       "ReadProblemStatement"})
     reset_on_checkpoint = True
     role = "critic"
     description = (

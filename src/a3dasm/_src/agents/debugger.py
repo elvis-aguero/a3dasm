@@ -109,7 +109,8 @@ class DebuggerAgent(Agent):
                        "RecallStore", "QueryStore", "OracleStatus",
                        "HypothesisList", "HypothesisGet",
                        # manage a backgrounded job: poll it / stop it
-                       "BashOutput", "KillShell"})
+                       "BashOutput", "KillShell",
+                       "ReadProblemStatement"})
     reset_on_checkpoint = True
     description = (
         "Diagnoses errors and applies minimal fixes. "

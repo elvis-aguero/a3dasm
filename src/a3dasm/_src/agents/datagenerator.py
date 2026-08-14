@@ -240,6 +240,7 @@ class DataGeneratorAgent(Agent):
         "HypothesisList", "HypothesisGet",
         # manage a backgrounded long job (e.g. Abaqus): poll it / stop it
         "BashOutput", "KillShell",
+        "ReadProblemStatement",
     })
     reset_on_checkpoint = True
     role = "datagenerator"

@@ -546,6 +546,7 @@ class F3dasmImplementerAgent(Agent):
         # Bash auto-backgrounds a command past its timeout and returns a
         # bash_id; these are its SDK companions.
         "BashOutput", "KillShell",
+        "ReadProblemStatement",
     })
     reset_on_checkpoint = True
     role = "implementer"

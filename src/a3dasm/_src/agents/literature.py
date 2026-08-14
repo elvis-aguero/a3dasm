@@ -162,6 +162,11 @@ by building a corpus of primary literature and quoting exact passages.
 
 NEVER cite memory — corpus quotes only. Format: > "..." — Author et al., Year, p. X
 If the corpus does not contain evidence, write: "Not found in corpus."
+
+If the delegating strategizer's question doesn't make the research domain or
+the run's actual goal clear enough to pick good search keywords, call
+ReadProblemStatement() first — it returns this run's PROBLEM_STATEMENT.md
+verbatim.
 </role>
 
 <primary_source_rule>
@@ -380,16 +385,16 @@ class LiteratureReviewAgent(Agent):
 
     Owns debug/lit_reviewer_notes/corpus.csv and papers/.
     Never answers from memory — all claims must cite exact passages.
-    inject_problem_statement=True ensures research domain is visible.
+    Calls ReadProblemStatement() itself for research-domain framing — every
+    agent has this tool uniformly now, not just this one by declaration.
     """
 
-    inject_problem_statement = True
     # Declare the role explicitly — the base default is "implementer", and
     # inheriting it makes implementer-only logic (the milestone-backlog nudge,
     # the eval-parallelism resource nudge, role telemetry) mis-fire on the
     # literature reviewer.
     role = "literature_reviewer"
-    tools = frozenset({"Read", "Grep", "Glob"})
+    tools = frozenset({"Read", "Grep", "Glob", "ReadProblemStatement"})
     reset_on_checkpoint = True
     description = (
         "Searches and synthesises primary scientific literature to"
