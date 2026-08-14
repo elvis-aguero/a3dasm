@@ -56,6 +56,27 @@ def _prior_rulings_digest(h: dict, *, max_entries: int = 6, max_chars: int = 240
     return "\n".join(lines)
 
 
+def problem_statement_block(study_dir) -> str:
+    """<problem_statement> block: the run's actual success/termination
+    criteria, read fresh from PROBLEM_STATEMENT.md.
+
+    Every critic review (GATE and FEEDBACK) needs this to judge a conclusion
+    against what the run was actually asked to do — not just internal
+    consistency. Before this, the critic's task message carried only
+    ``study_dir`` (a path it was never told to read); the same
+    latent-vs-automatic gap the constraint snapshot closed for budget state.
+    Returns "" if study_dir is unset or the file is missing/unreadable.
+    """
+    if not study_dir:
+        return ""
+    try:
+        text = (Path(study_dir) / "PROBLEM_STATEMENT.md").read_text(
+            encoding="utf-8")
+    except OSError:
+        return ""
+    return f"<problem_statement>\n{text.strip()}\n</problem_statement>\n\n"
+
+
 def _extract_md_section(text: str, header: str) -> str:
     """Return the body under a `### Header` up to the next `### ` heading.
 
@@ -392,6 +413,7 @@ class CriticGateMixin:
             "REJECT with your findings, or NOTED if you find no CRITICAL "
             "or MAJOR issue (NOTED is not an acceptance; only Done()'s "
             "GATE-mode review can close the run).\n\n"
+            + problem_statement_block(_study_dir)
             + (constraints_text + "\n\n" if constraints_text else "")
             + "<paths>\n"
             f"study_dir             = {_study_dir}\n"

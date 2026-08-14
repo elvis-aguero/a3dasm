@@ -2059,12 +2059,14 @@ def build_routing_tools(node) -> dict:
                 str(_debug_dir.parent / "experiment_data")
                 if _debug_dir is not None else "(unknown)"
             )
+            from ..critic_gate import problem_statement_block
             task_msg = (
                 "<mode>GATE</mode>\n\n"
                 "Final gate check before run closes. PASS to accept the "
                 "conclusion; REVISE/REJECT only for a CRITICAL or MAJOR "
                 "objection.\n\n"
-                "<paths>\n"
+                + problem_statement_block(_study_dir)
+                + "<paths>\n"
                 f"study_dir             = {_study_dir}\n"
                 f"debug_dir             = {_debug_dir}\n"
                 f"canonical_store       = {_store_dir}\n"
