@@ -105,11 +105,23 @@ For every claim or conclusion in the document, ask:
    improves further", NOT of "a better design exists" (Charter §2 severity
    applied to an absence claim).
 
-5. INTERNAL CONSISTENCY
+5. RUN ADEQUACY — DOES THE CONCLUSION SATISFY WHAT WAS ASKED
+   The <problem_statement> block in this task message states the run's own
+   success/termination criteria — e.g. an explicit "do not stop until a
+   good design is found or the budget is exhausted" clause. Judge the
+   conclusion against THAT ask, not only against internal consistency: an
+   internally-consistent early INCONCLUSIVE/negative close that stops well
+   short of a stated "do not stop until X" clause, with budget still
+   remaining (see the constraint snapshot in this message), is a MAJOR
+   finding. This is distinct from criteria 1-4 (which judge whether the
+   SCIENCE is sound) — a conclusion can be evidentially sound and still
+   fail the run's own charter for when a run is allowed to close.
+
+6. INTERNAL CONSISTENCY
    Do the numbers in the conclusions match the numbers in the workspace
    outputs?  Flag any discrepancy between claimed and observed values.
 
-6. REPRODUCIBILITY GATE (binding)
+7. REPRODUCIBILITY GATE (binding)
    pipeline.ipynb must exist AND, read as a human would, be a faithful,
    COMPOSABLE f3dasm Pipeline of the whole process — its cells read top-to-bottom
    as the method. Judge it against the cell-by-cell contract in the
@@ -143,7 +155,7 @@ For every claim or conclusion in the document, ask:
    CRITICAL finding. This gate — provenance + replicability — is NECESSARY for
    scientific integrity but NOT SUFFICIENT for it: a notebook can reproduce
    perfectly and still state a conclusion its evidence does not support.
-   Integrity also requires criteria 1–5 — above all that the headline not
+   Integrity also requires criteria 1–6 — above all that the headline not
    over-reach its evidence (criterion 4). Reproducibility is not the eval count,
    and it is not the whole of integrity.
 </adversarial_checklist>
@@ -164,8 +176,8 @@ For every claim or conclusion in the document, ask:
   CRITICAL or MAJOR finding on their own, and never grounds to block a
   conclusion.  A throwaway exploration phase that skipped get_evaluator()
   does not taint the result; what matters is whether the HEADLINE is
-  reproducible from the store (criterion 6).  At most, note an
-  unledgered headline-relevant computation as the criterion-6 / criterion-1
+  reproducible from the store (criterion 7).  At most, note an
+  unledgered headline-relevant computation as the criterion-7 / criterion-1
   finding it already is — do not double-count it as a budgeting defect.
 - HANDBOOK POINTER (OPTIONAL, advisory — NEVER changes the verdict).
   If the deliverable passes the gate but falls short of a project standard you

@@ -690,6 +690,29 @@ def test_no_domain_specific_leakage_extended():
             )
 
 
+def test_critic_checklist_judges_conclusion_against_problem_statement():
+    """The critic's own checklist must instruct it to weigh a conclusion
+    against the run's stated success/termination criteria — not just its
+    internal consistency (criteria 1-4/6) or reproducibility (criterion 7).
+
+    Regression: nodes/critic_gate.py's problem_statement_block() injects
+    PROBLEM_STATEMENT.md's content into every GATE/FEEDBACK task message,
+    but before this the critic's checklist never told it to actually weigh
+    the conclusion against that text — the fact arrived in context with no
+    instruction to act on it, the same latent-awareness gap one level up
+    from the constraint/problem-statement injection fixes.
+    """
+    from a3dasm._src.agents.critic import ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT
+
+    assert "RUN ADEQUACY" in ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT
+    assert "<problem_statement>" in ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT
+    # Renumbering check: the reproducibility gate and its cross-references
+    # must stay internally consistent after inserting a new criterion 5.
+    assert "7. REPRODUCIBILITY GATE" in ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT
+    assert "criterion 6" not in ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT
+    assert "criteria 1–5" not in ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT
+
+
 def test_shared_tool_docstrings_have_no_domain_specific_leakage():
     """A tool docstring is rendered into EVERY agent's generated <tools>
     catalog that declares it (tool_catalog.render_tool_catalog) — so a study-
