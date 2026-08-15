@@ -720,6 +720,21 @@ class ClaudeAdapter:
                 **(last_result.usage or {}),
                 "total_cost_usd": last_result.total_cost_usd,
             }
+        elif last_assistant is not None and getattr(last_assistant, "usage", None):
+            # route_watcher (strategizer.py) broke the stream on THIS
+            # AssistantMessage before the SDK's own ResultMessage (and its
+            # total_cost_usd) ever arrived -- e.g. every strategizer turn that
+            # actually closes the run via Done(). Falling back to {} here
+            # silently recorded zero tokens/cost for that turn, steadily
+            # under-recording the strategizer's total spend on every run.
+            # The message we just broke on already carries its own usage
+            # dict; total_cost_usd is a session-level rollup a lone
+            # AssistantMessage doesn't carry, so it stays None here -- the
+            # same "cost unknown, not zero" convention openai_compatible.py
+            # already uses for backends that can't price a call at all.
+            self.last_usage = {
+                **last_assistant.usage, "total_cost_usd": None,
+            }
         else:
             self.last_usage = {}
 

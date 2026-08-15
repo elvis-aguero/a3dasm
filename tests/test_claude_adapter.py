@@ -380,3 +380,38 @@ def test_last_usage_empty_when_no_result_message():
     assert adapter.last_usage == {} or not any(
         v for v in adapter.last_usage.values() if v
     )
+
+
+def test_last_usage_recovered_from_assistant_message_when_route_watcher_breaks_early():
+    """route_watcher (set by StrategizerNode on every run-closing Done() call,
+    strategizer.py:200) breaks the stream on the AssistantMessage that
+    triggered it, before the SDK's own ResultMessage/total_cost_usd ever
+    arrives. Regression: this previously fell through to last_usage={},
+    silently recording zero tokens/cost for every run-closing strategizer
+    turn. The AssistantMessage we broke on already carries its own usage
+    dict; total_cost_usd stays None (a session-level rollup a lone
+    AssistantMessage doesn't carry), matching openai_compatible.py's
+    existing "unknown, not zero" convention.
+    """
+    class _AssistantMessageWithUsage(_AssistantMessage):
+        def __init__(self, blocks, usage):
+            super().__init__(blocks)
+            self.usage = usage
+
+    async def _gen_route_watcher_breaks(prompt, options):
+        yield _AssistantMessageWithUsage(
+            [_TextBlock("Run complete.")],
+            {"input_tokens": 1200, "output_tokens": 340},
+        )
+        # A real stream would still be producing more messages/the eventual
+        # ResultMessage here — route_watcher breaks before any of that.
+
+    _install_fake_sdk(query=_gen_route_watcher_breaks)
+    ClaudeAdapter = _get_adapter()
+    adapter = ClaudeAdapter("claude-3", "sys", None, [])
+    adapter.route_watcher = lambda: True  # fires on the very first message
+    adapter.invoke([{"role": "user", "content": "hi"}])
+
+    assert adapter.last_usage["input_tokens"] == 1200
+    assert adapter.last_usage["output_tokens"] == 340
+    assert adapter.last_usage["total_cost_usd"] is None
