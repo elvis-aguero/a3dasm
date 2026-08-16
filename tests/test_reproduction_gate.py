@@ -142,6 +142,65 @@ def test_gate_fails_when_pipeline_adds_evals_to_a_namespace_store(tmp_path):
     )
 
 
+class _WithOptionalColumn(DataGenerator):
+    """f is tied across rows (1.0); a SECOND output column ("family") is
+    populated for one delegation and never written for another — a normal
+    shape when a later delegation's oracle adds a column an earlier one
+    didn't have. Reading both back through to_pandas() gives that column a
+    real string in one row and NaN (a float) in the other — the exact
+    heterogeneous pair that crashed _ledger_snapshot's sorted(all_rows) in
+    real run 20260816T013744."""
+
+    def __init__(self, with_family: bool) -> None:
+        self._with_family = with_family
+
+    def execute(self, s, **k):
+        s._output_data["f"] = 1.0
+        if self._with_family:
+            s._output_data["family"] = "rectangle"
+        s.job_status = JobStatus.FINISHED
+        return s
+
+
+def _seed_mixed_dtype_store(store_dir: Path) -> None:
+    gen1 = InstrumentedDataGenerator(
+        inner=_WithOptionalColumn(True), store_dir=store_dir,
+        delegation_id="D001", flush_every=1)
+    gen1.execute(ExperimentSample(
+        _input_data={"x0": 0.0}, _output_data={}, job_status=JobStatus.OPEN))
+    gen1.flush()
+    gen2 = InstrumentedDataGenerator(
+        inner=_WithOptionalColumn(False), store_dir=store_dir,
+        delegation_id="D002", flush_every=1)
+    gen2.execute(ExperimentSample(
+        _input_data={"x0": 1.0}, _output_data={}, job_status=JobStatus.OPEN))
+    gen2.flush()
+
+
+def test_gate_survives_a_column_populated_in_some_rows_but_missing_in_others(tmp_path):
+    """Regression for run 20260816T013744: TypeError: '<' not supported
+    between instances of 'float' and 'str', raised repeatedly (22x in 30min)
+    from _ledger_snapshot's sorted(all_rows), stranding the run UNGATED —
+    the gate never completed a clean PASS or FAIL, it just crash-looped until
+    the wall-clock ran out. An output column populated by one delegation but
+    never written by another (real for the SAME namespace store) reads back
+    as a string in one row and NaN in the other; the gate must not raise on
+    it. May still report a problem — just never crash.
+    """
+    study_dir = tmp_path / "study"
+    study_dir.mkdir()
+    run_dir = tmp_path / "runs" / "T0"
+    (run_dir / "debug" / "strategizer_notes").mkdir(parents=True)
+    _seed_mixed_dtype_store(run_dir / "experiment_data")
+    node = StrategizerNode(
+        _StubAdapter(), name="strategizer", outgoing=["implementer"],
+        spec=_spec(), study_dir=study_dir)
+    node._current_notes_dir = run_dir / "debug" / "strategizer_notes"
+    (study_dir / "pipeline.py").write_text("print('REPRODUCED: 1.0')\n")
+    # Must not raise TypeError — either passes (None) or reports a problem.
+    node._reproduction_gate({"study_dir": str(study_dir)})
+
+
 def test_gate_skips_without_run_context(tmp_path):
     node, study_dir = _setup(tmp_path)
     (study_dir / "pipeline.py").write_text("print('ok')\n")

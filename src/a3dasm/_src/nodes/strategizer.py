@@ -865,7 +865,17 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
                 all_rows.extend(
                     (store.name,) + tuple(r) for r in vals.to_numpy().tolist()
                 )
-            h = hashlib.sha256(repr(sorted(all_rows)).encode()).hexdigest()
+            # key=repr, not a bare sort: a row is (store.name, *column values),
+            # and a design space can legitimately mix numeric columns with
+            # non-numeric ones (e.g. a string mechanism/family label). Two
+            # same-namespace rows that diverge at a non-numeric column crash
+            # Python's tuple comparison (float < str is undefined) the moment
+            # they're compared — repr() is always string-comparable regardless
+            # of what each column holds, and dropping non-numeric columns
+            # instead would silently weaken the reproduction hash itself.
+            h = hashlib.sha256(
+                repr(sorted(all_rows, key=repr)).encode()
+            ).hexdigest()
             return total_rows, h
 
         # ── HERMETIC SANDBOX ──────────────────────────────────────────────────
