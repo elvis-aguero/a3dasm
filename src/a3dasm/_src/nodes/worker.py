@@ -33,6 +33,12 @@ class WorkerNode(AgentNode):
     ) -> None:
         super().__init__(adapter)
         self._name = name
+        # Accepted but previously never stored: build_declared_shared_closures
+        # (called below) resolves ReadProblemStatement's path through
+        # node._study_dir the same way StrategizerNode does — every worker
+        # that declares the tool crashed with AttributeError the moment it
+        # was called (WorkerNode had no such attribute at all).
+        self._study_dir = study_dir
         # The agent's declared tools — the single source of truth for which
         # capability closures this leaf worker is granted (read-only ledger/
         # store tools). Kept as a frozenset for membership checks.

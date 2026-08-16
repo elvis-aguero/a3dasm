@@ -131,7 +131,7 @@ def test_worker_hypothesislist_sees_the_ledger(tmp_path):
 # Leaf WorkerNode (e.g. the critic): declaration-gated read tools, working
 # ---------------------------------------------------------------------------
 
-def _leaf_worker(run_dir, agent_tools):
+def _leaf_worker(run_dir, agent_tools, study_dir=None):
     """A leaf WorkerNode (no outgoing edges) with a stub adapter — the critic /
     lit-reviewer shape."""
     from a3dasm._src.nodes.worker import WorkerNode
@@ -148,7 +148,8 @@ def _leaf_worker(run_dir, agent_tools):
 
     dlog = DelegationLog(run_dir / "debug" / "delegation_log.jsonl")
     return WorkerNode(_A(), name="critic", delegation_log=dlog,
-                      agent_tools=frozenset(agent_tools))
+                      agent_tools=frozenset(agent_tools),
+                      study_dir=study_dir)
 
 
 def test_leaf_worker_gets_declared_read_tools_and_they_work(tmp_path):
@@ -160,6 +161,25 @@ def test_leaf_worker_gets_declared_read_tools_and_they_work(tmp_path):
             "HypothesisGet"} <= set(ct)
     assert "empty" not in ct["RecallStore"]().lower()
     assert hid in ct["HypothesisList"]()
+
+
+def test_leaf_worker_can_read_problem_statement(tmp_path):
+    """Regression: WorkerNode.__init__ accepted study_dir but never stored it
+    (real run 20260816T013744, literature_reviewer/D002 retrospective:
+    "ReadProblemStatement() raised AttributeError: 'WorkerNode' object has no
+    attribute '_study_dir'") — build_declared_shared_closures resolves
+    ReadProblemStatement's path through node._study_dir the same way
+    StrategizerNode does, so EVERY leaf worker declaring the tool crashed the
+    moment it was called, degrading (there) to a Read() fallback.
+    """
+    run_dir, _ = _setup(tmp_path)
+    study_dir = tmp_path / "study"
+    study_dir.mkdir()
+    text = "Maximise sigma_peak for coilable designs."
+    (study_dir / "PROBLEM_STATEMENT.md").write_text(text, encoding="utf-8")
+
+    n = _leaf_worker(run_dir, {"ReadProblemStatement"}, study_dir=str(study_dir))
+    assert n.adapter.closure_tools["ReadProblemStatement"]() == text
 
 
 def test_leaf_worker_without_declaration_has_no_read_tools(tmp_path):
