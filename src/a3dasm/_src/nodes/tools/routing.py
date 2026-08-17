@@ -156,6 +156,55 @@ _FAILED_RETROSPECTIVE = (
 )
 
 
+def _decode_str_list(raw) -> list | None:
+    """Decode a JSON-array string / comma-separated string / bare string /
+    list into a list[str], or None if raw is None. Same permissive decoding
+    QueryStore already uses for delegation_ids — an LLM caller passes any of
+    these shapes interchangeably."""
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    s = str(raw).strip()
+    if s.startswith("["):
+        import json as _json
+        try:
+            decoded = _json.loads(s)
+            return [str(x) for x in decoded] if isinstance(decoded, list) else [s]
+        except _json.JSONDecodeError:
+            return [s]
+    if "," in s:
+        return [p.strip() for p in s.split(",") if p.strip()]
+    return [s]
+
+
+def _select_columns(df, columns, *, always_keep=("_namespace",)):
+    """Narrow df to `columns` (decoded via _decode_str_list) plus
+    always_keep, preserving df's own column order. Returns (narrowed_df,
+    error_or_None) — error is an ERROR string (listing available columns,
+    the same convention QueryStore's where= already uses) when a requested
+    column doesn't exist; never raises.
+
+    columns=None returns df unchanged — narrowing rows already existed
+    (where=/delegation_ids=/n_best=); this is the same capability for
+    columns, since a where=-narrowed row set can still be a wall of text
+    when each row itself has dozens of columns (observed: 449,879 chars from
+    two independent QueryStore calls in run 20260816T013744, overflowing the
+    critic's token limit on calls that had already correctly narrowed rows).
+    """
+    if columns is None:
+        return df, None
+    requested = _decode_str_list(columns) or []
+    missing = [c for c in requested if c not in df.columns]
+    if missing:
+        return None, (
+            f"ERROR: column(s) {missing} not found. "
+            f"Available columns: {list(df.columns)}"
+        )
+    keep = [c for c in df.columns if c in requested or c in always_keep]
+    return df[keep], None
+
+
 def build_declared_shared_closures(node, agent_tools) -> dict:
     """Capability tools granted to ANY node type by DECLARATION.
 
@@ -262,10 +311,22 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             minimize: bool = True,
             where: str | None = None,
             limit: int | None = None,
+            columns: str | list | None = None,
         ) -> str:
             """Filtered view of the evaluation ledger (e.g. rows from D001+D003
             only). Use to ground claims or to select training subsets; cite row
             values from here as evidence.
+
+            columns narrows which COLUMNS are shown (the same idea as where=/
+            limit= narrowing which ROWS are shown) — e.g.
+            columns=["f", "feasible", "margin"]. Without it every column is
+            shown for every matching row, which can overflow the response
+            token limit on a wide store even after where=/limit= has already
+            narrowed the rows down to a handful — narrow both when a store
+            has many columns. `_namespace` is always kept regardless of
+            columns=, per the invariant above. A requested column that
+            doesn't exist returns an ERROR string listing the available
+            columns; it never raises.
 
             Every row is tagged with a `_namespace` column ("default" for the
             baseline study, or the design-namespace name for a row that landed
@@ -489,6 +550,9 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                     combined = best_rows[
                         [c for c in show_cols if c in best_rows.columns]
                     ]
+                combined, _col_err = _select_columns(combined, columns)
+                if _col_err:
+                    return _col_err
                 return combined.to_string(index=False)
 
             # Default: count + first `limit` rows (default 20), with INPUT
@@ -505,6 +569,9 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             else:
                 show = filtered
             subset = show.iloc[:n_shown]
+            subset, _col_err = _select_columns(subset, columns)
+            if _col_err:
+                return _col_err
             more = len(filtered) - n_shown
             tail = (
                 f"\n… {more} more not shown — pass limit=<n>, a tighter "

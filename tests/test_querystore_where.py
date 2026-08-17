@@ -160,6 +160,57 @@ def test_where_input_columns_also_surface(tmp_path):
     assert "x0" in out          # inputs shown alongside the where-filtered rows
 
 
+# ---------------------------------------------------------------------------
+# columns= (narrow COLUMNS shown, the same idea as where=/limit= narrowing
+# ROWS). Regression: run 20260816T013744's critic hit QueryStore's response
+# overflowing the token limit (449,879 chars) TWICE independently on the same
+# namespace, even though where=/limit= had already correctly narrowed the
+# ROWS — a wide store still dumps every column per row with no way to trim.
+# ---------------------------------------------------------------------------
+
+
+def test_columns_narrows_default_list_view(tmp_path):
+    q = _querystore(tmp_path)
+    out = q(columns=["f"])
+    assert "f" in out
+    assert "coilable" not in out
+    assert "mcs" not in out
+
+
+def test_columns_always_keeps_namespace(tmp_path):
+    """_namespace is an always-shown invariant (a namespace row must never be
+    indistinguishable from a baseline row) — columns= must not be able to
+    drop it even if the caller doesn't ask for it."""
+    q = _querystore(tmp_path)
+    out = q(columns=["f"])
+    assert "_namespace" in out
+
+
+def test_columns_accepts_comma_separated_string(tmp_path):
+    """Same permissive string/list decoding as delegation_ids= — an LLM
+    caller passes either shape interchangeably."""
+    q = _querystore(tmp_path)
+    out = q(columns="f,coilable")
+    assert "f" in out and "coilable" in out
+    assert "mcs" not in out
+
+
+def test_columns_narrows_n_best_view_too(tmp_path):
+    q = _querystore(tmp_path)
+    out = q(where="coilable==1 and mcs>=0.90", n_best=1,
+            output_name="f", minimize=False, columns=["f"])
+    assert "2.5" in out
+    assert "x0" not in out
+    assert "mcs" not in out
+
+
+def test_unknown_column_returns_error_not_raises(tmp_path):
+    q = _querystore(tmp_path)
+    out = q(columns=["no_such_column"])
+    assert out.startswith("ERROR:")
+    assert "Available columns" in out
+
+
 def test_zero_match_reports_scanned_total_unambiguously(tmp_path):
     """Observability (#1): a true zero must state how many rows were scanned, so
     it can't be confused with a missing column (which returns an ERROR)."""
