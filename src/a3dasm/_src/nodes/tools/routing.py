@@ -3185,15 +3185,16 @@ def build_routing_tools(node) -> dict:
     def RunPipelineCell(name: str = None) -> str:
         """Execute pipeline.ipynb against a COPY of the canonical ledger and return
         a PER-CELL trace — the cell-level debugger CheckDeliverable's binary
-        pass/fail lacks. With `name` (a pillar cell: doe / data_generation / ml /
-        optimization / analysis) it runs top-to-bottom UP TO AND INCLUDING that
-        cell and reports it — cells share kernel state, so this pinpoints WHICH
-        cell breaks reproduction and shows its exact traceback + stdout. With no
-        name it runs the WHOLE notebook and reports every cell plus the first
-        failure. Runs against a COPY (cannot touch the real ledger or
-        pipeline.ipynb) and does NOT count toward the eval budget. Use it to
-        localize a CheckDeliverable failure to one cell before editing, instead of
-        re-running the binary gate blindly."""
+        pass/fail lacks. With `name` (any named CODE cell — a standard pillar
+        doe/data_generation/ml/optimization/analysis, OR a custom-phase cell
+        you added via AddPipelineCell) it runs top-to-bottom UP TO AND
+        INCLUDING that cell and reports it — cells share kernel state, so this
+        pinpoints WHICH cell breaks reproduction and shows its exact traceback
+        + stdout. With no name it runs the WHOLE notebook and reports every
+        cell plus the first failure. Runs against a COPY (cannot touch the
+        real ledger or pipeline.ipynb) and does NOT count toward the eval
+        budget. Use it to localize a CheckDeliverable failure to one cell
+        before editing, instead of re-running the binary gate blindly."""
         import json as _json
         import shutil as _shutil
         import subprocess as _sub
@@ -3232,9 +3233,13 @@ def build_routing_tools(node) -> dict:
                         "— a cell is running a real campaign; it should load the "
                         "ledger lazily, not recompute.")
             if trace.get("missing_name"):
-                return (prefix + f"No cell named {name!r}. Valid pillar names: "
-                        "doe, data_generation, ml, optimization, analysis "
-                        "(use ShowNotebook() to see the cells).")
+                return (prefix + f"No CODE cell named {name!r} — this can be a "
+                        "standard pillar (doe, data_generation, ml, "
+                        "optimization, analysis) or a custom-phase cell you "
+                        "added via AddPipelineCell, but it must be a code "
+                        "cell (a markdown-only cell like 'problem' or "
+                        "'verdict' has no execution state to run up to). "
+                        "Use ShowNotebook() to see the cells.")
             lines = []
             scope = (f"up to & including '{name}'" if name
                      else "whole notebook")
