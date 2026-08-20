@@ -122,6 +122,23 @@ def test_add_markdown_cell_is_create_only(tmp_path):
     assert "p1" in _cell(_read_nb(tmp_path), "problem")["source"]
 
 
+def test_add_markdown_cell_creates_verdict(tmp_path):
+    """Regression: <deliverable_format> step 7 ('## Verdict & result',
+    immediately ahead of the analysis pillar) instructs a standalone markdown
+    heading in exactly the same literal-text shape as problem/hypotheses, but
+    AddPipelineMarkdownCell's name whitelist previously only had those two —
+    real run 20260820T003819, two independent critic reviews both flagged the
+    strategizer hitting "name must be one of ['hypotheses', 'problem']" while
+    trying to author this cell (it guessed 'verdict_heading').
+    """
+    n = _node(tmp_path)
+    out = _tool(n, "AddPipelineMarkdownCell")("verdict", "H1 SUPPORTED because ...")
+    assert "Added verdict" in out
+    nb = _read_nb(tmp_path)
+    assert "H1 SUPPORTED" in _cell(nb, "verdict")["source"]
+    assert "## Verdict & result" in _cell(nb, "verdict")["source"]
+
+
 def test_edit_narrative_cell_with_content_and_rev(tmp_path):
     # The clunk fix: update hypotheses ALONE (no resupplying problem), rev-guarded.
     n = _node(tmp_path)

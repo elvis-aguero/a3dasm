@@ -87,6 +87,28 @@ def test_set_intro_then_add_pillars_canonical_order(tmp_path):
     assert by["doe__why"].cell_type == "markdown"
 
 
+def test_verdict_cell_orders_immediately_before_analysis(tmp_path):
+    """<deliverable_format> step 7 places '## Verdict & result' immediately
+    ahead of the analysis pillar's code cell, mirroring every other pillar's
+    WHY-explainer-then-code shape — verdict must land there in canonical
+    order regardless of call order, not at the end as an unrecognized custom
+    cell."""
+    n = _node(tmp_path)
+    tools = n.adapter.closure_tools
+    tools["AddPipelineCell"]("doe", "LHS over the box", "domain = ...; sampler = ...")
+    tools["AddPipelineCell"]("analysis", "derive headline", "print('REPRODUCED: 1.0')")
+    tools["AddPipelineMarkdownCell"]("verdict", "H1 SUPPORTED because ...")
+    tools["AddPipelineMarkdownCell"]("problem", "minimise f over the 3-box.")
+
+    nb = _read(tmp_path)
+    names = [c.metadata.get("name") for c in nb.cells if c.metadata.get("name")]
+    assert names == [
+        "problem",
+        "doe__why", "doe",
+        "verdict", "analysis__why", "analysis",
+    ]
+
+
 def test_add_pillar_is_create_only_on_recall(tmp_path):
     # AddPipelineCell is create-only: re-calling an existing phase errors
     # (directing to EditPipelineCell) instead of blindly overwriting it.

@@ -2701,6 +2701,13 @@ def build_routing_tools(node) -> dict:
     _PILLARS = ("doe", "data_generation", "ml", "optimization", "analysis")
     _NB_ORDER = ["problem", "hypotheses"]
     for _p in _PILLARS:
+        # <deliverable_format> step 7 substitutes a literal '## Verdict &
+        # result' heading for the usual WHY-explainer immediately ahead of
+        # the analysis pillar's code cell — same "narrative heading then
+        # code" shape as every other pillar, just with a fixed name/text
+        # instead of a free-form WHY paragraph.
+        if _p == "analysis":
+            _NB_ORDER += ["verdict"]
         _NB_ORDER += [f"{_p}__why", _p]
 
     def _load_or_new_notebook():
@@ -2746,8 +2753,19 @@ def build_routing_tools(node) -> dict:
         import hashlib
         return hashlib.sha256((source or "").encode("utf-8")).hexdigest()[:8]
 
-    # The two leading narrative (markdown-only) cells + their heading.
-    _NARRATIVE = {"problem": "# Problem & objective", "hypotheses": "## Hypotheses"}
+    # The standalone narrative (markdown-only) cells + their heading. "verdict"
+    # is <deliverable_format>'s step 7 ('## Verdict & result', immediately
+    # ahead of the analysis pillar) — without an entry here, AddPipelineMarkdownCell
+    # rejected any name a strategizer guessed for it (e.g. "verdict_heading"),
+    # a real, reproducible spec/tool mismatch (2 independent critic reviews,
+    # run 20260820T003819) since the spec instructs this cell in exactly the
+    # same literal-heading-text shape as "problem"/"hypotheses" but named
+    # neither.
+    _NARRATIVE = {
+        "problem": "# Problem & objective",
+        "hypotheses": "## Hypotheses",
+        "verdict": "## Verdict & result",
+    }
 
     def AddPipelineMarkdownCell(name: str, content: str) -> str:
         """CREATE one standalone narrative markdown cell in pipeline.ipynb. `name`
@@ -2852,7 +2870,7 @@ def build_routing_tools(node) -> dict:
                          expected_rev: str = None) -> str:
         """Patch an EXISTING cell in pipeline.ipynb. `name` is any named cell: a
         pillar (doe, data_generation, ml, optimization, analysis), its
-        '<pillar>__why' explainer, or a narrative cell (problem, hypotheses). Modes:
+        '<pillar>__why' explainer, or a narrative cell (problem, hypotheses, verdict). Modes:
         • SURGICAL: pass `old`/`new` — literal find/replace on the cell's source;
           `old` must occur EXACTLY once. Self-guarding (if the cell changed, `old`
           won't match), so no `expected_rev` needed. ShowNotebook('<name>') first
@@ -2943,7 +2961,7 @@ def build_routing_tools(node) -> dict:
     def DeletePipelineCell(name: str, expected_rev: str = None) -> str:
         """Remove a cell from pipeline.ipynb. `name` is any named cell: a pillar
         (doe, data_generation, ml, optimization, analysis) — which also removes its
-        '<pillar>__why' explainer — or a narrative cell (problem, hypotheses) or a
+        '<pillar>__why' explainer — or a narrative cell (problem, hypotheses, verdict) or a
         '<pillar>__why'. Use it to drop a part you decided not to keep instead of
         leaving dead/placeholder content. REQUIRES `expected_rev` (the rev you last
         saw, from ShowNotebook or a prior Add/Edit) so you cannot delete a cell that
@@ -2980,7 +2998,7 @@ def build_routing_tools(node) -> dict:
         """Read pipeline.ipynb back. NO argument → a BRIEF table of contents
         LISTING EVERY CELL BY NAME in canonical order, each with its type, rev,
         and first source line, plus which pillars are present/missing — call this
-        to see what exists before editing. With `name` (problem, hypotheses, a
+        to see what exists before editing. With `name` (problem, hypotheses, verdict, a
         pillar, or a '<pillar>__why' explainer) → the FULL source of that cell and
         its rev (the rev you then pass as `expected_rev` to EditPipelineCell /
         DeletePipelineCell). Read-only; never creates the file; free."""
