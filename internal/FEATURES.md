@@ -392,7 +392,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 |---|---|
 | `Delegate` | Delegation (dynamically injected) |
 | `GetStatus` · `Wait` · `FollowUp` · `Confer` · `ReportEvals` | Delegation + messaging + telemetry |
-| `AddPipelineCell` · `AddPipelineMarkdownCell` · `EditPipelineCell` · `DeletePipelineCell` · `ShowNotebook` · `WriteDeliverable` · `CheckDeliverable` | Notebook authoring + reproduction gate |
+| `AddPipelineCell` · `AddPipelineMarkdownCell` · `EditPipelineCell` · `DeletePipelineCell` · `ShowNotebook` · `WriteDeliverable` · `CheckDeliverable` | Notebook authoring + reproduction gate. Three markdown-cell names are RESERVED with an auto-added canonical heading (`problem`, `hypotheses`, `verdict` — the last is `<deliverable_format>` step 7, `## Verdict & result`, ahead of the analysis pillar); any other name is a free-form custom narrative cell (content used verbatim, no forced heading), mirroring `AddPipelineCell`'s own non-standard-phase philosophy — the deliverable's structure must not block what an agent needs to say. Only a pillar name or `<pillar>__why` collides and is rejected |
 | `RunPipelineCell` | Per-cell notebook debugger (#13) |
 | `RunScratch` | Worker scratch execution against a ledger copy |
 | `WriteNote` · `ReadNote` | Agent scratch notes |

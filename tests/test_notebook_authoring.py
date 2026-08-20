@@ -161,8 +161,13 @@ def test_markdown_cells_are_per_cell_and_create_only(tmp_path):
     by = _named(nb)
     assert "p1" in by["problem"].source  # unchanged by the failed re-add
     assert "h1" in by["hypotheses"].source
-    # unknown name rejected
-    assert tools["AddPipelineMarkdownCell"]("intro", "x").startswith("ERROR:")
+    # a non-reserved name is a custom narrative cell, not an error — the
+    # deliverable's structure must not block what an agent needs to say
+    # (mirrors AddPipelineCell's own custom-phase philosophy)
+    assert "Added custom" in tools["AddPipelineMarkdownCell"]("intro", "x")
+    # only a pillar name / <pillar>__why collides and is rejected
+    assert tools["AddPipelineMarkdownCell"]("doe", "x").startswith("ERROR:")
+    assert tools["AddPipelineMarkdownCell"]("doe__why", "x").startswith("ERROR:")
 
 
 def test_authored_notebook_passes_the_gate(tmp_path):

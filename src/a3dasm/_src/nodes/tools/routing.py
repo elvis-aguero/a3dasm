@@ -2768,21 +2768,31 @@ def build_routing_tools(node) -> dict:
     }
 
     def AddPipelineMarkdownCell(name: str, content: str) -> str:
-        """CREATE one standalone narrative markdown cell in pipeline.ipynb. `name`
-        is 'problem' (the question, min/max, success criterion) or 'hypotheses'
-        (the registered hypotheses + their falsifiable predictions — the Popperian
-        setup). The canonical heading is added for you. CREATE-ONLY: if it already
-        exists this errors — change it with EditPipelineCell(name, content=…) or
-        remove it with DeletePipelineCell. Creates pipeline.ipynb if absent. (For
-        the executable f3dasm pillars use AddPipelineCell instead.)"""
+        """CREATE one standalone narrative markdown cell in pipeline.ipynb.
+        Three names are RESERVED and get a canonical heading added for you:
+        'problem' (the question, min/max, success criterion), 'hypotheses'
+        (the registered hypotheses + their falsifiable predictions — the
+        Popperian setup), and 'verdict' ('## Verdict & result', immediately
+        ahead of the analysis pillar). Any OTHER name is also allowed — a
+        bespoke narrative section (a caveat, a background note, anything
+        <deliverable_format> doesn't already name) — it is appended after the
+        standard cells with your `content` used verbatim, no forced heading;
+        the deliverable's structure must not block what you need to say. Only
+        a pillar name or a `<pillar>__why` name is rejected (those belong to
+        AddPipelineCell). CREATE-ONLY: if it already exists this errors —
+        change it with EditPipelineCell(name, content=…) or remove it with
+        DeletePipelineCell. Creates pipeline.ipynb if absent."""
         import nbformat
         prefix = node._drain_notifications()
         if node._study_dir is None:
             return "ERROR: study_dir not available."
         name = (name or "").strip()
-        if name not in _NARRATIVE:
-            return (f"ERROR: name must be one of {sorted(_NARRATIVE)}, got "
-                    f"{name!r}. (Pillar code cells go through AddPipelineCell.)")
+        if not name:
+            return "ERROR: `name` is required."
+        if name in _PILLARS or (name.endswith("__why")
+                                 and name[:-len("__why")] in _PILLARS):
+            return (f"ERROR: {name!r} belongs to a pillar's code cell or its "
+                    "WHY-explainer — use AddPipelineCell instead.")
         if not (content or "").strip():
             return f"ERROR: `content` is empty for {name!r}."
         nb, nb_path = _load_or_new_notebook()
@@ -2792,11 +2802,20 @@ def build_routing_tools(node) -> dict:
                     f"(rev {_rev(by[name].get('source', ''))}). "
                     "AddPipelineMarkdownCell is create-only — change it with "
                     "EditPipelineCell or remove it with DeletePipelineCell first.")
-        cell = nbformat.v4.new_markdown_cell(
-            _NARRATIVE[name] + "\n\n" + _strip_leading_md_header(content))
+        _custom_name = name not in _NARRATIVE
+        source = (
+            content if _custom_name
+            else _NARRATIVE[name] + "\n\n" + _strip_leading_md_header(content)
+        )
+        cell = nbformat.v4.new_markdown_cell(source)
         cell.metadata["name"] = name
         by[name] = cell
         _emit_notebook(by, nb, nb_path)
+        if _custom_name:
+            return (prefix + f"Added custom {name!r} markdown cell (rev "
+                    f"{_rev(cell['source'])}) to pipeline.ipynb, after the "
+                    "standard cells. Edit or remove it any time with "
+                    "EditPipelineCell / DeletePipelineCell.")
         return prefix + f"Added {name} cell (rev {_rev(cell['source'])}) to pipeline.ipynb."
 
     def AddPipelineCell(phase: str, why: str, code: str) -> str:
@@ -2870,7 +2889,8 @@ def build_routing_tools(node) -> dict:
                          expected_rev: str = None) -> str:
         """Patch an EXISTING cell in pipeline.ipynb. `name` is any named cell: a
         pillar (doe, data_generation, ml, optimization, analysis), its
-        '<pillar>__why' explainer, or a narrative cell (problem, hypotheses, verdict). Modes:
+        '<pillar>__why' explainer, or a narrative cell (problem, hypotheses,
+        verdict, or any custom name created via AddPipelineMarkdownCell). Modes:
         • SURGICAL: pass `old`/`new` — literal find/replace on the cell's source;
           `old` must occur EXACTLY once. Self-guarding (if the cell changed, `old`
           won't match), so no `expected_rev` needed. ShowNotebook('<name>') first
@@ -2885,8 +2905,12 @@ def build_routing_tools(node) -> dict:
         if node._study_dir is None:
             return "ERROR: study_dir not available."
         name = (name or "").strip()
-        if name not in _NB_ORDER:
-            return f"ERROR: unknown cell {name!r}. Valid names: {_NB_ORDER}."
+        # No static name-whitelist gate here: a custom cell (created via
+        # AddPipelineMarkdownCell's free-form path, or AddPipelineCell's
+        # custom-phase path) is a real cell in the notebook but isn't in the
+        # canonical _NB_ORDER list — the check below (against the notebook's
+        # ACTUAL contents) is what correctly distinguishes "doesn't exist yet"
+        # from "exists, edit it" for both canonical and custom names alike.
         surgical = old is not None or new is not None
         full = [k for k, v in (("code", code), ("why", why), ("content", content))
                 if v is not None]
@@ -2945,15 +2969,23 @@ def build_routing_tools(node) -> dict:
                         wc.metadata["name"] = wname
                         by[wname] = wc
             else:
-                # markdown cell: problem / hypotheses / <pillar>__why
+                # markdown cell: problem / hypotheses / verdict / <pillar>__why /
+                # a free-form custom name (AddPipelineMarkdownCell's custom path)
                 if code is not None or why is not None:
                     return (f"ERROR: {name!r} is a markdown cell — use `content=`, "
                             "not `code=`/`why=`.")
                 if not content.strip():
                     return f"ERROR: `content` is empty for {name!r}."
-                heading = (_NARRATIVE[name] if name in _NARRATIVE
-                           else f"### {name[:-len('__why')]}")
-                by[name]["source"] = heading + "\n\n" + _strip_leading_md_header(content)
+                if name in _NARRATIVE:
+                    heading = _NARRATIVE[name]
+                elif name.endswith("__why"):
+                    heading = f"### {name[:-len('__why')]}"
+                else:
+                    heading = None  # free-form custom cell — no forced heading
+                by[name]["source"] = (
+                    heading + "\n\n" + _strip_leading_md_header(content)
+                    if heading is not None else content
+                )
         _emit_notebook(by, nb, nb_path)
         new_rev = _rev(by[name].get("source", ""))
         return prefix + f"Edited {name} in pipeline.ipynb (rev {cur_rev} → {new_rev})."
@@ -2961,8 +2993,8 @@ def build_routing_tools(node) -> dict:
     def DeletePipelineCell(name: str, expected_rev: str = None) -> str:
         """Remove a cell from pipeline.ipynb. `name` is any named cell: a pillar
         (doe, data_generation, ml, optimization, analysis) — which also removes its
-        '<pillar>__why' explainer — or a narrative cell (problem, hypotheses, verdict) or a
-        '<pillar>__why'. Use it to drop a part you decided not to keep instead of
+        '<pillar>__why' explainer — or a narrative cell (problem, hypotheses,
+        verdict, or a custom name) or a '<pillar>__why'. Use it to drop a part you decided not to keep instead of
         leaving dead/placeholder content. REQUIRES `expected_rev` (the rev you last
         saw, from ShowNotebook or a prior Add/Edit) so you cannot delete a cell that
         changed since you last saw it."""
@@ -2971,8 +3003,6 @@ def build_routing_tools(node) -> dict:
         if node._study_dir is None:
             return "ERROR: study_dir not available."
         name = (name or "").strip()
-        if name not in _NB_ORDER:
-            return f"ERROR: unknown cell {name!r}. Valid names: {_NB_ORDER}."
         nb, nb_path = _load_or_new_notebook()
         by = _by_name(nb)
         if name not in by:
@@ -2998,7 +3028,7 @@ def build_routing_tools(node) -> dict:
         """Read pipeline.ipynb back. NO argument → a BRIEF table of contents
         LISTING EVERY CELL BY NAME in canonical order, each with its type, rev,
         and first source line, plus which pillars are present/missing — call this
-        to see what exists before editing. With `name` (problem, hypotheses, verdict, a
+        to see what exists before editing. With `name` (problem, hypotheses, verdict, a custom cell, a
         pillar, or a '<pillar>__why' explainer) → the FULL source of that cell and
         its rev (the rev you then pass as `expected_rev` to EditPipelineCell /
         DeletePipelineCell). Read-only; never creates the file; free."""
@@ -3014,8 +3044,10 @@ def build_routing_tools(node) -> dict:
         if name is not None:
             name = name.strip()
             if name not in by:
+                _present = ([k for k in _NB_ORDER if k in by]
+                            + [k for k in by if k not in _NB_ORDER])
                 return (prefix + f"ERROR: no cell named {name!r}. Present: "
-                        f"{[k for k in _NB_ORDER if k in by]}.")
+                        f"{_present}.")
             c = by[name]
             src = c.get("source", "")
             ctype = c.get("cell_type", "?")

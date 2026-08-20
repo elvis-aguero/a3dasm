@@ -108,10 +108,25 @@ def test_add_markdown_cell_creates_problem_and_hypotheses(tmp_path):
     assert "## Hypotheses" in _cell(nb, "hypotheses")["source"]
 
 
-def test_add_markdown_cell_rejects_unknown_name(tmp_path):
+def test_add_markdown_cell_allows_free_form_custom_name(tmp_path):
+    """A non-reserved name is a custom narrative cell, not a rejection — the
+    deliverable's structure must not block an agent from adding a section
+    <deliverable_format> doesn't already name (mirrors AddPipelineCell's own
+    "non-standard phase just proceeds" philosophy for code cells)."""
     n = _node(tmp_path)
-    out = _tool(n, "AddPipelineMarkdownCell")("intro", "x")
-    assert out.startswith("ERROR:") and "problem" in out and "hypotheses" in out
+    out = _tool(n, "AddPipelineMarkdownCell")("caveats", "x is subject to y")
+    assert "Added custom" in out
+    nb = _read_nb(tmp_path)
+    # verbatim content, no forced heading, unlike problem/hypotheses/verdict
+    assert _cell(nb, "caveats")["source"] == "x is subject to y"
+
+
+def test_add_markdown_cell_rejects_pillar_name_collision(tmp_path):
+    n = _node(tmp_path)
+    out = _tool(n, "AddPipelineMarkdownCell")("doe", "x")
+    assert out.startswith("ERROR:") and "AddPipelineCell" in out
+    out2 = _tool(n, "AddPipelineMarkdownCell")("doe__why", "x")
+    assert out2.startswith("ERROR:") and "AddPipelineCell" in out2
 
 
 def test_add_markdown_cell_is_create_only(tmp_path):
@@ -137,6 +152,23 @@ def test_add_markdown_cell_creates_verdict(tmp_path):
     nb = _read_nb(tmp_path)
     assert "H1 SUPPORTED" in _cell(nb, "verdict")["source"]
     assert "## Verdict & result" in _cell(nb, "verdict")["source"]
+
+
+def test_edit_custom_markdown_cell_does_not_force_a_heading(tmp_path):
+    """EditPipelineCell's markdown branch previously assumed any name not in
+    _NARRATIVE ended in '__why' (stripping that suffix for its heading) —
+    that assumption breaks for a genuinely free-form custom cell name. A
+    custom cell's content must round-trip verbatim, with no heading forced
+    on either create or edit.
+    """
+    n = _node(tmp_path)
+    _tool(n, "AddPipelineMarkdownCell")("caveats", "first draft")
+    out = _tool(n, "EditPipelineCell")(
+        "caveats", content="revised caveat text",
+        expected_rev=_rev(tmp_path, "caveats"))
+    assert "Edited caveats" in out
+    nb = _read_nb(tmp_path)
+    assert _cell(nb, "caveats")["source"] == "revised caveat text"
 
 
 def test_edit_narrative_cell_with_content_and_rev(tmp_path):
@@ -174,6 +206,17 @@ def test_delete_narrative_cell(tmp_path):
     assert "Deleted hypotheses" in out
     nb = _read_nb(tmp_path)
     assert _cell(nb, "hypotheses") is None and _cell(nb, "problem") is not None
+
+
+def test_delete_custom_markdown_cell(tmp_path):
+    """DeletePipelineCell previously gated on a static _NB_ORDER whitelist
+    before even checking the notebook's real contents — rejecting a valid
+    custom cell as 'unknown' rather than deleting it."""
+    n = _node(tmp_path)
+    _tool(n, "AddPipelineMarkdownCell")("caveats", "x")
+    out = _tool(n, "DeletePipelineCell")("caveats", expected_rev=_rev(tmp_path, "caveats"))
+    assert "Deleted caveats" in out
+    assert _cell(_read_nb(tmp_path), "caveats") is None
 
 
 # ── ShowNotebook — read + list by name ───────────────────────────────────────
