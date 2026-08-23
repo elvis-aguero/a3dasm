@@ -230,10 +230,14 @@ the science do not change with it.
 
 Long autonomous runs need guardrails. a3dasm separates two kinds:
 
-- **Soft budgets** (the evaluation budget) nudge the strategizer when it is
-  spending heavily, but never hard-stop the science.
-- **The one hard cap** is per-delegation memory (host safety), enforced by a
-  watchdog that also reaps runaway processes and force-exits a stalled run.
+- **Soft budgets** (`eval_budget`, the evaluation count, and `budget`, the
+  wall-clock time) nudge the strategizer when it is spending heavily, but
+  never hard-stop the science.
+- **Hard caps** stop the run outright: per-delegation memory (host safety,
+  enforced by a watchdog that also reaps runaway processes and force-exits a
+  stalled run), and an optional `budget_usd` cost ceiling (resumable — raise
+  it and resume; inactive on a backend with no per-call cost data, e.g.
+  Ollama).
 
 ## What you provide, what you get
 

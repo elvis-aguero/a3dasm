@@ -50,6 +50,7 @@ can set:
 | `backend` | `claude`, `ollama`, `openrouter`, or `vllm` | `claude` |
 | `budget` | soft wall-clock limit, `"HH:MM:SS"` or seconds (a nudge, not a hard stop) | none |
 | `eval_budget` | soft cap on how many real evaluations the run may spend | none |
+| `budget_usd` | **hard** cost ceiling — halts the run when spend reaches it (resumable: raise it and resume). Inactive on a backend with no per-call cost data (e.g. Ollama) | none |
 | `required_deliverables` | extra files that must exist before the run can finish | none |
 | `evaluator` | how a design gets scored, see below | honor-system |
 

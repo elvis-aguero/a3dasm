@@ -43,8 +43,7 @@ the built-in graph now runs on Ollama, because none of the shipped agents
 (`StrategizerAgent`, `LiteratureReviewAgent`, `DataGeneratorAgent`,
 `F3dasmImplementerAgent`, `AdversarialCritiqueAgent`) sets its own
 `backend`, so each one falls back to the run's default:
-`agent.backend or self._backend` (`agent_runtime.py`'s `_make_adapter`,
-line 1250).
+`agent.backend or self._backend` (in `agent_runtime.py`'s `_make_adapter`).
 
 ## A different backend for one agent: this needs Python, not YAML
 
