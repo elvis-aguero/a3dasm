@@ -744,8 +744,6 @@ class AgenticRun:
         ).hexdigest()
         notes_dir = debug_dir / "strategizer_notes"
         notes_dir.mkdir(parents=True, exist_ok=True)
-        lit_reviewer_notes_dir = debug_dir / "lit_reviewer_notes"
-        # lit_reviewer_notes_dir is created by LiteratureCorpus.__init__
         self._run_dir = run_dir
 
         # Canonical store: experiment_data/ + run_config.json
@@ -898,7 +896,6 @@ class AgenticRun:
                     study_dir=self.study_dir,
                     interactive=self._interactive, max_ask=self._max_ask,
                     notes_dir=notes_dir,
-                    lit_reviewer_notes_dir=lit_reviewer_notes_dir,
                     workspace_dir=workspace_dir,
                     delegation_log=delegation_log,
                     checkpointer=saver,

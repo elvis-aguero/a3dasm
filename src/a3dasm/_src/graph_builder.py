@@ -28,7 +28,6 @@ def build_graph(
     interactive: bool = False,
     max_ask: int = 1,
     notes_dir: Any = None,
-    lit_reviewer_notes_dir: Any = None,
     workspace_dir: Any = None,
     delegation_log: DelegationLog | None = None,
 ) -> Any:
