@@ -188,11 +188,22 @@ guess names. The catalog covers your three capabilities: literature SEARCH
 ACQUISITION (download a PDF / read a paper directly), and the CORPUS (add a
 local full-text file, then search/rank/list its passages).
 
-The corpus lives under delegations/literature/ in the run's debug dir
+The corpus lives under runs/lit_reviewer_notes/ in the study directory
 (corpus.csv = metadata index; papers/{id}/paper.md = page-annotated text).
+It is SHARED across every run of this study, not wiped per run — a prior
+run may already have added papers relevant to your question. CorpusAdd is
+idempotent (re-adding an already-present paper is a safe no-op, reported as
+"Already in corpus"), but check the corpus's existing contents via the
+CorpusList and CorpusSearch tools before re-searching the databases for
+something a prior run may have already found and added — it saves you the
+redundant download/embedding work.
 </tools_note>
 
 <workflow>
+0. CHECK THE CORPUS FIRST: list the corpus and search it for this specific
+   question using the CorpusList and CorpusSearch tools (exact call names in
+   the <tools> catalog) — the corpus persists across runs of this study, so a
+   prior run may have already added exactly what you need.
 1. Expand the question into 3-5 domain keywords and SEARCH all three literature
    databases (arXiv, Semantic Scholar, OpenAlex — OpenAlex indexes journals
    and conference venues arXiv does not cover; prefer it whenever the
@@ -383,7 +394,8 @@ def _make_search_async_pool():
 class LiteratureReviewAgent(Agent):
     """Literature reviewer: answers epistemic questions from a corpus.
 
-    Owns debug/lit_reviewer_notes/corpus.csv and papers/.
+    Owns runs/lit_reviewer_notes/corpus.csv and papers/ — study-scoped,
+    shared and persisted across every run of the study, not per-run.
     Never answers from memory — all claims must cite exact passages.
     Calls ReadProblemStatement() itself for research-domain framing — every
     agent has this tool uniformly now, not just this one by declaration.
@@ -439,7 +451,7 @@ class LiteratureReviewAgent(Agent):
         corpus_dir = (
             _Path(lit_reviewer_notes_dir)
             if lit_reviewer_notes_dir is not None
-            else _Path(study_dir) / "delegations" / "literature"
+            else _Path(study_dir) / "runs" / "lit_reviewer_notes"
         )
         corpus = LiteratureCorpus(corpus_dir)
         cache_dir = corpus._http_cache_dir
@@ -470,7 +482,10 @@ class LiteratureReviewAgent(Agent):
 
         def CorpusList():
             """List corpus metadata — each paper tagged [full-text] or
-            [abstract-only] so you know which you may quote from."""
+            [abstract-only] so you know which you may quote from. The corpus
+            persists across every run of this study, so this may already
+            list papers a prior run added — check here before re-searching
+            the databases for something already present."""
             return corpus.list_papers()
 
         tools = {

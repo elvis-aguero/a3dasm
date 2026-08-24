@@ -202,8 +202,18 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 
 ### Literature reviewer
 - **What:** a specialist agent that searches papers (arXiv / Semantic Scholar) and
-  returns findings; degrades to lexical search without the heavy extras.
-- **Where:** `agents/literature.py`, backends. **Status:** core.
+  returns findings; degrades to lexical search without the heavy extras. Its
+  corpus (`runs/lit_reviewer_notes/`) is STUDY-scoped, not per-run — it
+  persists across every run of a study, since a paper's relevance to a
+  domain doesn't go stale between runs the way scientific findings can
+  (deliberately NOT extended to cross-run hypothesis/mechanism memory,
+  which was rejected as too risky — a study's actual question can drift run
+  to run). Lives under `runs/`, not the study root, to stay out of the
+  user-facing study folder; guarded by a `FileLock` (not a `threading.Lock`)
+  since two runs of the same study are now real, separate processes that can
+  overlap and both write to it.
+- **Where:** `agents/literature.py`, `literature_corpus.py`,
+  `agent_runtime.py`'s `_make_adapter`. **Status:** core.
 
 ### Delegation-ID allocation fix (D002)
 - **What:** delegation IDs are allocated *after* the milestone gate, so a blocked

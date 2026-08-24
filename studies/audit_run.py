@@ -302,18 +302,33 @@ def audit(run: Path) -> None:
             print(f"  (section {fn.__name__} errored: {exc})")
 
 
+def _run_dirs(runs_root: Path) -> list[Path]:
+    """Every actual run directory directly under *runs_root*, oldest first.
+
+    ``runs/`` can hold a non-run sibling too — ``lit_reviewer_notes/`` is now
+    study-scoped and lives there (see agent_runtime.py's _make_adapter) so it
+    persists across runs instead of being wiped per-run. A bare ``glob("*/")``
+    would treat it as a run and — worse — its mtime updates every time a
+    paper is added, so it could silently outrank the real latest run. Only a
+    directory with its own ``debug/`` (the actual run-shape marker used
+    elsewhere in this function) counts.
+    """
+    candidates = (d for d in runs_root.glob("*/") if (d / "debug").exists())
+    return sorted(candidates, key=lambda d: d.stat().st_mtime)
+
+
 def _resolve(target: str | None) -> list[Path]:
     base = Path(__file__).parent
     if target:
         p = Path(target)
         if (p / "debug").exists():
             return [p]
-        runs = sorted((p / "runs").glob("*/"), key=lambda d: d.stat().st_mtime)
+        runs = _run_dirs(p / "runs")
         return [runs[-1]] if runs else []
     # no arg: latest run of every agentic_* study
     out = []
     for study in sorted(base.glob("agentic_*")):
-        runs = sorted((study / "runs").glob("*/"), key=lambda d: d.stat().st_mtime)
+        runs = _run_dirs(study / "runs")
         if runs:
             out.append(runs[-1])
     return out

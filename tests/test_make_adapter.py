@@ -192,3 +192,62 @@ def test_make_adapter_no_run_dir_returns_adapter_without_run_paths(tmp_path):
         result = run._make_adapter("implementer", agent)
 
     assert result is mock_instance
+
+
+# ---------------------------------------------------------------------------
+# lit_reviewer_notes_dir — study-scoped, NOT per-run (a study is typically
+# run many times; re-downloading/re-embedding the same papers every run is
+# pure waste with no corresponding staleness risk, unlike cross-run findings
+# memory). Regression: this used to be run_dir/debug/lit_reviewer_notes,
+# wiped every fresh run.
+# ---------------------------------------------------------------------------
+
+
+def _make_lit_reviewer_agent():
+    from a3dasm._src.agents.literature import LiteratureReviewAgent
+    return LiteratureReviewAgent()
+
+
+def test_lit_reviewer_corpus_is_study_scoped_not_per_run(tmp_path):
+    """The corpus lands under study_dir/runs/lit_reviewer_notes — a SIBLING of
+    the timestamped run dir, not inside it — for any real run_dir, so a
+    second run of the same study (a fresh run_dir) still sees it."""
+    run = _make_run(tmp_path)
+    agent = _make_lit_reviewer_agent()
+
+    with patch("a3dasm._src.backends.claude.ClaudeAdapter") as MockClaude:
+        mock_instance = MagicMock()
+        mock_instance.closure_tools = {}
+        MockClaude.return_value = mock_instance
+
+        run._graph_spec = MagicMock()
+        run._graph_spec.entry = "strategizer"
+        run._graph_spec.outgoing.return_value = []
+
+        run._make_adapter("literature_reviewer", agent)
+
+    expected = tmp_path / "runs" / "lit_reviewer_notes"
+    assert expected.is_dir()
+    # NOT created under the per-run debug dir
+    assert not (run._run_dir / "debug" / "lit_reviewer_notes").exists()
+
+
+def test_lit_reviewer_corpus_path_unaffected_by_run_dir(tmp_path):
+    """Same study-scoped path whether or not a run_dir/run context exists at
+    all — the corpus location no longer depends on self._run_dir."""
+    run = _make_run(tmp_path)
+    run._run_dir = None  # simulate pre-execute state
+    agent = _make_lit_reviewer_agent()
+
+    with patch("a3dasm._src.backends.claude.ClaudeAdapter") as MockClaude:
+        mock_instance = MagicMock()
+        mock_instance.closure_tools = {}
+        MockClaude.return_value = mock_instance
+
+        run._graph_spec = MagicMock()
+        run._graph_spec.entry = "strategizer"
+        run._graph_spec.outgoing.return_value = []
+
+        run._make_adapter("literature_reviewer", agent)
+
+    assert (tmp_path / "runs" / "lit_reviewer_notes").is_dir()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -433,3 +434,72 @@ def test_concurrent_add_is_thread_safe(tmp_path):
     ids = {r["paper_id"] for r in rows}
     assert "arxiv_1111_11111" in ids
     assert "arxiv_2222_22222" in ids
+
+
+def test_concurrent_add_from_separate_corpus_instances_is_safe(tmp_path):
+    """Regression: the corpus is now study-scoped (shared across every run of
+    a study, see agent_runtime.py's _make_adapter), so two SEPARATE
+    AgenticRun processes can genuinely write to it at once — two entirely
+    separate LiteratureCorpus objects (each with its OWN in-process lock),
+    not two threads sharing one instance and its one threading.Lock.
+    A threading.Lock would not protect this at all (each process/instance
+    gets its own, uncoordinated lock object); the FileLock does, because it
+    coordinates through the shared lock FILE on disk, not in-process state.
+
+    Deterministically widens the race window instead of relying on a bare
+    2-thread race (timing-dependent — confirmed by hand it can pass by luck
+    even without the fix): corpus_a's FINAL read-modify-write sleeps right
+    after loading, unconditionally, with no synchronization on corpus_b (a
+    sync point corpus_b sets would deadlock once the fix makes corpus_a hold
+    a real cross-instance lock during the sleep). If the two instances don't
+    coordinate at all (the bug), corpus_b's entire add() completes during
+    that window and corpus_a's stale in-memory rows overwrite it on save. If
+    they do coordinate (the fix), corpus_b's own attempt to acquire the same
+    lock file simply blocks until corpus_a's slow section releases it — no
+    deadlock, both rows land correctly either way the timing falls.
+    """
+    corpus_a = _make_corpus(tmp_path)
+    corpus_b = LiteratureCorpus(tmp_path / "literature")  # a second, independent instance
+
+    md1 = tmp_path / "paper1.md"
+    md2 = tmp_path / "paper2.md"
+    md1.write_text("<!-- page 1 -->\nContent one.", encoding="utf-8")
+    md2.write_text("<!-- page 1 -->\nContent two.", encoding="utf-8")
+
+    real_load_csv = corpus_a._load_csv
+    call_count = {"n": 0}
+
+    def a_load_csv_slow():
+        call_count["n"] += 1
+        rows = real_load_csv()
+        if call_count["n"] == 2:  # the final read-modify-write's load
+            time.sleep(0.5)
+        return rows
+
+    corpus_a._load_csv = a_load_csv_slow
+
+    errors: list[str] = []
+
+    def add_paper(corpus: LiteratureCorpus, md_path: Path, arxiv_id: str) -> None:
+        result = corpus.add(str(md_path), arxiv_id=arxiv_id, title=f"Paper {arxiv_id}")
+        if result.startswith("ERROR"):
+            errors.append(result)
+
+    t1 = threading.Thread(target=add_paper, args=(corpus_a, md1, "3333.33333"))
+    t2 = threading.Thread(target=add_paper, args=(corpus_b, md2, "4444.44444"))
+    t1.start()
+    time.sleep(0.1)  # let t1 reach its slow final-load window before t2 starts
+    t2.start()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+
+    assert errors == [], f"Unexpected errors: {errors}"
+    with (tmp_path / "literature" / "corpus.csv").open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 2, (
+        "a lost update: corpus_a's stale save clobbered corpus_b's row "
+        f"instead of both landing — rows: {rows}"
+    )
+    ids = {r["paper_id"] for r in rows}
+    assert "arxiv_3333_33333" in ids
+    assert "arxiv_4444_44444" in ids

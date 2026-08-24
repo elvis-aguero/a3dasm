@@ -31,6 +31,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from filelock import FileLock
+
 try:
     import fitz  # type: ignore[import]
     # Silence MuPDF's per-object C-library stderr ("zlib error: incorrect header
@@ -548,9 +550,17 @@ class LiteratureCorpus:
         self._csv_path = self._corpus_dir / "corpus.csv"
         self._chunks_path = self._corpus_dir / "chunks.jsonl"
         self._http_cache_dir = self._corpus_dir / ".http_cache"
-        self._lock = threading.Lock()
         self._corpus_dir.mkdir(parents=True, exist_ok=True)
         self._papers_dir.mkdir(parents=True, exist_ok=True)
+        # FileLock, not threading.Lock: the corpus is now study-scoped (see
+        # agent_runtime.py's _make_adapter), so two runs of the same study —
+        # separate PROCESSES — can genuinely overlap and both write to the
+        # same corpus.csv/chunks.jsonl. A threading.Lock only ever protected
+        # concurrent THREADS within one process; FileLock (already a project
+        # dependency, same pattern instrumented.py uses for the canonical
+        # ledger) guards the real cross-process case too, and is a drop-in
+        # replacement for the `with self._lock:` sites below.
+        self._lock = FileLock(str(self._corpus_dir / ".lock"))
         self._embedding_model = None  # lazy-loaded on first CorpusAdd
         self._fastembed_warned = False
 

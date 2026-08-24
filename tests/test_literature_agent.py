@@ -131,7 +131,10 @@ def test_corpus_get_paper_not_found(tmp_path):
 
 
 def test_build_closure_tools_fallback_dir(tmp_path):
-    """build_closure_tools uses study_dir/delegations/literature when lit_reviewer_notes_dir=None."""
+    """build_closure_tools uses study_dir/runs/lit_reviewer_notes when
+    lit_reviewer_notes_dir=None — matching _make_adapter's real (study-scoped,
+    not per-run) default, so the fallback and the real default never drift
+    apart again."""
     agent = _make_agent()
     tools = agent.build_closure_tools(
         study_dir=tmp_path,
@@ -141,6 +144,7 @@ def test_build_closure_tools_fallback_dir(tmp_path):
     # Should still return the corpus tools
     assert "CorpusAdd" in tools
     assert "CorpusList" in tools
+    assert (tmp_path / "runs" / "lit_reviewer_notes").is_dir()
 
 
 # ---------------------------------------------------------------------------

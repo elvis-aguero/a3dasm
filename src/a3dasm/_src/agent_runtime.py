@@ -1293,11 +1293,18 @@ class AgenticRun:
         _persistent = not agent.reset_on_checkpoint
         _max_history_pairs = getattr(agent, "max_history_pairs", 5)
 
-        lit_reviewer_notes_dir = (
-            Path(self._run_dir) / "debug" / "lit_reviewer_notes"
-            if self._run_dir is not None
-            else self.study_dir / "lit_reviewer_notes"
-        )
+        # Study-scoped, NOT per-run: a study is typically run many times
+        # (the same domain, evolving problem statement), and re-downloading
+        # + re-embedding the same papers every run is pure waste with no
+        # corresponding staleness risk — unlike cross-run FINDINGS/hypothesis
+        # memory (rejected earlier as too risky, since a study's actual
+        # scientific question genuinely can drift run to run), a paper's
+        # relevance to a domain does not. Lives under runs/ (not the study
+        # root) so it stays out of the user-facing study folder alongside
+        # PROBLEM_STATEMENT.md/config.yaml/pipeline.ipynb — see
+        # LiteratureCorpus for the cross-process FileLock this now requires
+        # (two runs of the same study can genuinely overlap and both write).
+        lit_reviewer_notes_dir = self.study_dir / "runs" / "lit_reviewer_notes"
 
         # Registry-driven, forward-compatible dispatch: resolve the adapter
         # class by backend name and let it choose its own native tools. Adding
