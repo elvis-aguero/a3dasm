@@ -35,6 +35,40 @@ def _strip_leading_md_header(text: str) -> str:
     """
     return re.sub(r"^\s*#{1,6}[^\n]*(?:\n+|$)", "", (text or "").lstrip(), count=1)
 
+
+_FLOAT_EQ_RE = re.compile(
+    r"\b([A-Za-z_]\w*)\s*==\s*[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b"
+)
+
+
+def _float_equality_where_hint(where: str, joined) -> str:
+    """Return a warning suffix if ``where`` exact-``==``s a float-dtype column,
+    else "".
+
+    QueryStore's ``where=`` is a pandas ``.query()`` expression: an exact ``==``
+    against a float column silently excludes a row whose stored value differs
+    by float representation error alone (e.g. a value round-tripped through
+    CSV/JSON), and the caller has no way to tell that apart from a genuine
+    absence — observed independently by the strategizer and 3 of 8 critic
+    rounds in run 20260825T012642, each paying a diagnosis cycle before
+    switching to an ``abs(x-v)<1e-6`` tolerance predicate. Heuristic, not a
+    parser: only flags a bare ``col==literal`` pattern where ``col`` resolves
+    to a float-dtype column — deliberately does NOT touch int/bool/str exact
+    equality (e.g. ``feasible==1``), which is not float-precision-sensitive
+    and should stay exact.
+    """
+    import pandas as _pd
+
+    for col in _FLOAT_EQ_RE.findall(where or ""):
+        if col in joined.columns and _pd.api.types.is_float_dtype(joined[col]):
+            return (
+                " HINT: where= exact-compared a float column (`==`) — float "
+                "storage/round-trip error can make a real row silently not "
+                "match. Prefer a tolerance predicate, e.g. "
+                f"abs({col}-VALUE)<1e-6."
+            )
+    return ""
+
 # Roles whose delegations actually reach the ground-truth oracle and so are
 # subject to the eval-ledger guards (raw-oracle nudge, unledgered bounce,
 # off-ledger reconciliation). Role-based (not node-name-based) so it stays
@@ -479,10 +513,21 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                 # Unambiguous absence: state how many rows were SCANNED. A true
                 # zero (columns exist, predicate excluded everything) is distinct
                 # from a bad column, which returns an ERROR above — never a 0.
+                # EXCEPT: an exact `==` against a float column can produce this
+                # same "zero rows" outcome on a row that's really there but off
+                # by float representation error — that is NOT a true zero, so
+                # don't assert one; hedge instead (see _float_equality_where_hint).
+                hint = (
+                    _float_equality_where_hint(where, joined) if where else ""
+                )
+                verdict = (
+                    "NOT necessarily a true zero — see hint below." if hint
+                    else "TRUE zero — the columns exist and were scanned "
+                    "(a non-existent column returns an ERROR, not 0)."
+                )
                 return (
                     f"0 of {len(df_out)} scanned ledger row(s) match "
-                    f"[{crit}]. TRUE zero — the columns exist and were scanned "
-                    "(a non-existent column returns an ERROR, not 0)."
+                    f"[{crit}]. {verdict}{hint}"
                 )
 
             # n_best: return the n rows with smallest output_name value.

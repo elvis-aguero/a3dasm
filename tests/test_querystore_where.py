@@ -312,3 +312,46 @@ def test_zero_match_reports_namespace_in_applied_filters(tmp_path):
     # and a genuinely bad column still ERRORs (not a silent 0)
     bad = q(where="nonexistent_col==1")
     assert bad.startswith("ERROR:")
+
+
+# ---------------------------------------------------------------------------
+# Float-equality where= hint. Regression (run 20260825T012642): an exact `==`
+# against a stored float column silently returns 0 rows on representation
+# error, and the zero-row message previously asserted "TRUE zero" regardless
+# — a confident, misleading claim. Independently hit by the strategizer and
+# 3 of 8 critic rounds, each paying a diagnosis cycle before switching to an
+# abs(x-v)<1e-6 tolerance predicate.
+# ---------------------------------------------------------------------------
+
+
+def test_float_equality_zero_match_gets_hint_not_true_zero(tmp_path):
+    """x0 is a float column; no row has x0==0.15 exactly (values are .1-.5),
+    so this is genuinely 0 rows either way — but the message must hedge
+    instead of asserting "TRUE zero", since the SAME zero-row outcome is what
+    a float-precision false-negative also looks like."""
+    q = _querystore(tmp_path)
+    out = q(where="x0==0.15")
+    assert "0 of 5 scanned" in out
+    assert "TRUE zero" not in out
+    assert "NOT necessarily a true zero" in out
+    assert "abs(x0-VALUE)<1e-6" in out
+
+
+def test_int_equality_zero_match_still_reports_true_zero(tmp_path):
+    """coilable is an int/bool-like column — exact `==` on it is NOT
+    float-precision-sensitive, so the hint must not fire and the existing
+    unambiguous "TRUE zero" guarantee must be unchanged."""
+    q = _querystore(tmp_path)
+    out = q(where="coilable==1 and mcs>=9.0")
+    assert "0 of 5 scanned" in out
+    assert "TRUE zero" in out
+    assert "abs(" not in out
+
+
+def test_float_equality_hint_absent_when_rows_do_match(tmp_path):
+    """The hint is only about the zero-row path — a where= that DOES match
+    rows must not carry it (nothing to hedge)."""
+    q = _querystore(tmp_path)
+    out = q(where="x0==0.1")
+    assert "1 rows match" in out or "1 row" in out
+    assert "abs(" not in out
