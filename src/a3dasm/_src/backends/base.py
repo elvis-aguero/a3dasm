@@ -213,13 +213,64 @@ class Agent:
         delegation_id: str | None = None,
         lit_reviewer_notes_dir: Path | None = None,
     ) -> dict:
-        """Return runtime closure tools for this agent. Override in subclasses.
+        """Return runtime closure tools for this agent.
 
         Called by the runtime when constructing the worker adapter so agents can
         inject Python callables (e.g. corpus management tools) without declaring
         them in Agent.tools.
+
+        The default gives EVERY agent read-only lookup against the study's
+        persistent literature corpus (CorpusSearch/CorpusList/CorpusGetPaper) —
+        the corpus is shared, queryable infrastructure (see LiteratureCorpus),
+        the same way QueryStore lets every node read the canonical evaluation
+        ledger without delegating to the data generator. ACQUIRING a new paper
+        (CorpusAdd, external search) stays literature_reviewer-only: finding
+        and vetting a new paper needs judgment a raw tool call can't supply,
+        so it stays gated behind an actual delegation — see
+        LiteratureReviewAgent.build_closure_tools, which overrides this
+        method entirely (its own CorpusSearch/List/GetPaper + CorpusAdd) and
+        does not call super().
+
+        Override in a subclass to replace this default entirely.
         """
-        return {}
+        from pathlib import Path as _Path
+
+        try:
+            from ..literature_corpus import LiteratureCorpus
+        except ImportError:
+            return {}
+
+        corpus_dir = (
+            _Path(lit_reviewer_notes_dir) if lit_reviewer_notes_dir is not None
+            else _Path(study_dir) / "runs" / "lit_reviewer_notes"
+        )
+        corpus = LiteratureCorpus(corpus_dir)
+
+        def CorpusSearch(query, top_k=10):
+            """Passage search across the FULL-TEXT papers already in this
+            study's persistent literature corpus (shared across every run of
+            the study). Returns an ERROR string if no full-text papers have
+            been added yet — this is a READ-ONLY lookup; acquiring a new
+            paper requires delegating to the literature_reviewer."""
+            return corpus.search(query, int(top_k))
+
+        def CorpusList():
+            """List corpus metadata — each paper tagged [full-text] or
+            [abstract-only] so you know which you may quote from. The corpus
+            persists across every run of this study, so it may already
+            contain a prior run's answer to your question."""
+            return corpus.list_papers()
+
+        def CorpusGetPaper(paper_id):
+            """Return the full extracted (page-annotated) text of one paper
+            already in the study's persistent literature corpus."""
+            return corpus.get_paper(paper_id)
+
+        return {
+            "CorpusSearch": CorpusSearch,
+            "CorpusList": CorpusList,
+            "CorpusGetPaper": CorpusGetPaper,
+        }
 
 
 # ---------------------------------------------------------------------------

@@ -215,6 +215,22 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 - **Where:** `agents/literature.py`, `literature_corpus.py`,
   `agent_runtime.py`'s `_make_adapter`. **Status:** core.
 
+### Universal read-only corpus lookup
+- **What:** EVERY agent (not just the literature_reviewer) gets `CorpusSearch`
+  / `CorpusList` / `CorpusGetPaper` for free — read-only lookup against the
+  study's persistent literature corpus, injected via
+  `Agent.build_closure_tools`'s own default. Same rationale as `QueryStore`
+  letting every node read the canonical evaluation ledger without delegating
+  to the data generator: the corpus is shared, queryable infrastructure, not
+  something only its specialist may read. ACQUIRING a new paper (`CorpusAdd`,
+  external search) stays literature_reviewer-only — finding/vetting a new
+  paper needs judgment a raw tool call can't supply, so it stays gated behind
+  an actual delegation. `LiteratureReviewAgent.build_closure_tools` overrides
+  the base default entirely (its own read tools + `CorpusAdd` + search) rather
+  than extending it.
+- **Where:** `backends/base.py`'s `Agent.build_closure_tools` default.
+  **Status:** core.
+
 ### Delegation-ID allocation fix (D002)
 - **What:** delegation IDs are allocated *after* the milestone gate, so a blocked
   attempt no longer burns an ID (IDs stay contiguous).
