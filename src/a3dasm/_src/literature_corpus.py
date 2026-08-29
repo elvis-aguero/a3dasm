@@ -1072,10 +1072,38 @@ class LiteratureCorpus:
         docling_md = ""
         # 1. Docling — layout-aware, the accuracy path. Absent on Intel macOS.
         try:
+            from docling.datamodel.base_models import (
+                InputFormat,  # type: ignore
+            )
             from docling.document_converter import (  # type: ignore
                 DocumentConverter,
+                PdfFormatOption,
             )
-            result = DocumentConverter().convert(str(pdf_path))
+            # Force the pre-2.123.0 single-threaded backend explicitly.
+            # docling 2.123.0 changed PdfFormatOption's own default from
+            # DoclingParseDocumentBackend to ThreadedDoclingParseDocumentBackend
+            # ("Default to threaded docling-parse across SDK, CLI, service, and
+            # extraction") — that new default SEGFAULTS the whole interpreter
+            # (SIGSEGV, not a catchable exception — the try/except below never
+            # even runs) on macos-latest (arm64) + Python 3.13 in CI, first seen
+            # 2026-08-26 (docling 2.122.0->2.123.0, nothing else in the PDF
+            # stack changed). Pinning the backend, not the docling version,
+            # keeps every other 2.123.0+ fix/feature while avoiding the one
+            # default that crashes.
+            try:
+                from docling.backend.docling_parse_backend import (  # type: ignore
+                    DoclingParseDocumentBackend,
+                )
+                _format_options = {
+                    InputFormat.PDF: PdfFormatOption(
+                        backend=DoclingParseDocumentBackend),
+                }
+            except ImportError:
+                # Older docling without the threaded-default split — its own
+                # default is already the single-threaded backend.
+                _format_options = None
+            converter = DocumentConverter(format_options=_format_options)
+            result = converter.convert(str(pdf_path))
             docling_md = result.document.export_to_markdown() or ""
             if len(docling_md.strip()) > _FULL_TEXT_MD_THRESHOLD:
                 return docling_md  # Docling actually parsed it — trust it.
