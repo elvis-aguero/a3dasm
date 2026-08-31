@@ -101,6 +101,27 @@ this project exercises a graph that mixes backends: it's a real, working
 lever (as shown above), but running most of a graph on Claude and one node
 on a local model is a combination you'd be the first to try.
 
+## Seeing what you built
+
+A custom graph is easy to get subtly wrong — a node with a typo'd role, an
+edge to the wrong target, an override that silently didn't take. Render it:
+
+```python
+run = AgenticRun(study_dir=study_dir, graph=graph)
+run.render_architecture()  # writes study_dir/architecture.svg
+```
+
+The SVG shows every node's role, description, and full tool surface (its
+declared `Agent.tools` plus what it actually gets injected at runtime), the
+delegation edges between nodes, and — the thing worth checking after the
+example above — each node's *resolved* backend/model, exactly as
+`agent_runtime.py` resolves it (`agent.model or self._model`, `agent.backend
+or self._backend`). For the graph above, that means the diagram should show
+the strategizer on the run's default and the implementer on `ollama ·
+qwen2.5:7b`, on its own card — not a single run-wide banner claiming one
+backend for everything. Works before or after `execute()`; call it any time
+you want to check a graph rather than trust it.
+
 ## Reference: the available backends
 
 Whichever backend a run defaults to, whether set globally in `config.yaml`
