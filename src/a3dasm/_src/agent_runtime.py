@@ -680,6 +680,34 @@ class AgenticRun:
                 self._backend)
         return jobid
 
+    def render_architecture(self, out_path: Path | str | None = None) -> Path:
+        """Render this run's agent graph — nodes, roles, tools, descriptions,
+        edges — as a self-contained SVG and write it to disk.
+
+        Works before or after ``execute()`` (the graph is fixed at
+        construction). Default location: ``run_dir/debug/architecture.svg``
+        once a run has started (``self._run_dir`` set), else
+        ``study_dir/architecture.svg``. Returns the path written.
+        """
+        from .run_diagram import render_architecture_svg
+
+        svg = render_architecture_svg(
+            self._graph_spec,
+            title=f"{self.study_dir.name} — agent architecture",
+            model=self._model,
+            backend=self._backend,
+        )
+        if out_path is None:
+            base = (
+                self._run_dir / "debug" if self._run_dir is not None
+                else self.study_dir
+            )
+            out_path = base / "architecture.svg"
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(svg, encoding="utf-8")
+        return out_path
+
     def execute(self) -> str:
         """Run the agentic loop; return the final report text.
 

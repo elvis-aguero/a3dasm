@@ -410,6 +410,27 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   call `ConsultHandbook`. The descriptor is the entry `title`, capped to one terse
   line by a ≤100-char invariant (`test_knowledge_base.py`).
 
+### Run architecture diagram
+- **What:** `AgenticRun.render_architecture(out_path=None)` renders THIS run's
+  actual agent graph — every node, its role, its description, its full tool
+  surface (declared `Agent.tools` + the topology-injected `Delegate`/`Wait`/
+  `Reply`/`FollowUp`/`RecallHistory` a node with outgoing edges really gets,
+  not the aspirational superset in `Agent`'s own docstring), and the
+  delegation edges between nodes — as a single self-contained, hand-laid-out
+  SVG. Generated straight from the live `Graph`/`Agent` objects (BFS-layered
+  from the entry node, not run through Graphviz or any auto-layout engine),
+  so it cannot silently go stale the way this repo's previous diagram did (a
+  hand-authored `internal/class_diagram.dot` describing classes that no
+  longer existed — deleted in favor of this). Each tool name is color-coded
+  by whether it's shared across >1 node (muted grey — the common baseline)
+  or distinctive to just this one (the node's own accent) — a plain
+  alphabetical dump treats every tool as equally interesting; this doesn't.
+  SVG is the native, checked-in format: vector by construction, so any DPI
+  or pixel size is one rasterization step away with zero quality loss — no
+  separate PNG-export code ships here.
+- **Where:** `run_diagram.py` (the renderer); `agent_runtime.py`'s
+  `AgenticRun.render_architecture`. **Status:** done.
+
 ---
 
 ## Tools (every one must be documented above; the test enforces it)
