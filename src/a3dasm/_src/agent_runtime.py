@@ -693,9 +693,9 @@ class AgenticRun:
 
         svg = render_architecture_svg(
             self._graph_spec,
-            title=f"{self.study_dir.name} — agent architecture",
             model=self._model,
             backend=self._backend,
+            study_dir=self.study_dir,
         )
         if out_path is None:
             base = (

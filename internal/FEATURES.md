@@ -412,22 +412,35 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 
 ### Run architecture diagram
 - **What:** `AgenticRun.render_architecture(out_path=None)` renders THIS run's
-  actual agent graph — every node, its role, its description, its full tool
-  surface (declared `Agent.tools` + the topology-injected `Delegate`/`Wait`/
-  `Reply`/`FollowUp`/`RecallHistory` a node with outgoing edges really gets,
-  not the aspirational superset in `Agent`'s own docstring), and the
+  actual agent graph — every node, its role, its description, its RESOLVED
+  backend/model (each node can override either independently, matching
+  `agent_runtime.py`'s own `agent.model or self._model` resolution — shown
+  per card, never as one run-wide banner), its full tool surface, and the
   delegation edges between nodes — as a single self-contained, hand-laid-out
-  SVG. Generated straight from the live `Graph`/`Agent` objects (BFS-layered
-  from the entry node, not run through Graphviz or any auto-layout engine),
-  so it cannot silently go stale the way this repo's previous diagram did (a
-  hand-authored `internal/class_diagram.dot` describing classes that no
-  longer existed — deleted in favor of this). Each tool name is color-coded
-  by whether it's shared across >1 node (muted grey — the common baseline)
-  or distinctive to just this one (the node's own accent) — a plain
-  alphabetical dump treats every tool as equally interesting; this doesn't.
-  SVG is the native, checked-in format: vector by construction, so any DPI
-  or pixel size is one rasterization step away with zero quality loss — no
-  separate PNG-export code ships here.
+  SVG. No cap on the tool list: a card grows to fit everything rather than
+  truncating with a "see agent source for the full list" cop-out. Generated
+  straight from the live `Graph`/`Agent` objects (BFS-layered from the entry
+  node, not run through Graphviz or any auto-layout engine), so it cannot
+  silently go stale the way this repo's previous diagram did (a hand-authored
+  `internal/class_diagram.dot` describing classes that no longer existed —
+  deleted in favor of this). The tool surface includes each agent's REAL
+  runtime-injected closures (`Agent.build_closure_tools()`), not just its
+  statically declared `.tools` — LiteratureReviewAgent declares only
+  `{Read, Grep, Glob, ReadProblemStatement}`; every actual capability
+  (CorpusAdd/Search/List/GetPaper, arXiv/OpenAlex/Semantic Scholar search) is
+  injected at runtime, and a first draft that only read `.tools` silently
+  showed it as having almost no tools. Every edge renders identically — one
+  delegation mechanism (`Delegate`) exists in the code, so there is no
+  invented "primary vs lateral" edge taxonomy or line-style split (an early
+  draft fabricated one; caught and removed). Each tool name is color-coded by
+  a real per-tool key: the SAME tool renders in the SAME color everywhere it
+  appears, so a repeating color across different cards is what visually says
+  "these nodes share this capability" — a tool unique to one node renders in
+  plain neutral ink instead. No title, no node/edge-count banner, no legend —
+  the cards and edges are the whole diagram. SVG is the native, checked-in
+  format: vector by construction, so any DPI or pixel size is one
+  rasterization step away with zero quality loss — no separate PNG-export
+  code ships here.
 - **Where:** `run_diagram.py` (the renderer); `agent_runtime.py`'s
   `AgenticRun.render_architecture`. **Status:** done.
 
