@@ -503,3 +503,20 @@ def test_concurrent_add_from_separate_corpus_instances_is_safe(tmp_path):
     ids = {r["paper_id"] for r in rows}
     assert "arxiv_3333_33333" in ids
     assert "arxiv_4444_44444" in ids
+
+
+def test_embed_with_spec_has_an_upper_bound():
+    """Regression: an unbounded floating spec (fastembed>=0.3, no ceiling)
+    is exactly the footgun that caused docling's CI segfault (2026-08-26 —
+    a transitive default changed under an unpinned version bump). Observed
+    directly in a real run (20260830T004106, delegation D035): the embed
+    worker's ephemeral uv env hit "ImportError: cannot import name
+    'TextEmbedding' from 'fastembed' (unknown location)". Not confirmed to
+    be THIS exact fix (Oscar is read-only, so it can't be reproduced there),
+    but the unbounded spec must never come back unpinned."""
+    from a3dasm._src.literature_corpus import _EMBED_WITH
+    assert "<" in _EMBED_WITH, (
+        f"_EMBED_WITH={_EMBED_WITH!r} has no upper bound — an unpinned "
+        "floating spec for an ephemeral env dependency is the exact "
+        "footgun this pin exists to prevent."
+    )

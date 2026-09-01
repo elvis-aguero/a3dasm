@@ -70,7 +70,25 @@ _sleep = _time_module.sleep
 # runs in an ISOLATED uv env, so we just pin that env to Python 3.12 (where
 # fastembed+onnxruntime+numpy all have wheels) — no host pins needed, and the
 # host's numpy-2 is irrelevant across the process boundary.
-_EMBED_WITH = "fastembed>=0.3"
+#
+# Upper-bounded (not just >=0.3): an unbounded floating spec here is exactly
+# the footgun that caused docling's CI segfault (2026-08-26 — a transitive
+# default changed under a version bump nobody asked for). Observed directly
+# (run 20260830T004106, delegation D035): "ImportError: cannot import name
+# 'TextEmbedding' from 'fastembed' (unknown location)" — confirmed
+# `TextEmbedding` is still exported by fastembed 0.8.0 upstream (not an API
+# removal), and the "(unknown location)" phrasing is the fingerprint of a
+# namespace-package resolution (no real __init__.py) rather than a genuine
+# API break — most likely `uv`'s ephemeral env transiently resolving a
+# broken/partial install (possibly colliding with the fastembed-gpu variant,
+# which provides the same top-level namespace) in that one throwaway
+# environment; two other delegations in the SAME run had working
+# CorpusSearch calls, so this looks environment-specific, not deterministic.
+# This upper bound doesn't necessarily fix that particular transient failure
+# (unverified — Oscar is read-only, so it can't be reproduced/confirmed
+# there), but it's the same cheap, low-risk insurance against a FUTURE real
+# break either way.
+_EMBED_WITH = "fastembed>=0.3,<0.9"
 _EMBED_PYTHON = "3.12"
 
 # Tri-state cache for subprocess embedder availability:
