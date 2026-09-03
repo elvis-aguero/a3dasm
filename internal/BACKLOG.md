@@ -11,6 +11,7 @@ references, not a queue position — see the order above.
 ## Status checklist
 Resolved items keep their write-up below for the record; `(commit)` is what fixed them.
 
+- [ ] **#27** `pipeline_deliverable: false` doesn't suppress the notebook-deliverable prompt injection — *open, found 2026-09-03 running the MathExpert study*. `notebook_deliverable_spec()` (`notebook_exec.py:92`) is appended to the strategizer's system prompt unconditionally (`agent_runtime.py:1313`, no `pipeline_deliverable` check) and states "DELIVERABLE = pipeline.ipynb... this SUPERSEDES every... instruction above" — overriding even a `PROBLEM_STATEMENT.md` that explicitly says there is no pipeline deliverable. The knob only suppresses the `CRAFT_PIPELINE` milestone nudge (`nodes/strategizer.py:137`), not this injection, so a pure-derivation/no-ledger study's strategizer still writes a `pipeline.ipynb` and predictably fails the reproduction gate. Judgment call, not fixed here: should `notebook_deliverable_spec()`'s injection itself be gated on `pipeline_deliverable`, or is a stronger PROBLEM_STATEMENT-level override the intended fix?
 - [ ] **#1** Reconcile cancelled-but-completed delegations — *open, highest priority* (recurring UNGATED root cause; partially mitigated 2026-06-15)
 - [ ] **#2** Richer delegator↔worker comms (typed blocker/escalation) — *deferred*
 - [ ] **#3** ProblemDefinerAgent pre-strategizer intake stage — *deferred*
