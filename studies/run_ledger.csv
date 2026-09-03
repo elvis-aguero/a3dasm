@@ -68,3 +68,5 @@ b54e5ded,agentic_namespace_ring,20260627T011059,GATED,2,6,100,0.013,932,92057,1.
 dab479ea,agentic_namespace_ring,20260628T130525,UNGATED,3,6,200,0.014,6055,70165,0.8837,00:33:44,3,0,0,"{""MILESTONE_BLOCK"": 1, ""ERROR_RETURN"": 1}"
 9dea9a78,agentic_namespace_ring,20260708T165801,UNGATED,3,4,450,0.021,1562,120575,1.3963,00:30:58,3,0,0,"{""ERROR_RETURN"": 2, ""BUDGET_WARN"": 2}"
 ad2ed57,mathexpert_kinematic_matching_test,20260903T130138,FAILED,0,6,,,,,,,1,1,0,"{""ERROR_RETURN"": 1, ""REPRO_GATE_BOUNCE"": 6, ""AttributeError"": 2, ""REPRO_GATE_FAILED"": 1}"
+db63c70,mathexpert_kinematic_matching_test,20260903T163807,FAILED,0,4,,,227846,46570,0.4172,01:05:41,0,2,0,"{""ERROR_RETURN"": 5, ""REPRO_GATE_BOUNCE"": 6, ""REPRO_GATE_FAILED"": 1}"
+6786020,mathexpert_kinematic_matching_test,20260903T191706,GATED,0,2,,,,,,,0,2,0,"{""ERROR_RETURN"": 2}"
