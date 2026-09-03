@@ -231,6 +231,31 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 - **Where:** `backends/base.py`'s `Agent.build_closure_tools` default.
   **Status:** core.
 
+### MathExpert — verified symbolic derivation
+- **What:** a specialist agent (NOT part of `_default_graph()` — opt-in via a
+  custom `Graph`, same precedent as `DebuggerAgent`) that authors and runs a
+  Python script against `a3dasm.Workspace` per derivation "edition"
+  (`runs/math_workspace/<edition>.py`). Forces every algebraic/domain/
+  dimensional claim through SymPy and reports a genuine three-valued verdict
+  (`CONFIRMED`/`REFUTED`/`INCONCLUSIVE`) rather than a restated confidence; a
+  physical assumption is recorded via `assume()` with a fourth verdict,
+  `ASSERTED`, never adjudicated by the library. Durability and "revise an
+  assumption" are both plain filesystem operations (read/rerun; copy-edit-
+  rerun for a counterfactual) — no bespoke trace-replay or dependency-graph
+  mechanism. `Workspace` seeds SymPy's own RNG at construction so a verdict
+  that depends on `.equals()`'s randomized numerical fallback is reproducible
+  across reruns of the identical script (verified directly: unseeded, this
+  flips between `REFUTED`/`INCONCLUSIVE` across process runs).
+- **Where:** `math_dsl.py` (the `Workspace` library, re-exported publicly as
+  `a3dasm.Workspace`), `agents/math_expert.py` (`MathExpertAgent`),
+  `knowledge/entries/0011-symbolic-derivation-patterns.md` (worked-example
+  guidance, `audience: [math_expert]`). See
+  `internal/specs/10-math-expert-agent.md` for the full design rationale,
+  including two heavier alternatives (a JSONL trace log, a dependency DAG)
+  tried and dropped against a real published derivation. **Status:** core
+  (library layer tested; graph wiring is per-study, not in the default
+  topology).
+
 ### Delegation-ID allocation fix (D002)
 - **What:** delegation IDs are allocated *after* the milestone gate, so a blocked
   attempt no longer burns an ID (IDs stay contiguous).

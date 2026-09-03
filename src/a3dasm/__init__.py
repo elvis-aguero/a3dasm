@@ -30,6 +30,7 @@ from ._src.agents import (
     F3dasmImplementerAgent,
     ImplementerAgent,
     LiteratureReviewAgent,
+    MathExpertAgent,
     StrategizerAgent,
 )
 from ._src.backends.base import Agent, Edge, Graph
@@ -44,6 +45,7 @@ from ._src.graph_state import AgenticState
 # store-redirected evaluator. See KB 0001.
 from ._src.instrumented import get_evaluator, load_experiments
 from ._src.lookup import LookupDataGenerator
+from ._src.math_dsl import Workspace
 from ._src.nodes import (
     AgentNode,
     ImplementerNode,
@@ -79,11 +81,13 @@ __all__ = [
     "ImplementerNode",
     "WorkerNode",
     "LookupDataGenerator",
+    "MathExpertAgent",
     "OllamaAdapter",
     "Report",
     "StrategizerAgent",
     "StrategizerNode",
     "StudyConfig",
     "Task",
+    "Workspace",
     "build_graph",
 ]

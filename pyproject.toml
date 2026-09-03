@@ -20,6 +20,7 @@ classifiers = [
 # bump + import flip owed once bessagroup/f3dasm#351 lands.
 dependencies = [
   "f3dasm>=2.4.0",
+  "sympy>=1.13",
   "claude-agent-sdk>=0.2.82,<1.0.0",
   "pymupdf>=1.24.0",
   "rank-bm25>=0.2.2",

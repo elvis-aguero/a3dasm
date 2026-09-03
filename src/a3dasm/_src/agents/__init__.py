@@ -14,6 +14,7 @@ from .implementer import (
     ImplementerAgent,
 )
 from .literature import LiteratureReviewAgent
+from .math_expert import MathExpertAgent
 from .strategizer import StrategizerAgent
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "ImplementerAgent",  # backward-compatible alias
     "DebuggerAgent",
     "LiteratureReviewAgent",
+    "MathExpertAgent",
     "_default_graph",
 ]
