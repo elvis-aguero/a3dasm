@@ -20,6 +20,17 @@ from ..parsing import (
     _stamped_eval_count,
 )
 
+# Tool names whose entire purpose is authoring/checking pipeline.ipynb.
+# Stripped from a strategizer's effective toolset when pipeline_deliverable
+# is false (BACKLOG #30) — Done is deliberately NOT in this set, it is still
+# needed to close a run regardless of whether a notebook exists.
+_NOTEBOOK_TOOL_NAMES = frozenset({
+    "WriteDeliverable", "CheckDeliverable",
+    "AddPipelineCell", "AddPipelineMarkdownCell",
+    "EditPipelineCell", "DeletePipelineCell",
+    "ShowNotebook", "RunPipelineCell",
+})
+
 
 def _strip_leading_md_header(text: str) -> str:
     """Drop a single leading markdown header line from author-supplied cell text.
@@ -2595,6 +2606,16 @@ def build_routing_tools(node) -> dict:
         _ag = node._spec.nodes.get(node._name)
         if _ag is not None:
             _agent_tools = _ag.tools
+    # pipeline_deliverable: false strips the notebook-authoring tools
+    # themselves, not just the injected prompt preamble (BACKLOG #30) --
+    # otherwise the strategizer sees a toolset saturated with pipeline.ipynb
+    # capability regardless of what the study's own PROBLEM_STATEMENT.md says,
+    # and using it despite a contrary instruction is exactly what was
+    # observed in a real run. Done stays available (still needed to close a
+    # run); this only removes the notebook-authoring surface.
+    from ...settings import get_bool as _get_bool
+    if not _get_bool("pipeline_deliverable", True):
+        _agent_tools = _agent_tools - _NOTEBOOK_TOOL_NAMES
 
     def WriteDeliverable(filename: str, content: str) -> str:
         """Author the deliverable pipeline.ipynb (the ONLY deliverable).

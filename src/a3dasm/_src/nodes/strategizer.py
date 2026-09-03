@@ -756,21 +756,30 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
     def _missing_deliverables(self, state: AgenticState) -> list[str]:
         """Return required deliverable paths not present at study_dir yet.
 
-        The single deliverable (pipeline.ipynb) is always required, authored
-        before Done() is accepted. It is the human-readable recipe AND the
-        reproduction in one notebook: the runtime executes it
-        lazily (see _reproduction_gate) to verify the headline re-derives from the
-        ledger with zero new evals. Additional paths can be declared in
-        state['required_deliverables'].
+        The single deliverable (pipeline.ipynb) is required, authored before
+        Done() is accepted, UNLESS the study turns off pipeline_deliverable —
+        it is the human-readable recipe AND the reproduction in one notebook:
+        the runtime executes it lazily (see _reproduction_gate) to verify the
+        headline re-derives from the ledger with zero new evals, which makes
+        no sense for a study with no ledger at all. Requiring it unconditionally
+        (BACKLOG #30) meant a pure-derivation study's strategizer could never
+        satisfy Done() regardless of what its own tools/prompt said — this was
+        the third of three places that assumption was baked in (the other two,
+        the injected notebook_deliverable_spec() preamble and the notebook-
+        authoring tools themselves, are already gated the same way). Additional
+        paths can still be declared in state['required_deliverables']
+        regardless of this flag.
         """
+        from .. import settings
         from ..notebook_exec import required_deliverable_name
         study_dir = Path(state.get("study_dir", "."))
         # WriteDeliverable writes BARE names to study_dir/ (it rejects path
         # separators). Normalise any configured path to its basename so a stray
         # 'workspace/…' prefix in a study config can't spuriously flag a present
         # deliverable as missing.
-        required = [required_deliverable_name()] + list(
-            state.get("required_deliverables") or [])
+        required = list(state.get("required_deliverables") or [])
+        if settings.get_bool("pipeline_deliverable", True):
+            required = [required_deliverable_name()] + required
         seen: set[str] = set()
         missing: list[str] = []
         for p in required:

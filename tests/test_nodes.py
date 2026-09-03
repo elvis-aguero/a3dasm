@@ -2301,6 +2301,45 @@ def test_missing_deliverables_normalizes_workspace_prefix(tmp_path):
     assert node._missing_deliverables(state2) == ["report.pdf"]
 
 
+def test_missing_deliverables_does_not_require_pipeline_ipynb_when_disabled(tmp_path):
+    """pipeline_deliverable: false means pipeline.ipynb is not required at
+    all (BACKLOG #30, third of three places this assumption was baked in --
+    the other two, the injected preamble and the notebook-authoring tools,
+    are already gated the same way). A study with no ledger genuinely has
+    nothing to lazily reproduce."""
+    from a3dasm._src import settings
+    from a3dasm._src.nodes import StrategizerNode
+
+    settings.configure({"pipeline_deliverable": False})
+    try:
+        node = StrategizerNode(
+            StubAdapter(), name="strategizer", outgoing=["implementer"],
+            spec=_spec_with_write_deliverable(), notes_dir=tmp_path,
+        )
+        state = {"study_dir": str(tmp_path)}  # pipeline.ipynb does not exist
+        assert node._missing_deliverables(state) == []
+        # A study-declared required deliverable is still honoured regardless.
+        state2 = {"study_dir": str(tmp_path), "required_deliverables": ["report.pdf"]}
+        assert node._missing_deliverables(state2) == ["report.pdf"]
+    finally:
+        settings.configure(None)
+
+
+def test_missing_deliverables_still_requires_pipeline_ipynb_by_default(tmp_path):
+    """Default (pipeline_deliverable unset -> True): unchanged from before
+    #30 -- pipeline.ipynb is still required."""
+    from a3dasm._src import settings
+    from a3dasm._src.nodes import StrategizerNode
+
+    settings.configure(None)
+    node = StrategizerNode(
+        StubAdapter(), name="strategizer", outgoing=["implementer"],
+        spec=_spec_with_write_deliverable(), notes_dir=tmp_path,
+    )
+    state = {"study_dir": str(tmp_path)}
+    assert node._missing_deliverables(state) == ["pipeline.ipynb"]
+
+
 def test_write_deliverable_injected_when_in_tools(tmp_path):
     """WriteDeliverable closure is present when declared in agent tools."""
     from a3dasm._src.nodes import StrategizerNode
@@ -2324,6 +2363,45 @@ def test_write_deliverable_absent_when_not_in_tools():
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
     )
     assert "WriteDeliverable" not in node.adapter.closure_tools
+
+
+def test_notebook_tools_stripped_when_pipeline_deliverable_false(tmp_path):
+    """pipeline_deliverable: false removes the notebook-authoring tools
+    themselves, not just the injected prompt preamble (BACKLOG #30) --
+    declaring WriteDeliverable in agent.tools is not enough to get the
+    closure once this flag is off. Done must stay available regardless
+    (still needed to close a run with no notebook at all)."""
+    from a3dasm._src import settings
+    from a3dasm._src.nodes import StrategizerNode
+
+    settings.configure({"pipeline_deliverable": False})
+    try:
+        adapter = StubAdapter()
+        spec = _spec_with_write_deliverable()
+        node = StrategizerNode(
+            adapter, name="strategizer", outgoing=["implementer"], spec=spec,
+            notes_dir=tmp_path,
+        )
+        assert "WriteDeliverable" not in node.adapter.closure_tools
+        assert "Done" in node.adapter.closure_tools
+    finally:
+        settings.configure(None)
+
+
+def test_notebook_tools_present_by_default(tmp_path):
+    """Default (pipeline_deliverable unset -> True): unchanged from before
+    #30 -- WriteDeliverable is still injected when declared."""
+    from a3dasm._src import settings
+    from a3dasm._src.nodes import StrategizerNode
+
+    settings.configure(None)
+    adapter = StubAdapter()
+    spec = _spec_with_write_deliverable()
+    node = StrategizerNode(
+        adapter, name="strategizer", outgoing=["implementer"], spec=spec,
+        notes_dir=tmp_path,
+    )
+    assert "WriteDeliverable" in node.adapter.closure_tools
 
 
 def test_write_deliverable_writes_notebook(tmp_path):
