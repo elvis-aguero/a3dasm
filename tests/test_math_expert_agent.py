@@ -62,8 +62,23 @@ def test_math_expert_wired_into_a_custom_graph_mirrors_literature_reviewer_fanin
 def test_math_expert_agent_tools_mirror_implementer_kind_no_closure_tools():
     agent = MathExpertAgent()
     assert agent.role == "math_expert"
-    assert {"Bash", "Edit", "Write", "Read", "Glob", "Grep"} <= agent.tools
+    assert {"Bash", "Edit", "Read", "Glob", "Grep"} <= agent.tools
     # No bespoke closure vocabulary: build_closure_tools is inherited
     # unchanged from the base default (read-only corpus lookup), unlike
     # LiteratureReviewAgent which overrides it entirely.
     assert type(agent).build_closure_tools is Agent.build_closure_tools
+
+
+def test_math_expert_agent_has_no_write_tool():
+    """Write is deliberately absent, not just discouraged in the prompt.
+
+    The generic Write tool is hard-sandboxed to this delegation's own
+    debug/delegations/D###/ folder (worker.py's _setup_sandboxed_write), but
+    MathExpert's durable output always lives in the SHARED
+    study_dir/runs/math_workspace/ -- Write can never reach it, only ever
+    fail. Confirmed twice in real dogfooding runs (Ollama, Qwen3.8:27b): the
+    model reflexively tried Write first, got rejected, then self-corrected
+    to Bash -- a wasted turn each time for a tool with no legitimate target
+    here at all, so it is removed rather than merely discouraged."""
+    agent = MathExpertAgent()
+    assert "Write" not in agent.tools

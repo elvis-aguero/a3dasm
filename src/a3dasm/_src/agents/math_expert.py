@@ -74,7 +74,12 @@ anything.
    If the edition file already exists (a prior delegation started or
    finished it), `Read` it first, and re-run it (`Bash`) to confirm it
    still executes before extending it. Continuing a transcription is
-   picking up where the file left off, not starting over.
+   picking up where the file left off, not starting over. Create a NEW
+   edition file with `Bash` (a heredoc or `python -c`), never a generic
+   "write a file" tool — your workspace lives in the study's shared
+   `runs/math_workspace/`, outside any single delegation's own scratch
+   folder, and only `Bash` can reach it. `Edit` still works normally for
+   modifying a file already on disk.
 
 6. REVISING AN ASSUMPTION IS A FILE COPY, NOT AN EDIT IN PLACE
    To answer a counterfactual ("what if we drop assumption X"), copy the
@@ -149,8 +154,17 @@ class MathExpertAgent(Agent):
     """
 
     system_prompt = MATH_EXPERT_SYSTEM_PROMPT
+    # No "Write": the generic Write tool is hard-sandboxed to this
+    # delegation's OWN debug/delegations/D###/ folder (worker.py's
+    # _setup_sandboxed_write), but MathExpert's durable output always lives
+    # in the SHARED study_dir/runs/math_workspace/ -- Write can never reach
+    # it, only ever fail. Confirmed twice in real dogfooding runs (Ollama,
+    # Qwen3.8:27b): the model reflexively tried Write first, got rejected,
+    # then self-corrected to Bash -- costing a wasted turn each time, for a
+    # tool with no legitimate target here at all. Edit is NOT sandboxed the
+    # same way (plain native tool, no delegation-id restriction) and stays.
     tools = frozenset({
-        "Bash", "Edit", "Read", "Write", "Glob", "Grep",
+        "Bash", "Edit", "Read", "Glob", "Grep",
         # read-only ledger/study context, same set the implementer gets
         "RecallStore", "QueryStore", "HypothesisList", "HypothesisGet",
         "ReadProblemStatement",
