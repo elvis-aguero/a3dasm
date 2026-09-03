@@ -251,3 +251,68 @@ def test_lit_reviewer_corpus_path_unaffected_by_run_dir(tmp_path):
         run._make_adapter("literature_reviewer", agent)
 
     assert (tmp_path / "runs" / "lit_reviewer_notes").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# notebook_deliverable_spec injection gated on pipeline_deliverable (BACKLOG #27)
+# ---------------------------------------------------------------------------
+
+
+def _make_strategizer_agent() -> Agent:
+    class _Strategist(Agent):
+        role = "strategizer"
+        description = "Test strategizer."
+
+    return _Strategist()
+
+
+def test_notebook_deliverable_spec_injected_by_default(tmp_path):
+    """Default (pipeline_deliverable unset -> True): the strategizer's prompt
+    still carries the pipeline.ipynb contract, unchanged from before #27."""
+    from a3dasm._src import settings
+    settings.configure(None)  # no pipeline_deliverable key -> default True
+    run = _make_run(tmp_path)
+    agent = _make_strategizer_agent()
+
+    with patch("a3dasm._src.backends.claude.ClaudeAdapter") as MockClaude:
+        mock_instance = MagicMock()
+        mock_instance.closure_tools = {}
+        MockClaude.return_value = mock_instance
+
+        run._graph_spec = MagicMock()
+        run._graph_spec.entry = "strategizer"
+        run._graph_spec.outgoing.return_value = ["literature_reviewer"]
+
+        run._make_adapter("strategizer", agent)
+
+    system_prompt = MockClaude.call_args[1]["system_prompt"]
+    assert "DELIVERABLE = pipeline.ipynb" in system_prompt
+
+
+def test_notebook_deliverable_spec_suppressed_when_pipeline_deliverable_false(tmp_path):
+    """pipeline_deliverable: false must ALSO suppress this injection, not just
+    the CRAFT_PIPELINE milestone nudge (BACKLOG #27) — its text is an
+    unconditional imperative ("this SUPERSEDES every ... instruction above")
+    that previously overrode a PROBLEM_STATEMENT.md saying there is no
+    pipeline deliverable at all."""
+    from a3dasm._src import settings
+    settings.configure({"pipeline_deliverable": False})
+    try:
+        run = _make_run(tmp_path)
+        agent = _make_strategizer_agent()
+
+        with patch("a3dasm._src.backends.claude.ClaudeAdapter") as MockClaude:
+            mock_instance = MagicMock()
+            mock_instance.closure_tools = {}
+            MockClaude.return_value = mock_instance
+
+            run._graph_spec = MagicMock()
+            run._graph_spec.entry = "strategizer"
+            run._graph_spec.outgoing.return_value = ["literature_reviewer"]
+
+            run._make_adapter("strategizer", agent)
+
+        system_prompt = MockClaude.call_args[1]["system_prompt"]
+        assert "DELIVERABLE = pipeline.ipynb" not in system_prompt
+    finally:
+        settings.configure(None)  # don't leak into other tests
