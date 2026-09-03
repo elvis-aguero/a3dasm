@@ -1,0 +1,15 @@
+model: claude-haiku-4-5-20251001
+backend: claude
+# No evaluator: this study has no data-driven pipeline at all (see
+# PROBLEM_STATEMENT.md) -- graph is a custom 3-node one (run.py), not the
+# stock 5-node default.
+runtime:
+  # Stops the strategizer's CRAFT_PIPELINE milestone from seeding -- there is
+  # no pipeline.ipynb to author. No other instruction needed: pipeline.ipynb
+  # will genuinely never exist, so _missing_deliverables() (checked at the
+  # node level, independent of Done()) forces a bounded 3-attempt re-prompt
+  # and then an UNGATED close no matter what the strategizer does with
+  # Done() itself -- see BACKLOG.md #26 for why Done()'s OWN gate is
+  # separately too lenient in a critic-less graph (harmless here only
+  # because of this redundant, independent check).
+  pipeline_deliverable: false
