@@ -318,6 +318,56 @@ def test_write_deliverable_creates_file(tmp_path):
     assert "42" in (tmp_path / "pipeline.ipynb").read_text()
 
 
+def test_write_deliverable_repairs_code_cell_missing_outputs(tmp_path):
+    """A hand-authored notebook missing `outputs` on a code cell (nbformat.
+    reads() accepts this with no validation error — confirmed empirically)
+    must not crash a LATER nbformat.write elsewhere with AttributeError:
+    outputs (BACKLOG #28). WriteDeliverable repairs it in place before
+    writing to disk."""
+    import json
+
+    from a3dasm._src.nodes import StrategizerNode
+
+    malformed_nb = json.dumps({
+        "cells": [
+            {"cell_type": "code", "metadata": {}, "source": "x = 1"},
+        ],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    })
+    write_results = []
+
+    class DeliverableAdapter(StubAdapter):
+        def invoke(self, messages):
+            result = self.closure_tools["WriteDeliverable"](
+                "pipeline.ipynb", malformed_nb
+            )
+            write_results.append(result)
+            self.closure_tools["Done"](summary="done")
+            self.closure_tools["Done"](summary="done")
+            return "done"
+
+    adapter = DeliverableAdapter()
+    spec = _minimal_spec()
+    node = StrategizerNode(
+        adapter, name="strategizer", outgoing=["implementer"], spec=spec,
+        study_dir=str(tmp_path),
+    )
+    state = _make_state(study_dir=tmp_path)
+    node(state)
+
+    assert write_results
+    assert "ERROR" not in write_results[0]
+
+    import nbformat
+    nb_on_disk = nbformat.read(str(tmp_path / "pipeline.ipynb"), as_version=4)
+    assert "outputs" in nb_on_disk.cells[0]
+    # The repaired notebook must itself be writable again without crashing —
+    # this is the exact call that raised AttributeError: outputs before the fix.
+    nbformat.write(nb_on_disk, str(tmp_path / "pipeline.ipynb"))
+
+
 def test_write_deliverable_rejects_bad_extension(tmp_path):
     """WriteDeliverable rejects any file that doesn't end in .ipynb."""
     from a3dasm._src.nodes import StrategizerNode

@@ -1061,8 +1061,12 @@ class AgenticRun:
             try:
                 import nbformat
 
-                from .notebook_exec import stamp_run_provenance
+                from .notebook_exec import (
+                    repair_code_cells,
+                    stamp_run_provenance,
+                )
                 nb = nbformat.read(str(nb_path), as_version=4)
+                repair_code_cells(nb)
                 # Replace (not append) the provenance cell — the notebook is
                 # study-scoped and persists across runs; appending accumulated
                 # a prior run's stale metadata cell.

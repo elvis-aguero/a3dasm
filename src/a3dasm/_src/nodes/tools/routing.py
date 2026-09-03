@@ -2653,7 +2653,16 @@ def build_routing_tools(node) -> dict:
         if p.suffix == ".ipynb":
             try:
                 import nbformat
-                nbformat.reads(content, as_version=4)
+
+                from ...notebook_exec import repair_code_cells
+                nb = nbformat.reads(content, as_version=4)
+                # nbformat.reads() accepts a code cell missing `outputs` with
+                # no validation error (confirmed empirically) — repair it here
+                # so a hand-authored notebook can't crash a later
+                # nbformat.write elsewhere (AddPipelineMarkdownCell, the
+                # final provenance stamp) with AttributeError: outputs.
+                repair_code_cells(nb)
+                content = nbformat.writes(nb)
             except Exception as exc:  # noqa: BLE001
                 return (
                     f"ERROR: {filename!r} is not valid notebook JSON ({exc}). "
@@ -2757,10 +2766,14 @@ def build_routing_tools(node) -> dict:
 
     def _load_or_new_notebook():
         import nbformat
+
+        from ...notebook_exec import repair_code_cells
         nb_path = Path(node._study_dir) / "pipeline.ipynb"
         if nb_path.exists():
             try:
-                return nbformat.read(str(nb_path), as_version=4), nb_path
+                nb = nbformat.read(str(nb_path), as_version=4)
+                repair_code_cells(nb)
+                return nb, nb_path
             except Exception:  # noqa: BLE001 — corrupt → start clean
                 pass
         nb = nbformat.v4.new_notebook()

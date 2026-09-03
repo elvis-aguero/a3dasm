@@ -25,6 +25,7 @@ __all__ = [
     "run_deliverable",
     "build_notebook",
     "notebook_deliverable_spec",
+    "repair_code_cells",
     "sandbox_env",
     "stamp_run_provenance",
 ]
@@ -55,6 +56,24 @@ def stamp_run_provenance(nb, meta_md: str):
     cell.metadata["name"] = RUN_PROVENANCE_CELL
     nb.cells.append(cell)
     return nb
+
+
+def repair_code_cells(nb) -> None:
+    """Backfill `outputs`/`execution_count` on any code cell missing them, in
+    place. `nbformat.reads()`/`nbformat.read()` accept a code cell missing
+    `outputs` with no validation error (confirmed empirically — `normalize()`
+    doesn't add it either), but `nbformat.write`'s `split_lines` (nbformat's
+    own rwbase.py) unconditionally iterates `cell.outputs` for every
+    `cell_type == "code"` cell and raises `AttributeError: outputs` the next
+    time ANYTHING writes that notebook. A hand-authored notebook written via
+    WriteDeliverable (bypassing AddPipelineCell, which always uses
+    `nbformat.v4.new_code_cell` and never has this gap) is the way a cell
+    reaches disk missing this field — call this right after every
+    `nbformat.read`/`reads()` so no downstream write can crash on it."""
+    for cell in nb.cells:
+        if cell.get("cell_type") == "code":
+            cell.setdefault("outputs", [])
+            cell.setdefault("execution_count", None)
 
 
 def sandbox_env(
