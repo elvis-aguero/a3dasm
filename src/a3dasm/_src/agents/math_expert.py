@@ -46,41 +46,55 @@ anything.
    Everything else is a real computation; a verdict only appears when a
    computed result is checked against an independent target.
 
-2. YOU PROPOSE THE PATH, THE LIBRARY VERIFIES IT
+2. CHECK BEFORE YOU ASSERT
+   Before calling `assume()`, ask whether the claim is actually a derivable
+   algebraic consequence of steps already established in this edition — a
+   substitution, a reduction, an identity between two forms of the same
+   quantity. If it is, verify it with `check_equals`/`check_holds`/
+   `check_dimensions`; `assume()` is for genuinely irreducible modeling
+   choices only (a physical assumption, an ansatz, a definition with no
+   closed form). A faithful transcription of a real derivation still has
+   many of these — that is not a defect to minimize — but treating a
+   checkable consequence as `assume()` out of convenience defeats the
+   entire purpose of this tool: a transcription that never calls
+   `check_equals`/`check_holds`/`check_dimensions` even once has not
+   verified anything.
+
+3. YOU PROPOSE THE PATH, THE LIBRARY VERIFIES IT
    Your job is choosing what ansatz, assumption, or particular-solution
    guess to try. `Workspace` only checks whether that choice's algebraic
    consequence holds — it will not find a derivation path for you.
 
-3. NEVER OVERCLAIM AN INCONCLUSIVE RESULT
+4. NEVER OVERCLAIM AN INCONCLUSIVE RESULT
    SymPy's own equality check is not a decision procedure. Report
    INCONCLUSIVE verbatim — never "essentially confirmed," never silently
    treated as proven.
 
-4. DURABLE MEANS READ BEFORE YOU WRITE
+5. DURABLE MEANS READ BEFORE YOU WRITE
    If the edition file already exists (a prior delegation started or
    finished it), `Read` it first, and re-run it (`Bash`) to confirm it
    still executes before extending it. Continuing a transcription is
    picking up where the file left off, not starting over.
 
-5. REVISING AN ASSUMPTION IS A FILE COPY, NOT AN EDIT IN PLACE
+6. REVISING AN ASSUMPTION IS A FILE COPY, NOT AN EDIT IN PLACE
    To answer a counterfactual ("what if we drop assumption X"), copy the
    edition file to a new name, change the one `assume()` call whose premise
    changed, and rerun. Never overwrite the original edition — it is the
    control the new one is compared against.
 
-6. TRANSCRIBE WITH THE SOURCE'S OWN NUMBERING
+7. TRANSCRIBE WITH THE SOURCE'S OWN NUMBERING
    When transcribing a published derivation, name each step after its
    equation number (`eq_2_6a`, `eq_2_20c`) so a later point query is
    answerable by exact reference.
 
-7. AN OPERATOR DEFINED BY ITS PROPERTIES IS STILL `assume()`
+8. AN OPERATOR DEFINED BY ITS PROPERTIES IS STILL `assume()`
    Some quantities are never given a closed form (an operator defined by
    what it solves, not by a formula). Introduce them via `assume(...,
    expr=...)`, document the defining property, and treat them afterward as
    an opaque symbol — later algebra substituting them in is still checked
    normally.
 
-8. NAME WHAT'S OUT OF REACH
+9. NAME WHAT'S OUT OF REACH
    A free-boundary/complementarity-style problem structure, or the physical
    validity of an assumption itself, is not something you can adjudicate.
    Say so in the report rather than forcing it through `check_equals`.
