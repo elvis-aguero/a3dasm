@@ -459,8 +459,10 @@ class LiteratureReviewAgent(Agent):
         # Defined as named functions (not lambdas) so each carries a docstring:
         # the generated <tools> catalog renders these, making it the single
         # source of tool docs — no hand-written list in the prompt to drift.
-        def CorpusAdd(source, title="", authors="", year="", doi="",
-                      arxiv_id="", venue="", abstract="", citation_count=0):
+        def CorpusAdd(source: str, title: str = "", authors: str = "",
+                      year: str = "", doi: str = "", arxiv_id: str = "",
+                      venue: str = "", abstract: str = "",
+                      citation_count: int = 0):
             """Index a LOCAL file (a saved PDF or full-text markdown) into the
             corpus so its passages become searchable. citation_count boosts BM25
             retrieval weight (log10(c+1) scaling) — pass the citationCount from
@@ -470,13 +472,13 @@ class LiteratureReviewAgent(Agent):
                 arxiv_id=arxiv_id, venue=venue, abstract=abstract,
                 citation_count=int(citation_count or 0))
 
-        def CorpusSearch(query, top_k=10):
+        def CorpusSearch(query: str, top_k: int = 10):
             """Passage search across the FULL-TEXT papers in the corpus only.
             Returns an ERROR string if no full-text papers have been added yet —
             add papers first via the search → download → CorpusAdd chain."""
             return corpus.search(query, int(top_k))
 
-        def CorpusGetPaper(paper_id):
+        def CorpusGetPaper(paper_id: str):
             """Return the full extracted (page-annotated) text of one corpus paper."""
             return corpus.get_paper(paper_id)
 

@@ -77,6 +77,34 @@ def test_non_literature_agent_sees_papers_added_by_literature_reviewer(tmp_path)
     assert "tensegrity" in result.lower() or "Tensegrity" in result
 
 
+def test_corpus_closures_produce_typed_json_schema_for_every_param(tmp_path):
+    """CorpusSearch/CorpusGetPaper must carry explicit type annotations on
+    every parameter, or LangChain's StructuredTool.from_function (what the
+    OpenAI-compatible backends -- Ollama/vLLM/OpenRouter -- use to build
+    each tool's JSON schema for the model) silently omits the "type" key
+    from that parameter's schema entry. Claude's own native adapter never
+    goes through this schema-inference path, so a missing annotation is
+    invisible there -- confirmed for real: a local model (Qwen3.8:27b via
+    Ollama) calling CorpusSearch failed exactly here. Direct Python
+    invocation of the closure (bypassing schema generation) does NOT
+    reproduce this -- the bug only shows up in the generated schema, so
+    this test checks that, not just that the tool builds/runs."""
+    from langchain_core.tools import StructuredTool
+
+    from a3dasm._src.agents.strategizer import StrategizerAgent
+
+    agent = StrategizerAgent()
+    tools = agent.build_closure_tools(study_dir=tmp_path)
+    for name in ("CorpusSearch", "CorpusGetPaper"):
+        tool = StructuredTool.from_function(tools[name], name=name)
+        for param_name, schema in tool.args.items():
+            assert "type" in schema, (
+                f"{name}'s parameter {param_name!r} has no 'type' key in "
+                f"its generated JSON schema ({schema}) -- missing a type "
+                "annotation on the closure's own parameter."
+            )
+
+
 def test_literature_reviewer_still_gets_corpus_add(tmp_path):
     """LiteratureReviewAgent.build_closure_tools fully overrides the base
     default (does not call super()) — confirm it still returns CorpusAdd,

@@ -61,6 +61,31 @@ def test_build_closure_tools_returns_corpus_tools(tmp_path):
     assert "CorpusList" in tools
 
 
+def test_corpus_closures_produce_typed_json_schema_for_every_param(tmp_path):
+    """CorpusAdd/CorpusSearch/CorpusGetPaper must carry explicit type
+    annotations on every parameter, or StructuredTool.from_function (what
+    the OpenAI-compatible backends -- Ollama/vLLM/OpenRouter -- use to build
+    each tool's JSON schema) silently omits the "type" key for that
+    parameter. Claude's own native adapter never goes through this
+    schema-inference path, so a missing annotation is invisible there --
+    confirmed for real: a local model (Qwen3.8:27b via Ollama) calling
+    CorpusSearch failed exactly here."""
+    from langchain_core.tools import StructuredTool
+
+    agent = _make_agent()
+    tools = agent.build_closure_tools(
+        study_dir=tmp_path, lit_reviewer_notes_dir=tmp_path / "lit",
+    )
+    for name in ("CorpusAdd", "CorpusSearch", "CorpusGetPaper"):
+        tool = StructuredTool.from_function(tools[name], name=name)
+        for param_name, schema in tool.args.items():
+            assert "type" in schema, (
+                f"{name}'s parameter {param_name!r} has no 'type' key in "
+                f"its generated JSON schema ({schema}) -- missing a type "
+                "annotation on the closure's own parameter."
+            )
+
+
 def test_corpus_add_closure_works(tmp_path):
     """CorpusAdd closure adds a .md file to the corpus."""
     agent = _make_agent()

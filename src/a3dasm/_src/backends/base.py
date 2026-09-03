@@ -246,7 +246,7 @@ class Agent:
         )
         corpus = LiteratureCorpus(corpus_dir)
 
-        def CorpusSearch(query, top_k=10):
+        def CorpusSearch(query: str, top_k: int = 10):
             """Passage search across the FULL-TEXT papers already in this
             study's persistent literature corpus (shared across every run of
             the study). Returns an ERROR string if no full-text papers have
@@ -261,7 +261,7 @@ class Agent:
             contain a prior run's answer to your question."""
             return corpus.list_papers()
 
-        def CorpusGetPaper(paper_id):
+        def CorpusGetPaper(paper_id: str):
             """Return the full extracted (page-annotated) text of one paper
             already in the study's persistent literature corpus."""
             return corpus.get_paper(paper_id)
