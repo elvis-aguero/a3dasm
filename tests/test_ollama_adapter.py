@@ -94,6 +94,53 @@ def test_glob_tool_matches_pattern(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# _build_tools() must read closure_tools LIVE, not freeze a callable at
+# build time (BACKLOG #29) -- _build_agent()/_agent is cached forever
+# (see test_invoke_uses_fresh_thread_id_each_call above: the SAME adapter
+# instance and its SAME cached agent serve every delegation to a node,
+# since copy() returns self). Per-delegation setup code in
+# nodes/tools/routing.py reassigns closure_tools["Write"] to a fresh,
+# differently-sandboxed closure before each delegation -- but if
+# _build_tools() bakes in whatever callable closure_tools["Write"] pointed
+# to THE FIRST TIME the agent was built, every later delegation's write
+# sandbox silently reverts to the first delegation's, with no error at
+# setup time. Confirmed for real: MathExpert on Ollama (Qwen3.8:27b),
+# study mathexpert_kinematic_matching_test, 3 separate _sandboxed_write
+# ERROR_RETURN diagnostics all attributing later delegations' writes to
+# delegation D001's own sandbox folder.
+# ---------------------------------------------------------------------------
+
+
+def test_build_tools_reads_closure_tools_live_not_frozen_at_build_time():
+    calls = []
+
+    def first_write(path: str, body: str) -> str:
+        """First delegations Write."""
+        calls.append(("first", path))
+        return "first"
+
+    def second_write(path: str, body: str) -> str:
+        """Second delegations Write."""
+        calls.append(("second", path))
+        return "second"
+
+    adapter = _make_adapter()
+    adapter.closure_tools["Write"] = first_write
+    tools = {t.name: t for t in adapter._build_tools()}
+    assert tools["Write"].invoke({"path": "a.py", "body": "x"}) == "first"
+
+    # A later delegation reassigns the closure -- simulating routing.py's
+    # per-delegation sandbox setup running again for a SECOND delegation
+    # to the same worker, on the SAME cached adapter/tool list.
+    adapter.closure_tools["Write"] = second_write
+    assert tools["Write"].invoke({"path": "b.py", "body": "y"}) == "second", (
+        "Write tool still called the FIRST delegations closure after "
+        "closure_tools was reassigned -- the exact BACKLOG #29 bug."
+    )
+    assert calls == [("first", "a.py"), ("second", "b.py")]
+
+
+# ---------------------------------------------------------------------------
 # invoke() uses fresh thread_id per call (no state leakage)
 # ---------------------------------------------------------------------------
 

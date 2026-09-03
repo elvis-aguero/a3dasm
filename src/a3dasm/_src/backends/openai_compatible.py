@@ -684,6 +684,8 @@ class OpenAICompatibleAdapter:
         return self
 
     def _build_tools(self) -> list[Any]:
+        import functools
+
         from langchain_core.tools import StructuredTool
 
         native_map = _native_tool_map(self.study_dir, self._oracle_nudge.check)
@@ -692,8 +694,24 @@ class OpenAICompatibleAdapter:
             for name in self.native_tools
             if name in native_map
         ]
+        # _agent (and this tool list) is built once and cached forever
+        # (see _invoke_once below) -- copy() deliberately returns self, so
+        # every delegation to the same worker shares this one instance.
+        # nodes/tools/routing.py reassigns closure_tools["Write"] to a
+        # freshly-sandboxed closure before EACH delegation, expecting that
+        # to take effect live. StructuredTool.from_function(fn, ...) below
+        # would otherwise bake in whichever callable `fn` was THE FIRST
+        # time this method ran, silently freezing every later delegation
+        # to the first one's sandbox (confirmed for real: MathExpert on
+        # Ollama, 3 separate _sandboxed_write ERROR_RETURNs all attributing
+        # later delegations' writes to the first delegation's own folder —
+        # BACKLOG #29). Indirect through a live dict lookup instead, so a
+        # later closure_tools[name] reassignment is honoured immediately.
         for name, fn in self.closure_tools.items():
-            tools.append(StructuredTool.from_function(fn, name=name))
+            def _dispatch(*args, _name=name, **kwargs):
+                return self.closure_tools[_name](*args, **kwargs)
+            _dispatch = functools.wraps(fn)(_dispatch)
+            tools.append(StructuredTool.from_function(_dispatch, name=name))
         # Inject MCP-equivalent tools for declared extra_allowed_tools.
         if self.extra_allowed_tools:
             lit_tools = _make_literature_tools()
