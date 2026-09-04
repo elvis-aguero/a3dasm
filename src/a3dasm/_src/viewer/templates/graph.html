@@ -14,7 +14,7 @@
       background: #14171c; border: 1px solid #262b33; border-radius: 10px;
       padding: 10px 16px; cursor: pointer; transition: border-color .15s;
       font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px;
-      min-width: 150px; text-align: center;
+      min-width: 150px; text-align: center; position: relative;
     }
     .node-card:hover { border-color: #4b5563; }
     .node-card.entry { border-color: #b4690e; }
@@ -37,16 +37,51 @@
     }
     #edges-svg path { stroke: #3a4048; stroke-width: 1.6; fill: none; }
     .panel-transition { transition: all .2s ease-out; }
-    .bubble { padding: 8px 12px; margin: 6px 0; border-radius: 8px; font-size: 13px; }
-    .bubble-assistant { background: #1b1f26; }
-    .bubble-tool { background: #14171c; }
-    .bubble-text { white-space: pre-wrap; }
-    details.tool-call, details.tool-result {
-      margin-top: 6px; font-size: 12px; color: #9aa4b2;
+
+    /* One turn = one avatar + everything that model turn produced (thinking,
+       text, tool calls, their results) as a SINGLE visually-grouped unit —
+       the nested trace-tree convention real agent-trace viewers use, not a
+       flat list of same-weight bubbles. */
+    .turn {
+      display: flex; gap: 10px; padding: 10px 4px; font-size: 13px;
+      align-items: flex-start;
     }
-    details.tool-call pre, details.tool-result pre {
+    .turn + .turn { border-top: 1px solid #1a1e24; }
+    .avatar {
+      flex: none; width: 22px; height: 22px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; margin-top: 1px;
+    }
+    .avatar-assistant { background: #24314f; color: #8fa8ff; }
+    .turn-body { min-width: 0; flex: 1; }
+    .bubble-text { white-space: pre-wrap; line-height: 1.5; }
+    .thinking {
+      margin-bottom: 6px; font-size: 12px; color: #6b7280;
+    }
+    .thinking summary { cursor: pointer; }
+    .thinking-text {
+      white-space: pre-wrap; font-style: italic; margin-top: 4px;
+      padding-left: 10px; border-left: 2px solid #1f242b;
+    }
+    .tool-call {
+      display: flex; align-items: baseline; gap: 6px; margin-top: 6px;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;
+      color: #9aa4b2; padding-left: 2px;
+    }
+    .tool-result-row {
+      display: flex; align-items: baseline; gap: 6px; margin-top: 2px;
+      margin-left: 14px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 11.5px; color: #6b7280; border-left: 2px solid #1f242b;
+      padding-left: 8px;
+    }
+    .tool-icon { color: #4b5563; flex: none; }
+    .tool-icon.result { color: #384049; }
+    .tool-name { color: #c3cad6; }
+    .tool-call details, .tool-result-row details { color: inherit; }
+    .tool-call summary, .tool-result-row summary { cursor: pointer; }
+    .tool-call pre, .tool-result-row pre, .thinking pre {
       background: #0e1013; padding: 8px; border-radius: 6px; overflow-x: auto;
-      white-space: pre-wrap; word-break: break-word;
+      white-space: pre-wrap; word-break: break-word; margin-top: 4px;
     }
     .empty { color: #6b7280; font-size: 13px; padding: 12px; }
     .icon-btn {
@@ -93,6 +128,49 @@
       border-left: 2px solid #262b33; margin: 8px 0; padding-left: 10px;
       color: #9aa4b2;
     }
+
+    .node-hover-card {
+      position: fixed; z-index: 30; width: 280px; max-width: calc(100vw - 24px);
+      overflow-y: auto; /* max-height is set inline, per hover (depends on top) */
+      background: #14171c; border: 1px solid #262b33; border-radius: 10px;
+      box-shadow: 0 12px 32px rgba(0,0,0,.45); padding: 12px;
+      font-family: ui-sans-serif, system-ui; font-size: 12.5px; text-align: left;
+      cursor: default;
+    }
+    .node-hover-card .hc-title {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px;
+      font-weight: 600; color: #e7e5e2;
+    }
+    .node-hover-card .hc-role {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+      color: #6b7280; margin-top: 1px;
+    }
+    .node-hover-card .hc-model {
+      display: inline-block; margin-top: 8px; font-size: 11px;
+      color: #8fa8ff; background: #1b2338; border-radius: 5px;
+      padding: 2px 7px;
+    }
+    .node-hover-card .hc-desc {
+      margin-top: 8px; color: #c3cad6; line-height: 1.45;
+    }
+    .node-hover-card .hc-label {
+      margin-top: 10px; font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: .04em; color: #6b7280;
+    }
+    .node-hover-card .hc-tools {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px;
+    }
+    .tool-badge {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10.5px;
+      padding: 2px 6px; border-radius: 5px; background: #1b1f26;
+      border: 1px solid #262b33; color: #9aa4b2; cursor: help;
+    }
+    .node-hover-card .hc-prompt {
+      margin-top: 5px; max-height: 150px; overflow-y: auto;
+      background: #0e1013; border: 1px solid #1c2027; border-radius: 6px;
+      padding: 8px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 11px; white-space: pre-wrap; color: #9aa4b2; line-height: 1.4;
+    }
   </style>
 </head>
 <body x-data="viewerApp()" x-init="init()" class="h-screen overflow-hidden flex flex-col">
@@ -116,7 +194,9 @@
           <template x-for="node in row.nodes" :key="node.name">
             <div class="node-card" :class="{ entry: node.is_entry, selected: node.name === selectedNode }"
                  :data-node="node.name"
-                 @click="openNode(node)">
+                 @click="openNode(node)"
+                 @mouseenter="onNodeHover(node, $event)"
+                 @mouseleave="onNodeLeave()">
               <span class="status-dot" :class="statusClass(node.name)"></span>
               <span x-text="node.name"></span>
               <div class="text-[11px] text-[#6b7280] mt-1" x-text="node.role"></div>
@@ -129,6 +209,30 @@
       No graph structure available for this run.
     </p>
   </main>
+
+  <!-- Node info hover card: fixed-positioned (not nested in the scrollable
+       graph container) so it can never be clipped by main's overflow-auto. -->
+  <div x-show="hoverNode !== null" x-cloak
+       class="node-hover-card" :style="hoverStyle"
+       @mouseenter="onPopoverEnter()" @mouseleave="onPopoverLeave()">
+    <template x-if="hoverNode">
+      <div>
+        <div class="hc-title" x-text="hoverNode.name"></div>
+        <div class="hc-role" x-text="hoverNode.role"></div>
+        <span class="hc-model" x-text="hoverNode.model"></span>
+        <div class="hc-desc" x-text="hoverNode.description || '(no description)'"></div>
+        <div class="hc-label">Tools (<span x-text="hoverNode.tools.length"></span>)</div>
+        <div class="hc-tools">
+          <template x-for="t in hoverNode.tools" :key="t">
+            <span class="tool-badge" :title="toolDocs[t] || '(no description)'"
+                  x-text="displayToolName(t)"></span>
+          </template>
+        </div>
+        <div class="hc-label">System prompt</div>
+        <div class="hc-prompt" x-text="hoverNode.system_prompt || '(none)'"></div>
+      </div>
+    </template>
+  </div>
 
   <!-- Problem statement modal -->
   <div x-show="problemOpen" x-cloak
@@ -201,12 +305,17 @@
         // only once at the very end); otherwise the parsed run_status.json
         // object, e.g. {status: "GATED"} or {status: "FAILED", stop_reason: "..."}.
         runStatus: null,
+        toolDocs: {},          // tool name -> docstring, for the hover badges
+        hoverNode: null,       // the node dict currently shown in the hover card
+        hoverStyle: '',
+        _hoverHideTimer: null,
 
         init() {
           fetch(`/api/runs/${this.runId}/graph`)
             .then(r => r.json())
             .then(spec => {
               this.edges = spec.edges;
+              this.toolDocs = spec.tool_docs || {};
               const byLayer = {};
               for (const n of spec.nodes) {
                 (byLayer[n.layer] ||= []).push(n);
@@ -239,6 +348,50 @@
 
         statusClass(name) {
           return this.nodeStatus[name] || '';
+        },
+
+        displayToolName(name) {
+          // Mirrors the server's own _display_tool_name(): strip a leading
+          // mcp__<server>__ registration prefix for readability. The raw
+          // name is still what the badge's title tooltip carries the doc
+          // under (looked up by the FULL name in toolDocs).
+          const m = name.match(/^mcp__[^_]+(?:_[^_]+)*__(.+)$/);
+          return m ? m[1] : name;
+        },
+
+        onNodeHover(node, ev) {
+          clearTimeout(this._hoverHideTimer);
+          const rect = ev.currentTarget.getBoundingClientRect();
+          const cardWidth = 280;
+          let left = rect.left;
+          if (left + cardWidth > window.innerWidth - 12) {
+            left = window.innerWidth - cardWidth - 12;
+          }
+          // Clamp top too: a node with many tools/a long system prompt can
+          // produce a tall card, so starting it too low would leave almost
+          // nothing visible above the fold. max-height is set here (not in
+          // CSS) because it depends on `top` itself -- the card must never
+          // extend past the viewport bottom regardless of where it starts.
+          const top = Math.min(rect.bottom + 8, window.innerHeight - 100);
+          const maxHeight = window.innerHeight - top - 12;
+          this.hoverStyle =
+            `top:${top}px; left:${Math.max(12, left)}px; max-height:${maxHeight}px;`;
+          this.hoverNode = node;
+        },
+
+        onNodeLeave() {
+          // A short grace period: the mouse crosses a gap between the node
+          // card and the popover below it, which would otherwise fire this
+          // leave and immediately hide the card before the mouse arrives.
+          this._hoverHideTimer = setTimeout(() => { this.hoverNode = null; }, 150);
+        },
+
+        onPopoverEnter() {
+          clearTimeout(this._hoverHideTimer);
+        },
+
+        onPopoverLeave() {
+          this.hoverNode = null;
         },
 
         // The per-node dots only ever reflect that node's most recent
@@ -274,6 +427,11 @@
         },
 
         openNode(node) {
+          // A click is a more deliberate action than a hover -- don't leave
+          // the transient info popover sitting on top of the panel it just
+          // opened, waiting on its own mouseleave timer to clear it.
+          clearTimeout(this._hoverHideTimer);
+          this.hoverNode = null;
           this.selectedNode = node.name;
           fetch(`/api/runs/${this.runId}/node/${node.name}/transcripts`)
             .then(r => r.json())

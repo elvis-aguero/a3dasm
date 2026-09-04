@@ -33,6 +33,115 @@ __all__ = [
     "tail_jsonl",
 ]
 
+# Docs for the fixed, well-known tool names that are never real Python
+# closures the agent's own `build_closure_tools()` returns (native backend
+# tools, and the topology/protocol tools the runtime wires in from
+# routing.py's nested closures — those docstrings live on functions built
+# per-run inside a live registry, not importable statically). Copied
+# verbatim (first paragraph) from routing.py/the Claude backend's own native
+# tool set as of this writing, so the hover tooltip says the same thing the
+# agent itself was told, not an invented paraphrase.
+_KNOWN_TOOL_DOCS: dict[str, str] = {
+    "Bash": "Executes a shell command in a persistent session.",
+    "Read": "Reads a file from the local filesystem (text, image, or PDF).",
+    "Write": "Writes a file to the local filesystem, overwriting it if it "
+             "already exists.",
+    "Edit": "Performs an exact string replacement in a file.",
+    "Grep": "Searches file contents for a pattern (ripgrep-backed).",
+    "Glob": "Finds files matching a glob pattern, sorted by modification "
+            "time.",
+    "Delegate": "Hand a task to another node in the graph; returns "
+                "immediately (async) unless wait=True.",
+    "Wait": "Block until a delegation finishes (Done or Errored), then "
+            "return its result — use instead of polling GetStatus().",
+    "Reply": "Answer a worker's FollowUp question and unblock it.",
+    "FollowUp": "Ask the delegating party one clarifying question before "
+                "proceeding.",
+    "RecallHistory": "Return the last N delegations received by this node "
+                      "as (task, deliverable) pairs.",
+    "GetStatus": "Poll a background delegation; also delivers push "
+                 "notifications.",
+    "Done": "Signal end of run with a summary of findings (two-shot: first "
+            "call warns, second call closes).",
+    "WriteNote": "Write a Markdown note to strategizer_notes/ — free-form "
+                 "reasoning, not code or hypothesis priors.",
+    "ReadNote": "Read a file, or list a directory, from the study "
+                "directory (e.g. PROBLEM_STATEMENT.md, prior notes, a "
+                "delegation's own workspace).",
+    "ReadProblemStatement": "The run's PROBLEM_STATEMENT.md verbatim: what "
+                            "this run is actually trying to establish, and "
+                            "its stated success/termination criteria.",
+}
+
+# Best-effort humanization of a model id into the name the model is
+# actually known by — matches the naming this project's own agent (Claude
+# Code) uses for itself, so the two stay consistent.
+_MODEL_LABELS: dict[str, str] = {
+    "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+    "claude-sonnet-5": "Claude Sonnet 5",
+    "claude-opus-5": "Claude Opus 5",
+    "claude-fable-5": "Claude Fable 5",
+}
+
+
+def _humanize_model(model_id: str | None) -> str:
+    if not model_id:
+        return "(backend default)"
+    return _MODEL_LABELS.get(model_id, model_id)
+
+
+def _load_study_config(study_dir: Path | None) -> dict[str, Any]:
+    """Mirrors ``agent_runtime._load_study_config`` exactly (kept as its own
+    copy rather than an import, to keep this module's only cross-package
+    dependency the lightweight ``delegation_log`` — the viewer must stay
+    importable without pulling in ``agent_runtime``'s much heavier stack)."""
+    if study_dir is None:
+        return {}
+    cfg_path = Path(study_dir) / "config.yaml"
+    if not cfg_path.exists():
+        return {}
+    import yaml
+
+    with cfg_path.open(encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _node_tools_and_docs(
+    name: str, agent, graph, study_dir=None,
+) -> tuple[list[str], dict[str, str]]:
+    """Same tool-surface logic as ``run_diagram._node_tools`` (declared +
+    topology + real runtime-injected closures), but ALSO returns each
+    closure's real docstring — the same text the agent itself was given
+    (``tool_catalog.render_tool_catalog`` reads this exact ``__doc__``).
+
+    Kept as its own copy in the viewer rather than extending
+    ``run_diagram._node_tools`` in place: that function is shared with the
+    tested static SVG renderer, and its own docstring already warns that
+    calling ``agent.build_closure_tools()`` twice per node is wasteful and
+    can double any real side effect a closure builder has — a second,
+    independent call from here would be exactly that mistake. This
+    duplicates ~10 lines of topology-tool logic instead, at zero shared-code
+    risk.
+    """
+    from ..run_diagram import _TOPOLOGY_TOOLS_IF_OUTGOING, _topology_tools
+
+    declared = sorted(set(agent.tools) - set(_TOPOLOGY_TOOLS_IF_OUTGOING))
+    tools = _topology_tools(graph, name) + declared
+    docs: dict[str, str] = {}
+    if study_dir is not None:
+        try:
+            closures = agent.build_closure_tools(Path(study_dir))
+        except Exception:  # noqa: BLE001
+            closures = {}
+        extra = sorted(
+            set(closures) - set(tools) - set(_TOPOLOGY_TOOLS_IF_OUTGOING))
+        tools = tools + extra
+        for tool_name, fn in closures.items():
+            doc = (getattr(fn, "__doc__", None) or "").strip()
+            if doc:
+                docs[tool_name] = doc.split("\n\n")[0].replace("\n", " ")
+    return tools, docs
+
 
 def read_runs(study_dir: Path | str) -> list[dict[str, Any]]:
     """List ``<study_dir>/runs/*/debug`` dirs, newest first.
@@ -180,29 +289,44 @@ def list_node_transcripts(
 
 
 def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
-    """Node/edge/role/tool/layer JSON for the live network diagram.
+    """Node/edge/role/tool/layer JSON for the live network diagram, plus the
+    per-node metadata the hover card needs (model, system prompt) and a
+    global tool-name -> docstring map for the tool-badge tooltips.
 
-    Reuses ``run_diagram._bfs_layers()``/``_node_tools()`` directly rather
-    than re-deriving topology/tool-surface logic — the viewer only needs a
-    layer index per node (for a simple CSS-grid row placement) and the real
-    tool list, not the static SVG's pixel-precise card layout (built for a
-    richer, wrapped-text card the live viewer doesn't need).
+    Reuses ``run_diagram._bfs_layers()`` directly rather than re-deriving
+    layer logic — the viewer only needs a layer index per node (for a simple
+    CSS-grid row placement), not the static SVG's pixel-precise card layout.
+
+    ``model`` per node: an ``Agent`` instance's own ``.model`` if the study's
+    ``run.py`` set one explicitly, else the study's ``config.yaml`` top-level
+    ``model:`` (the actual, common case — a study normally sets the model
+    once for the whole run, not per-agent), else "(backend default)".
     """
-    from ..run_diagram import _bfs_layers, _node_tools
+    from ..run_diagram import _bfs_layers
 
     layers = _bfs_layers(graph)
+    config = _load_study_config(study_dir)
+    run_model = config.get("model")
     nodes = []
+    tool_docs: dict[str, str] = dict(_KNOWN_TOOL_DOCS)
     for name, agent in graph.nodes.items():
+        tools, docs = _node_tools_and_docs(name, agent, graph, study_dir)
+        tool_docs.update(docs)
         nodes.append({
             "name": name,
             "role": agent.role,
             "description": agent.description or "",
             "is_entry": name == graph.entry,
             "layer": layers[name],
-            "tools": _node_tools(name, agent, graph, study_dir),
+            "tools": tools,
+            "model": _humanize_model(agent.model or run_model),
+            "system_prompt": agent.system_prompt or "",
         })
     edges = [{"source": e.source, "target": e.target} for e in graph.edges]
-    return {"nodes": nodes, "edges": edges, "entry": graph.entry}
+    return {
+        "nodes": nodes, "edges": edges, "entry": graph.entry,
+        "tool_docs": tool_docs,
+    }
 
 
 def load_graph_for_study(study_dir: Path | str):

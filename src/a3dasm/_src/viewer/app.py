@@ -39,40 +39,120 @@ def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-def _bubble_html(event: dict) -> str:
-    """Render one transcript event as a chat-bubble HTML fragment.
+def _display_tool_name(name: str) -> str:
+    """Strip a leading ``mcp__<server>__`` prefix for on-screen display —
+    the raw registered name (e.g. ``mcp__f3dasm_agent_tools__Delegate``) is
+    what the model actually calls, kept in the ``title`` attribute, but
+    showing it verbatim in every bubble is unreadable noise the reader has
+    to mentally strip on every single line."""
+    if name.startswith("mcp__"):
+        parts = name.split("__", 2)
+        if len(parts) == 3 and parts[2]:
+            return parts[2]
+    return name
 
-    Only ``assistant``/``tool_result`` events render (Claude Code's own
-    transcript-viewer convention: turn text as bubbles, tool calls/results
-    collapsed by default); ``stream_evt``/``partial`` are intentionally not
-    rendered in v1 — no live token-by-token typing effect yet.
+
+def _bubble_html(event: dict) -> str:
+    """Render one ``assistant`` event as a chat-turn HTML fragment.
+
+    Matches the nested trace-tree convention real agent-trace viewers use
+    (thinking, then text, then each tool call as a subordinate child of the
+    SAME turn) rather than a flat list of same-weight bubbles — a tool
+    call's matching result is attached separately, by
+    ``get_transcript_fragment``, via ``_tool_result_html`` (results arrive
+    as their own later event on disk, so it can't be inlined here).
+    ``stream_evt``/``partial`` are intentionally not rendered — no live
+    token-by-token typing effect yet.
     """
-    etype = event.get("type")
-    if etype == "assistant":
-        text = event.get("text") or ""
-        tools_html = ""
-        for tool in event.get("tools") or []:
-            tools_html += (
-                "<details class='tool-call'><summary>&#9656; "
-                f"{_esc(tool.get('name', 'tool'))}(...)</summary>"
-                f"<pre>{_esc(json.dumps(tool.get('input', {}), indent=2))}</pre>"
-                "</details>"
-            )
-        return (
-            "<div class='bubble bubble-assistant'>"
-            f"<div class='bubble-text'>{_esc(text)}</div>{tools_html}</div>"
+    if event.get("type") != "assistant":
+        return ""
+    text = event.get("text") or ""
+    thinking = "".join(event.get("thinking") or [])
+    thinking_html = (
+        "<details class='thinking'><summary>&#9656; thinking</summary>"
+        f"<div class='thinking-text'>{_esc(thinking)}</div></details>"
+    ) if thinking.strip() else ""
+    tools_html = ""
+    for tool in event.get("tools") or []:
+        raw_name = tool.get("name", "tool")
+        tools_html += (
+            "<div class='tool-call'>"
+            "<span class='tool-icon'>&#8226;</span>"
+            f"<span class='tool-name' title='{_esc(raw_name)}'>"
+            f"{_esc(_display_tool_name(raw_name))}</span>"
+            "<details><summary>args</summary>"
+            f"<pre>{_esc(json.dumps(tool.get('input', {}), indent=2))}</pre>"
+            "</details></div>"
         )
-    if etype == "tool_result":
-        results_html = ""
-        for r in event.get("results") or []:
-            content = r.get("content", "")
-            results_html += (
-                "<details class='tool-result'><summary>&#9656; tool result"
-                f"</summary><pre>{_esc(json.dumps(content, indent=2))}</pre>"
-                "</details>"
-            )
-        return f"<div class='bubble bubble-tool'>{results_html}</div>"
-    return ""
+    if not text and not thinking_html and not tools_html:
+        return ""
+    return (
+        "<div class='turn'>"
+        "<span class='avatar avatar-assistant' title='assistant'>A</span>"
+        "<div class='turn-body'>"
+        f"{thinking_html}"
+        f"<div class='bubble-text'>{_esc(text)}</div>"
+        f"{tools_html}"
+        "</div></div>"
+    )
+
+
+def _tool_result_html(event: dict, names: list[str]) -> str:
+    """Render a ``tool_result`` event as a subordinate continuation row —
+    visually attached under the tool call it answers (no independent bubble
+    chrome), labelled with the REAL tool name it belongs to. *names* is this
+    event's ``results`` list, positionally resolved against the transcript's
+    full in-order tool-call queue by ``get_transcript_fragment`` (a
+    tool_result event carries only ``tool_use_id``, not the name — see that
+    function's docstring for why positional resolution is safe here)."""
+    results = event.get("results") or []
+    html = ""
+    for i, r in enumerate(results):
+        name = names[i] if i < len(names) else "tool"
+        content = r.get("content", "")
+        html += (
+            "<div class='tool-result-row'>"
+            "<span class='tool-icon result'>&#8618;</span>"
+            f"<details><summary>{_esc(_display_tool_name(name))} result</summary>"
+            f"<pre>{_esc(json.dumps(content, indent=2))}</pre>"
+            "</details></div>"
+        )
+    return html
+
+
+def _render_fragment(events: list[dict], after: int) -> str:
+    """Render ``events[after:]`` to HTML, resolving each ``tool_result``
+    event's real tool name(s) by position against the FULL event list.
+
+    A ``tool_result`` event only carries ``tool_use_id`` (confirmed against
+    a real transcript — the preceding ``assistant`` event's ``tools`` list
+    carries no id to match against). Claude's own conversation structure
+    strictly alternates assistant-tool-call -> tool_result before the next
+    assistant turn, so the Nth item across every tool_result event, in file
+    order, is always the Nth tool call across every assistant event, in file
+    order — recomputed over the WHOLE file (not just this slice) so the
+    mapping is correct regardless of where ``after`` falls, then only the
+    slice past ``after`` is actually rendered.
+    """
+    all_names = [
+        tool.get("name", "tool")
+        for e in events if e.get("type") == "assistant"
+        for tool in (e.get("tools") or [])
+    ]
+    consumed = sum(
+        len(e.get("results") or [])
+        for e in events[:after] if e.get("type") == "tool_result"
+    )
+    html_parts = []
+    for e in events[after:]:
+        if e.get("type") == "tool_result":
+            results = e.get("results") or []
+            names = all_names[consumed:consumed + len(results)]
+            consumed += len(results)
+            html_parts.append(_tool_result_html(e, names))
+        else:
+            html_parts.append(_bubble_html(e))
+    return "".join(html_parts)
 
 
 def _esc(s: str) -> str:
@@ -179,7 +259,7 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
                 "likely a bookkeeping record (e.g. a gate-check verdict) "
                 "rather than a captured conversation.</p>",
                 status_code=404)
-        html = "".join(_bubble_html(e) for e in events[after:])
+        html = _render_fragment(events, after)
         # `after`/the response cursor MUST count raw events, not rendered
         # bubbles — most events (stream_evt/partial/result) render to no
         # bubble at all (confirmed for real: a genuine transcript had 527

@@ -261,6 +261,51 @@ def test_graph_spec_json_reuses_bfs_layers_and_node_tools():
     assert by_name["critic"]["is_entry"] is False
 
 
+def test_graph_spec_json_exposes_model_system_prompt_and_tool_docs(tmp_path):
+    from a3dasm._src.backends.base import Agent, Graph
+
+    class _Strategizer(Agent):
+        role = "strategizer"
+        description = "hub"
+        system_prompt = "You are the hub."
+        tools = frozenset({"Bash"})
+
+    graph = Graph(
+        nodes={"strategizer": _Strategizer()}, edges=(), entry="strategizer")
+
+    # No config.yaml, no explicit model on the instance -> honest fallback.
+    spec = graph_spec_json(graph, study_dir=tmp_path)
+    node = spec["nodes"][0]
+    assert node["model"] == "(backend default)"
+    assert node["system_prompt"] == "You are the hub."
+    assert "Executes a shell command" in spec["tool_docs"]["Bash"]
+
+    # A study's config.yaml sets the run-wide model; the instance itself
+    # never got one explicitly (the common case — see graph_spec_json's
+    # docstring).
+    (tmp_path / "config.yaml").write_text(
+        "model: claude-haiku-4-5-20251001\n", encoding="utf-8")
+    spec2 = graph_spec_json(graph, study_dir=tmp_path)
+    assert spec2["nodes"][0]["model"] == "Claude Haiku 4.5"
+
+
+def test_graph_spec_json_instance_model_overrides_study_config(tmp_path):
+    from a3dasm._src.backends.base import Agent, Graph
+
+    class _Strategizer(Agent):
+        role = "strategizer"
+        description = "hub"
+
+    graph = Graph(
+        nodes={"strategizer": _Strategizer(model="claude-opus-5")},
+        edges=(), entry="strategizer")
+    (tmp_path / "config.yaml").write_text(
+        "model: claude-haiku-4-5-20251001\n", encoding="utf-8")
+
+    spec = graph_spec_json(graph, study_dir=tmp_path)
+    assert spec["nodes"][0]["model"] == "Claude Opus 5"
+
+
 # ---------------------------------------------------------------------------
 # load_graph_for_study — recovering a study's Graph with no in-memory object
 # ---------------------------------------------------------------------------

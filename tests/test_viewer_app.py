@@ -336,6 +336,54 @@ def test_transcript_fragment_event_count_header_counts_raw_events_not_bubbles(
     assert resp2.text == ""
 
 
+def test_transcript_fragment_resolves_tool_result_name_by_position(tmp_path):
+    """A tool_result event only carries `tool_use_id`, never the tool's
+    name -- the fragment renderer must resolve it positionally against the
+    full in-order tool-call queue (see `_render_fragment`'s docstring), not
+    render a generic unlabeled "tool result" the reader can't attribute to
+    anything (the exact defect the user's live screenshot showed)."""
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    _write_jsonl(run_dir / "debug" / "transcripts" / "D007.jsonl", [
+        {"ts": "t1", "type": "assistant", "text": "",
+         "tools": [{"name": "mcp__f3dasm_agent_tools__Delegate", "input": {}}]},
+        {"ts": "t2", "type": "tool_result",
+         "results": [{"tool_use_id": "x", "content": "ok"}]},
+    ])
+    client = TestClient(create_app(study))
+    resp = client.get(
+        "/api/runs/20260904T120000/transcript/D007/fragment?after=0")
+    assert resp.status_code == 200
+    # Displayed name strips the mcp__<server>__ prefix for readability...
+    assert "Delegate result" in resp.text
+    # ...but the raw registered name is still preserved for precision.
+    assert "mcp__f3dasm_agent_tools__Delegate" in resp.text
+
+
+def test_transcript_fragment_resolution_correct_when_after_splits_events(
+    tmp_path,
+):
+    """The name-resolution queue is recomputed over the FULL event list
+    every call, specifically so a tool_result landing in a LATER poll (its
+    matching tool-call assistant event already past the `after` cursor)
+    still resolves to the right name."""
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    _write_jsonl(run_dir / "debug" / "transcripts" / "D007.jsonl", [
+        {"ts": "t1", "type": "assistant", "text": "",
+         "tools": [{"name": "Read", "input": {}}]},
+        {"ts": "t2", "type": "tool_result",
+         "results": [{"tool_use_id": "x", "content": "file contents"}]},
+    ])
+    client = TestClient(create_app(study))
+    # The client already consumed event 0 (the assistant/tool-call event)
+    # on a prior poll; this call only asks for event 1 onward.
+    resp = client.get(
+        "/api/runs/20260904T120000/transcript/D007/fragment?after=1")
+    assert resp.status_code == 200
+    assert "Read result" in resp.text
+
+
 def test_transcript_fragment_404_when_debug_off(tmp_path):
     """404 (not 200): the frontend's error path relies on !ok to stop
     polling and show the message — a 200 with an "empty-looking" body was
