@@ -721,6 +721,28 @@ class AgenticRun:
         out_path.write_text(svg, encoding="utf-8")
         return out_path
 
+    def serve_viewer(
+        self, host: str = "127.0.0.1", port: int = 8765,
+    ) -> None:
+        """Launch the read-only live web viewer for this study's runs
+        (blocking — run in a separate terminal/process from ``execute()``,
+        the same way ``render_architecture()`` is a separate opt-in step,
+        never called automatically). Requires the ``viewer``
+        optional-dependency group (``pip install a3dasm[viewer]``); lazily
+        imported here so the core package never depends on Starlette.
+
+        Passes this run's own live ``Graph`` object (``self._graph_spec``)
+        straight through — no reconstruction needed, unlike the standalone
+        ``python -m a3dasm.viewer <study-dir>`` CLI, which runs as a
+        separate process with no in-memory Graph and falls back to
+        recovering one from the study's own ``run.py``/``build_graph()`` (or
+        the stock default graph) instead.
+        """
+        from .viewer.app import run_viewer
+
+        run_viewer(
+            self.study_dir, host=host, port=port, graph=self._graph_spec)
+
     def execute(self) -> str:
         """Run the agentic loop; return the final report text.
 

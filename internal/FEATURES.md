@@ -469,6 +469,36 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 - **Where:** `run_diagram.py` (the renderer); `agent_runtime.py`'s
   `AgenticRun.render_architecture`. **Status:** done.
 
+### Live run viewer (read-only)
+- **What:** `python -m a3dasm.viewer <study-dir>` (or
+  `AgenticRun.serve_viewer(host, port)`) serves a local, read-only web UI for
+  watching a run WHILE it's in progress — a live network diagram of the
+  agent graph (node positions reuse `run_diagram.py`'s own `_bfs_layers`
+  layout; a status dot per node, driven by Server-Sent Events, distinguishes
+  running/done/failed), and clicking a node opens a docked bottom panel
+  (maximizable to full-screen, VS Code's own `toggleMaximizedPanel`
+  convention) showing that node's live tool-call/conversation transcript as
+  Claude-Code-style chat bubbles with tool calls collapsed by default. Reuses
+  existing data wholesale rather than adding new instrumentation:
+  `delegation_log.jsonl`/`diagnostics.jsonl` (already live, append-only) via
+  `DelegationLog.query_all()`'s own collapse-by-id logic, and
+  `debug/transcripts/` (only present when a run was started with the debug
+  flag on — the UI says so plainly rather than showing a blank pane).
+  Explicit, honest limitation surfaced in the UI itself: the on-disk
+  delegation-status vocabulary is richer than a fixed enum (confirmed for
+  real: a Done()-gate check logs `"GATE:PASS"`, not a plain `RUNNING`/`DONE`)
+  and still lacks the in-process registry's finer states (`Working`/
+  `FollowUp`/`Cancelled` are never persisted) — a delegation blocked on a
+  human follow-up question is indistinguishable on disk from one simply
+  still running. No build step: Tailwind CDN + htmx + Alpine.js, one static
+  HTML template. Read-only by design (binds to `127.0.0.1`, no auth, no
+  write path anywhere) — steering a running agent is a deliberately separate,
+  not-yet-built feature.
+- **Where:** `src/a3dasm/_src/viewer/` (`readers.py` pure data functions,
+  `app.py` the Starlette app, `templates/graph.html` the UI);
+  `agent_runtime.py`'s `AgenticRun.serve_viewer`; `pyproject.toml`'s `viewer`
+  optional-dependency group. **Status:** done (v1, read-only).
+
 ---
 
 ## Tools (every one must be documented above; the test enforces it)

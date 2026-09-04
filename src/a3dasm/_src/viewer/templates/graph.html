@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>a3dasm run viewer — {{ run_id }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.3/dist/cdn.min.js"></script>
+  <style>
+    body { background: #0b0d10; color: #e7e5e2; }
+    .node-card {
+      background: #14171c; border: 1px solid #262b33; border-radius: 10px;
+      padding: 10px 16px; cursor: pointer; transition: border-color .15s;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px;
+      min-width: 150px; text-align: center;
+    }
+    .node-card:hover { border-color: #4b5563; }
+    .node-card.entry { border-color: #b4690e; }
+    .status-dot {
+      display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+      margin-right: 7px; vertical-align: middle;
+      background: #4b5563; /* idle/unknown */
+    }
+    .status-dot.done { background: #22c55e; }
+    .status-dot.failed { background: #ef4444; box-shadow: 0 0 0 0 rgba(239,68,68,.6); }
+    .status-dot.running {
+      background: #ef4444;
+      animation: pulse-glow 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse-glow {
+      0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.55); }
+      70%  { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+      100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+    }
+    #edges-svg path { stroke: #3a4048; stroke-width: 1.6; fill: none; }
+    .panel-transition { transition: all .2s ease-out; }
+    .bubble { padding: 8px 12px; margin: 6px 0; border-radius: 8px; font-size: 13px; }
+    .bubble-assistant { background: #1b1f26; }
+    .bubble-tool { background: #14171c; }
+    .bubble-text { white-space: pre-wrap; }
+    details.tool-call, details.tool-result {
+      margin-top: 6px; font-size: 12px; color: #9aa4b2;
+    }
+    details.tool-call pre, details.tool-result pre {
+      background: #0e1013; padding: 8px; border-radius: 6px; overflow-x: auto;
+    }
+    .empty { color: #6b7280; font-size: 13px; padding: 12px; }
+  </style>
+</head>
+<body x-data="viewerApp()" x-init="init()" class="h-screen overflow-hidden flex flex-col">
+
+  <header class="px-4 py-2 border-b border-[#1c2027] text-sm flex items-center gap-3 shrink-0">
+    <span class="font-semibold">a3dasm</span>
+    <span class="text-[#6b7280]">/</span>
+    <span class="font-mono">{{ run_id }}</span>
+    <span class="ml-auto text-[11px] text-[#6b7280]" x-show="!hasFollowUpFidelity">
+      status shown: RUNNING / DONE / FAILED only — finer in-process states
+      (e.g. a pending human follow-up question) aren't recorded on disk
+    </span>
+  </header>
+
+  <main class="flex-1 relative overflow-auto p-8" id="graph-container">
+    <svg id="edges-svg" class="absolute inset-0 w-full h-full pointer-events-none"></svg>
+    <div class="relative flex flex-col items-center gap-16" id="graph-rows">
+      <template x-for="row in rows" :key="row.layer">
+        <div class="flex gap-10 justify-center flex-wrap">
+          <template x-for="node in row.nodes" :key="node.name">
+            <div class="node-card" :class="{ entry: node.is_entry }"
+                 :data-node="node.name"
+                 @click="openNode(node)">
+              <span class="status-dot" :class="statusClass(node.name)"></span>
+              <span x-text="node.name"></span>
+              <div class="text-[11px] text-[#6b7280] mt-1" x-text="node.role"></div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+    <p class="empty" x-show="rows.length === 0">
+      No graph structure available for this run.
+    </p>
+  </main>
+
+  <!-- Docked/maximizable transcript panel -->
+  <div x-show="panelOpen" x-cloak
+       class="panel-transition fixed bg-[#0e1013] border-t border-[#1c2027] shadow-2xl"
+       :class="maximized ? 'inset-0' : 'bottom-0 inset-x-0 h-2/5'"
+       @keydown.window.escape="onEscape()">
+    <div class="flex items-center gap-3 px-4 py-2 border-b border-[#1c2027] text-sm">
+      <span class="font-mono" x-text="panelTitle"></span>
+      <button class="ml-auto text-[#9aa4b2] hover:text-white" @click="maximized = !maximized"
+              title="Toggle maximize (Esc to restore/close)">
+        <span x-text="maximized ? '⤡' : '⤢'"></span>
+      </button>
+      <button class="text-[#9aa4b2] hover:text-white" @click="closePanel()" title="Close">✕</button>
+    </div>
+    <div class="overflow-y-auto p-4" style="height: calc(100% - 41px)"
+         id="bubble-container"
+         @scroll="onBubbleScroll($event)">
+      <div :hx-get="fragmentUrl" hx-trigger="load, every 2s" hx-swap="beforeend"
+           @htmx:config-request="onConfigRequest($event)"
+           @htmx:after-swap="onAfterSwap($event)"
+           x-ref="bubbles"></div>
+    </div>
+    <button x-show="showJumpToNew" @click="scrollToBottom()"
+            class="absolute bottom-4 right-4 bg-[#1b1f26] border border-[#262b33] rounded-full px-3 py-1 text-xs">
+      ↓ new
+    </button>
+  </div>
+
+  <script>
+    function viewerApp() {
+      return {
+        runId: {{ run_id | tojson }},
+        rows: [],
+        nodes: [],
+        edges: [],
+        nodeStatus: {},       // node name -> "running" | "done" | "failed"
+        hasFollowUpFidelity: false,
+        panelOpen: false,
+        maximized: false,
+        panelTitle: '',
+        fragmentUrl: '',
+        renderedCount: 0,
+        stickToBottom: true,
+        showJumpToNew: false,
+
+        init() {
+          fetch(`/api/runs/${this.runId}/graph`)
+            .then(r => r.json())
+            .then(spec => {
+              this.edges = spec.edges;
+              const byLayer = {};
+              for (const n of spec.nodes) {
+                (byLayer[n.layer] ||= []).push(n);
+              }
+              this.rows = Object.keys(byLayer).sort((a, b) => a - b)
+                .map(l => ({ layer: l, nodes: byLayer[l].sort((a, b) => a.name.localeCompare(b.name)) }));
+              this.$nextTick(() => this.drawEdges());
+            });
+
+          const es = new EventSource(`/api/runs/${this.runId}/stream`);
+          es.addEventListener('delegation', (ev) => {
+            const row = JSON.parse(ev.data);
+            // A node's dot reflects the most recent delegation TO it.
+            // Confirmed for real against an actual run: the on-disk status
+            // vocabulary is richer than RUNNING/DONE/FAILED — a Done() gate
+            // check logs a synthetic row with status "GATE:PASS" (and
+            // presumably "GATE:FAIL"), not a plain worker D00N delegation.
+            // Classify defensively rather than assume only three literal
+            // values ever appear.
+            const label = row.status === 'RUNNING' ? 'running'
+              : row.status.includes('FAIL') ? 'failed' : 'done';
+            this.nodeStatus[row.to_node] = label;
+          });
+
+          window.addEventListener('resize', () => this.drawEdges());
+        },
+
+        statusClass(name) {
+          return this.nodeStatus[name] || '';
+        },
+
+        openNode(node) {
+          // Show every delegation touching this node, most recent transcript
+          // first — simplest v1: open the node's own transcript if it has
+          // one (worker delegation id), else fall back to its latest
+          // strategizer turn. Real key resolution happens via /delegations.
+          fetch(`/api/runs/${this.runId}/delegations`)
+            .then(r => r.json())
+            .then(delegations => {
+              const mine = delegations.filter(
+                d => d.to_node === node.name || d.from_node === node.name);
+              if (mine.length === 0) return;
+              const last = mine[mine.length - 1];
+              const key = last.to_node === node.name ? last.id
+                : `strategizer/turn_${String(mine.length).padStart(3, '0')}`;
+              this.panelTitle = `${last.id} · ${last.from_node} → ${last.to_node}`;
+              this.renderedCount = 0;
+              this.fragmentUrl = `/api/runs/${this.runId}/transcript/${key}/fragment?after=0`;
+              this.panelOpen = true;
+              this.$nextTick(() => htmx.process(this.$refs.bubbles));
+            });
+        },
+
+        closePanel() {
+          this.panelOpen = false;
+          this.maximized = false;
+        },
+
+        onEscape() {
+          if (this.maximized) this.maximized = false;
+          else this.closePanel();
+        },
+
+        onConfigRequest(ev) {
+          // Inject the current cursor just before each poll fires — the
+          // idiomatic htmx way to keep a growing `after=` parameter in sync
+          // without rewriting the element's hx-get attribute by hand.
+          ev.detail.parameters['after'] = this.renderedCount;
+        },
+
+        onAfterSwap(ev) {
+          const added = ev.detail.target.querySelectorAll('.bubble').length;
+          this.renderedCount = added;
+          if (this.stickToBottom) this.scrollToBottom();
+          else this.showJumpToNew = true;
+        },
+
+        onBubbleScroll(ev) {
+          const el = ev.target;
+          const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          this.stickToBottom = atBottom;
+          if (atBottom) this.showJumpToNew = false;
+        },
+
+        scrollToBottom() {
+          const el = document.getElementById('bubble-container');
+          el.scrollTop = el.scrollHeight;
+          this.showJumpToNew = false;
+        },
+
+        drawEdges() {
+          const svg = document.getElementById('edges-svg');
+          const container = document.getElementById('graph-container');
+          const crect = container.getBoundingClientRect();
+          svg.innerHTML = '';
+          for (const e of this.edges) {
+            const src = document.querySelector(`[data-node="${e.source}"]`);
+            const dst = document.querySelector(`[data-node="${e.target}"]`);
+            if (!src || !dst) continue;
+            const s = src.getBoundingClientRect();
+            const d = dst.getBoundingClientRect();
+            const x1 = s.left + s.width / 2 - crect.left;
+            const y1 = s.bottom - crect.top;
+            const x2 = d.left + d.width / 2 - crect.left;
+            const y2 = d.top - crect.top;
+            const midY = (y1 + y2) / 2;
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', `M ${x1},${y1} C ${x1},${midY} ${x2},${midY} ${x2},${y2}`);
+            svg.appendChild(path);
+          }
+        },
+      };
+    }
+  </script>
+</body>
+</html>
