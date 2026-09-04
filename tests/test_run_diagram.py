@@ -308,8 +308,17 @@ def test_two_layer_graph_second_row_never_overlaps_first():
         edges=(Edge("hub", "leaf"),),
         entry="hub",
     )
+    # sorted(), not list(): _wrap_tokens' greedy line-packing is
+    # order-sensitive (a different arrival order can pack one fewer/more
+    # line), and a bare frozenset's iteration order is hash-randomized per
+    # Python process — confirmed for real to flip content_hub.height by
+    # exactly one _LINE_H (20px, 319 vs 299) depending on PYTHONHASHSEED,
+    # occasionally landing under the 300px assertion this test exists to
+    # enforce. sorted() matches what the real rendering path already does
+    # (_node_tools sorts declared tools), so this is also the deterministic,
+    # production-accurate input, not just a test-only fix.
     content_hub = _CardContent(
-        "hub", graph.nodes["hub"], graph, list(Hub.tools), {}, None, None)
+        "hub", graph.nodes["hub"], graph, sorted(Hub.tools), {}, None, None)
     svg = render_architecture_svg(graph)
     ET.fromstring(svg)  # still well-formed even with a very tall card
     # The hub's card is necessarily taller than the old fixed row height
