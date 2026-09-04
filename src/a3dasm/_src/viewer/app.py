@@ -204,6 +204,20 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             for row in readers.read_diagnostics_tail(run_dir):
                 yield _sse("diagnostic", row)
 
+            # run_status.json is written ONCE, at the very end (GATED/
+            # UNGATED/FAILED/crashed) -- distinct, global "how did the
+            # WHOLE run turn out" signal, separate from any per-node
+            # delegation status (a node's own dot only ever reflects its
+            # most recent incoming delegation, which the entry node never
+            # has one of at all). Absence means "still running" -- there
+            # is no separate "RUNNING" state written anywhere; it's the
+            # client's own default until this event ever arrives.
+            run_status_seen = False
+            initial_status = readers.read_run_status(run_dir)
+            if initial_status is not None:
+                yield _sse("run_status", initial_status)
+                run_status_seen = True
+
             q: queue.Queue = queue.Queue()
 
             def _tail_delegations():
@@ -227,6 +241,14 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             while True:
                 if await request.is_disconnected():
                     break
+                if not run_status_seen:
+                    # Written once, so a plain existence poll here (not the
+                    # append-aware tail_jsonl, which is for growing files)
+                    # is enough — cheap, and stops once found.
+                    current = readers.read_run_status(run_dir)
+                    if current is not None:
+                        yield _sse("run_status", current)
+                        run_status_seen = True
                 try:
                     kind, payload = q.get_nowait()
                 except queue.Empty:

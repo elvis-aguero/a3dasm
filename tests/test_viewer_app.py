@@ -393,16 +393,32 @@ def test_graph_page_404_for_missing_run(tmp_path):
 def _read_sse_events(url, n, timeout=5.0):
     """Read *n* SSE "data:" lines off a REAL socket URL, bounded by
     *timeout* — run in a background thread so a stuck stream can't hang the
-    test suite."""
+    test suite. Returns just the JSON payloads (event *type* discarded) —
+    use `_read_typed_sse_events` when the test needs to disambiguate event
+    types that share a JSON shape (e.g. `run_status` vs `delegation`, both
+    of which carry a `status` key)."""
+    return [data for _etype, data in _read_typed_sse_events(url, n, timeout)]
+
+
+def _read_typed_sse_events(url, n, timeout=5.0):
+    """Like `_read_sse_events`, but also captures each event's preceding
+    "event: <type>" line, returning a list of (event_type, data) pairs.
+    Needed because an SSE payload's JSON shape alone doesn't always say
+    which event it is: a `run_status` event's `{"status": "GATED"}` is not
+    structurally distinguishable from a `delegation` row's `status` field."""
     q: queue.Queue = queue.Queue()
 
     def _run():
         try:
             with httpx.stream("GET", url, timeout=timeout) as resp:
                 collected = []
+                current_event = "message"
                 for line in resp.iter_lines():
-                    if line.startswith("data:"):
-                        collected.append(json.loads(line[len("data:"):].strip()))
+                    if line.startswith("event:"):
+                        current_event = line[len("event:"):].strip()
+                    elif line.startswith("data:"):
+                        data = json.loads(line[len("data:"):].strip())
+                        collected.append((current_event, data))
                         if len(collected) >= n:
                             break
                 q.put(("ok", collected))
@@ -444,6 +460,46 @@ def test_stream_replays_then_reflects_status_change(tmp_path):
 
     assert events[0]["status"] == "RUNNING"
     assert events[1]["status"] == "DONE"
+
+
+@pytest.mark.smoke
+def test_stream_replays_run_status_when_already_present(tmp_path):
+    """run_status.json written before the client ever connects (a run that
+    already finished by the time someone opens the viewer) must replay
+    immediately, not wait for a live filesystem event — it's write-once, so
+    there is nothing to "tail"."""
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    (run_dir / "debug" / "run_status.json").write_text(
+        json.dumps({"status": "GATED"}), encoding="utf-8")
+
+    with _LiveServer(create_app(study)) as srv:
+        events = _read_typed_sse_events(
+            f"{srv.url}/api/runs/20260904T120000/stream", n=1, timeout=8.0)
+
+    assert events[0] == ("run_status", {"status": "GATED"})
+
+
+@pytest.mark.smoke
+def test_stream_emits_run_status_once_it_appears_mid_stream(tmp_path):
+    """A still-running run has no run_status.json yet at connect time; once
+    the run closes and writes it, the already-open stream must emit it
+    without the client needing to reconnect."""
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    status_path = run_dir / "debug" / "run_status.json"
+
+    def _write_status():
+        time.sleep(0.5)
+        status_path.write_text(
+            json.dumps({"status": "UNGATED"}), encoding="utf-8")
+
+    with _LiveServer(create_app(study)) as srv:
+        threading.Thread(target=_write_status, daemon=True).start()
+        events = _read_typed_sse_events(
+            f"{srv.url}/api/runs/20260904T120000/stream", n=1, timeout=8.0)
+
+    assert events[0] == ("run_status", {"status": "UNGATED"})
 
 
 def test_stream_404_for_missing_run(tmp_path):

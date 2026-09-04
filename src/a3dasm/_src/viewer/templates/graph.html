@@ -6,6 +6,7 @@
   <title>a3dasm run viewer — {{ run_id }}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.3/dist/cdn.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     body { background: #0b0d10; color: #e7e5e2; }
@@ -59,6 +60,39 @@
       cursor: pointer; color: #9aa4b2;
     }
     .key-chip.active { border-color: #6b8cff; color: #e7e5e2; }
+    .run-status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px;
+      letter-spacing: .03em; padding: 3px 10px; border-radius: 999px;
+      border: 1px solid #262b33; color: #9aa4b2; background: #14171c;
+    }
+    .run-status-pill .status-dot { margin-right: 0; }
+    .run-status-pill.gated { border-color: #22c55e; color: #22c55e; }
+    .run-status-pill.ungated { border-color: #d97706; color: #d97706; }
+    .run-status-pill.failed, .run-status-pill.crashed { border-color: #ef4444; color: #ef4444; }
+    .run-status-pill.running .status-dot { background: #4b5563; }
+    .problem-md { font-size: 13px; line-height: 1.55; }
+    .problem-md :is(h1,h2,h3) { font-weight: 600; margin: 14px 0 6px; }
+    .problem-md h1 { font-size: 16px; }
+    .problem-md h2 { font-size: 14.5px; }
+    .problem-md h3 { font-size: 13.5px; }
+    .problem-md p { margin: 8px 0; }
+    .problem-md ul, .problem-md ol { margin: 8px 0 8px 20px; }
+    .problem-md li { margin: 3px 0; }
+    .problem-md code {
+      background: #14171c; border-radius: 4px; padding: 1px 5px;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;
+    }
+    .problem-md pre {
+      background: #0e1013; border: 1px solid #1c2027; border-radius: 6px;
+      padding: 10px; overflow-x: auto; margin: 8px 0;
+    }
+    .problem-md pre code { background: none; padding: 0; }
+    .problem-md a { color: #6b8cff; }
+    .problem-md blockquote {
+      border-left: 2px solid #262b33; margin: 8px 0; padding-left: 10px;
+      color: #9aa4b2;
+    }
   </style>
 </head>
 <body x-data="viewerApp()" x-init="init()" class="h-screen overflow-hidden flex flex-col">
@@ -67,6 +101,10 @@
     <span class="font-semibold">a3dasm</span>
     <span class="text-[#6b7280]">/</span>
     <span class="font-mono">{{ run_id }}</span>
+    <span class="run-status-pill" :class="runStatusClass()" :title="runStatusTitle()">
+      <span class="status-dot" :class="runStatus === null ? 'running' : ''"></span>
+      <span x-text="runStatusLabel()"></span>
+    </span>
     <button class="icon-btn ml-auto" @click="openProblemStatement()">Problem</button>
   </header>
 
@@ -96,12 +134,12 @@
   <div x-show="problemOpen" x-cloak
        class="fixed inset-0 bg-black/60 flex items-center justify-center z-20"
        @click.self="problemOpen = false" @keydown.window.escape="problemOpen = false">
-    <div class="bg-[#0e1013] border border-[#262b33] rounded-xl max-w-2xl w-full mx-4 max-h-[70vh] flex flex-col">
-      <div class="flex items-center px-4 py-2 border-b border-[#1c2027] text-sm">
+    <div class="bg-[#0e1013] border border-[#262b33] rounded-xl max-w-2xl w-full mx-4 h-[70vh] flex flex-col">
+      <div class="flex items-center px-4 py-2 border-b border-[#1c2027] text-sm shrink-0">
         <span>Problem statement</span>
         <button class="icon-btn ml-auto" @click="problemOpen = false">✕</button>
       </div>
-      <pre class="p-4 overflow-y-auto text-[13px] whitespace-pre-wrap" x-text="problemText"></pre>
+      <div class="problem-md p-4 overflow-y-auto flex-1 min-h-0" x-html="renderedProblemHtml()"></div>
     </div>
   </div>
 
@@ -159,6 +197,10 @@
         problemOpen: false,
         problemText: '',
         _pollHandle: null,
+        // null = still running (run_status.json doesn't exist yet, written
+        // only once at the very end); otherwise the parsed run_status.json
+        // object, e.g. {status: "GATED"} or {status: "FAILED", stop_reason: "..."}.
+        runStatus: null,
 
         init() {
           fetch(`/api/runs/${this.runId}/graph`)
@@ -188,6 +230,10 @@
             }
           });
 
+          es.addEventListener('run_status', (ev) => {
+            this.runStatus = JSON.parse(ev.data);
+          });
+
           window.addEventListener('resize', () => this.drawEdges());
         },
 
@@ -195,10 +241,36 @@
           return this.nodeStatus[name] || '';
         },
 
+        // The per-node dots only ever reflect that node's most recent
+        // INCOMING delegation (the entry node never has one, hence its
+        // permanently grey dot) -- this pill is the separate, global "how
+        // did the whole run turn out" signal, sourced from run_status.json,
+        // which is written exactly once at the very end of the run.
+        runStatusLabel() {
+          if (this.runStatus === null) return 'running';
+          return this.runStatus.status.toLowerCase();
+        },
+
+        runStatusClass() {
+          if (this.runStatus === null) return 'running';
+          return this.runStatus.status.toLowerCase();
+        },
+
+        runStatusTitle() {
+          if (this.runStatus === null) return 'Run still in progress';
+          const reason = this.runStatus.stop_reason;
+          return reason ? `stop reason: ${reason}` : '';
+        },
+
         openProblemStatement() {
           fetch(`/api/runs/${this.runId}/problem_statement`)
             .then(r => r.ok ? r.json() : r.json().then(e => ({ text: `(${e.error})` })))
             .then(data => { this.problemText = data.text; this.problemOpen = true; });
+        },
+
+        renderedProblemHtml() {
+          if (!this.problemText) return '';
+          return marked.parse(this.problemText);
         },
 
         openNode(node) {
