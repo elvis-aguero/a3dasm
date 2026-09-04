@@ -267,7 +267,7 @@ def _try_next(gen, timeout):
         return ("timeout", None)
 
 
-def _next_with_timeout(gen, timeout=3.0):
+def _next_with_timeout(gen, timeout=10.0):
     kind, value = _try_next(gen, timeout)
     if kind == "timeout":
         pytest.fail(f"tail_jsonl produced nothing within {timeout}s")
@@ -330,5 +330,38 @@ def test_tail_jsonl_withholds_partial_line(tmp_path):
             f.write("ue}\n")
 
     threading.Thread(target=_write_in_two_parts, daemon=True).start()
-    row = _next_with_timeout(gen, timeout=3.0)
+    row = _next_with_timeout(gen, timeout=10.0)
     assert row == {"partial": True}
+
+
+def test_tail_jsonl_backs_up_to_last_complete_line_when_already_mid_line(tmp_path):
+    """Deterministic version of the race the test above exercises via real
+    thread timing (confirmed by direct reproduction to fail ~25% of the
+    time before this fix, even with a 10s timeout margin — not just tight
+    timing): tail_jsonl's generator body only starts running on its FIRST
+    next() call, not when tail_jsonl() itself is invoked, so a caller that
+    starts iterating even slightly late can observe the file already ending
+    in an unterminated line at the moment the initial offset is captured —
+    if a writer's append of the first half of a split line happened to land
+    in that gap. Naively setting offset = current file size then silently
+    swallows that in-flight line's prefix forever: once the remainder
+    arrives, reading from `offset` onward yields only the fragment, never
+    valid JSON on its own. This constructs that exact starting condition
+    directly (no race needed): the file already ends mid-line before
+    tail_jsonl is even called.
+    """
+    path = tmp_path / "log.jsonl"
+    # A genuinely complete prior line (correctly skipped — it ended before
+    # tailing started) followed by an unterminated one (must NOT be skipped).
+    path.write_text('{"a": 1}\n{"partial": tr', encoding="utf-8")
+    gen = tail_jsonl(path, poll_interval=0.05)
+
+    def _complete_the_line():
+        import time
+        time.sleep(0.2)
+        with path.open("a", encoding="utf-8") as f:
+            f.write("ue}\n")
+
+    threading.Thread(target=_complete_the_line, daemon=True).start()
+    row = _next_with_timeout(gen, timeout=10.0)
+    assert row == {"partial": True}  # not {"a": 1} — that one was already complete

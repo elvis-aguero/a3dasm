@@ -223,7 +223,24 @@ def tail_jsonl(
     most), the latency difference against a real watcher is imperceptible.
     """
     path = Path(path)
-    # A pre-existing file: skip its current content, tail only new growth.
+    # A pre-existing file: skip its current content, tail only new growth —
+    # EXCEPT any trailing partial (unterminated) line, which is backed up to
+    # instead of skipped. A generator's body only starts running on its
+    # FIRST next() call, not when tail_jsonl() itself is invoked — so a
+    # caller that starts iterating slightly late (any real consumer that
+    # isn't a bare `for` loop starting instantly, e.g. one driven from a
+    # separate thread) can genuinely observe the file already mid-line at
+    # the moment this offset is captured, if a writer's append happened to
+    # land in that gap. Naively setting offset = current size would then
+    # silently swallow that in-flight line's prefix forever: once its
+    # remainder arrives, reading from `offset` onward yields only the
+    # fragment, which is never valid JSON on its own — the exact failure
+    # this caused before backing up (confirmed by direct reproduction: ~25%
+    # of runs of a test writing a line in two parts never yielded it at
+    # all). Backing up to the position right after the LAST newline (or 0 if
+    # the file has none at all) means that partial suffix is treated as new,
+    # unconsumed content — the same as if tailing had started before it was
+    # ever written.
     # A not-yet-created file: offset stays 0 once it appears — the whole
     # first write is "new" from this tailer's point of view, however much
     # content it happens to contain (a single write_text() can create the
@@ -231,7 +248,8 @@ def tail_jsonl(
     # so setting offset = size-at-creation-time would silently skip
     # whatever was written before we got around to checking).
     if path.exists():
-        offset = path.stat().st_size
+        content = path.read_bytes()
+        offset = content.rfind(b"\n") + 1  # 0 if no newline is present at all
     else:
         offset = 0
         while not path.exists():
