@@ -304,6 +304,50 @@ def test_get_evaluator_binds_delegation_id_from_cwd(
 
     gen = get_evaluator()
     assert gen.delegation_id == "D007"
+    assert gen.dedup_scope == "delegation"  # default, unless env overrides
+
+
+def test_get_evaluator_reads_dedup_scope_from_env(tmp_path, monkeypatch):
+    """F3DASM_DEDUP_SCOPE=all (set by notebook_exec.sandbox_env() for
+    reproduction-gate/deliverable execution) must reach the returned
+    InstrumentedDataGenerator — this is the wiring half of the
+    dedup_scope="all" fix; test_dedup_scope_all_matches_regardless_of_
+    delegation_id above tests the dedup LOGIC itself in isolation."""
+    from a3dasm._src.instrumented import get_evaluator
+
+    debug_dir = tmp_path / "runs" / "ts" / "debug"
+    delegation_dir = debug_dir / "delegations" / "D007"
+    delegation_dir.mkdir(parents=True)
+
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+
+    study_dir = tmp_path / "study"
+    study_dir.mkdir()
+    (study_dir / "sum_eval.py").write_text(
+        "def evaluate_kw(**kwargs):\n"
+        "    return float(sum(kwargs.values()))\n"
+    )
+
+    run_config = {
+        "store_dir": str(store_dir),
+        "lock_path": str(store_dir / "experiment_data" / ".lock"),
+        "source": "test_eval",
+        "evaluator_name": "test_eval",
+        "study_dir": str(study_dir),
+        "fidelity_column": None,
+        "evaluator_entrypoint": "sum_eval.py:evaluate_kw",
+        "evaluator_output_names": ["f"],
+    }
+    run_config_path = debug_dir / "run_config.json"
+    run_config_path.write_text(json.dumps(run_config))
+
+    monkeypatch.chdir(delegation_dir)
+    monkeypatch.delenv("F3DASM_DELEGATION_ID", raising=False)
+    monkeypatch.setenv("F3DASM_DEDUP_SCOPE", "all")
+
+    gen = get_evaluator()
+    assert gen.dedup_scope == "all"
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +592,65 @@ def test_dedup_within_a_single_flush_batch(tmp_path):
 
     _, df_out = ExperimentData.from_file(project_dir=tmp_path).to_pandas()
     assert len(df_out) == 2   # x0=0.5 once + x0=0.9
+
+
+def test_dedup_is_per_delegation_by_default(tmp_path):
+    """A DIFFERENT delegation re-measuring the same design is not deduped
+    against by default — a deliberate design choice (a genuinely concurrent
+    campaign may legitimately re-measure a design; collapsing across
+    delegations would corrupt that), not the reproduction-gate bug this test
+    file is distinguishing itself from below."""
+    from a3dasm._src.instrumented import InstrumentedDataGenerator
+
+    gen1 = InstrumentedDataGenerator(
+        inner=_SumGenerator(), store_dir=tmp_path,
+        delegation_id="D005", flush_every=1)
+    gen1.execute(_make_sample(0.5))
+
+    gen2 = InstrumentedDataGenerator(
+        inner=_SumGenerator(), store_dir=tmp_path,
+        delegation_id="D009", flush_every=1)
+    gen2.execute(_make_sample(0.5))  # same design, DIFFERENT delegation
+
+    _, df_out = ExperimentData.from_file(project_dir=tmp_path).to_pandas()
+    assert len(df_out) == 2  # both rows land — not deduped across delegations
+
+
+def test_dedup_scope_all_matches_regardless_of_delegation_id(tmp_path):
+    """BACKLOG: the reproduction-gate/deliverable execution path stamps a
+    FIXED synthetic delegation id ("D999", notebook_exec.sandbox_env's
+    default) that never matches the real delegation(s) that actually
+    generated the ledger's rows (D005, D009, ...) — so the per-delegation
+    dedup scope silently fails to recognize ANY existing row as already
+    seen, and re-executing a notebook's data_generation cell (which must add
+    ZERO new oracle rows to satisfy the "LAZY" reproduction invariant —
+    notebook_exec.py's own documented contract) instead re-adds every design
+    point as if new. dedup_scope="all" is the fix: dedup against the WHOLE
+    ledger regardless of which delegation wrote each row — the correct
+    semantics for a validation replay of already-generated data, as opposed
+    to a live campaign delegation genuinely exploring in parallel."""
+    from a3dasm._src.instrumented import InstrumentedDataGenerator
+
+    gen1 = InstrumentedDataGenerator(
+        inner=_SumGenerator(), store_dir=tmp_path,
+        delegation_id="D005", flush_every=1)
+    gen1.execute(_make_sample(0.5))
+
+    # Simulates reproduction-gate execution: a different (synthetic) id,
+    # but dedup_scope="all" so it still recognizes the design as already
+    # evaluated.
+    gen2 = InstrumentedDataGenerator(
+        inner=_SumGenerator(), store_dir=tmp_path,
+        delegation_id="D999", flush_every=1, dedup_scope="all")
+    gen2.execute(_make_sample(0.5))   # same design -> must be skipped
+    gen2.execute(_make_sample(0.9))  # distinct design -> must still land
+
+    _, df_out = ExperimentData.from_file(project_dir=tmp_path).to_pandas()
+    assert len(df_out) == 2, (
+        f"expected 2 rows (D005's 0.5 kept, D999's duplicate 0.5 skipped, "
+        f"D999's 0.9 landed), got {len(df_out)}")
+    df_in, _ = ExperimentData.from_file(project_dir=tmp_path).to_pandas()
+    assert sorted(round(float(v), 3) for v in df_in["x0"]) == [0.5, 0.9]
 
 
 # ---------------------------------------------------------------------------

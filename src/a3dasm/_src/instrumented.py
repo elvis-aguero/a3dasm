@@ -80,6 +80,18 @@ class InstrumentedDataGenerator(DataGenerator):
     flush_every : int, optional
         Number of samples to buffer before a locked flush.  Default 1
         (flush on every execute).
+    dedup_scope : str, optional
+        ``"delegation"`` (default): dedup-on-write only recognizes a design
+        as already-seen if THIS delegation itself wrote it — a genuinely
+        concurrent campaign delegation may legitimately re-measure a design
+        another delegation also measured; collapsing across delegations
+        would corrupt that. ``"all"``: dedup against the WHOLE ledger
+        regardless of which delegation wrote each row — the correct
+        semantics for a validation replay of already-generated data (e.g.
+        the reproduction gate re-executing a notebook's ``data_generation``
+        cell, which must add ZERO new rows to satisfy the "LAZY"
+        reproduction invariant) rather than a live campaign delegation
+        genuinely exploring in parallel.
     """
 
     def __init__(
@@ -94,9 +106,14 @@ class InstrumentedDataGenerator(DataGenerator):
         flush_every: int = 1,
         extra_provenance: Optional[dict] = None,
         eval_budget: Optional[int] = None,
+        dedup_scope: str = "delegation",
     ) -> None:
         self.inner = inner
         self.store_dir = Path(store_dir)
+        if dedup_scope not in ("delegation", "all"):
+            raise ValueError(
+                f"dedup_scope must be 'delegation' or 'all', got {dedup_scope!r}")
+        self.dedup_scope = dedup_scope
         self.delegation_id = delegation_id
         self.source = source
         # SOFT eval-budget governor (resource-governance L1). Fires at the flush
@@ -349,7 +366,15 @@ class InstrumentedDataGenerator(DataGenerator):
                     # delegation's prior rows count: a DIFFERENT delegation
                     # legitimately re-measuring the same design is not waste
                     # (and collapsing it would corrupt concurrent campaigns).
-                    if "_delegation_id" in df_out.columns:
+                    # dedup_scope="all" (reproduction-gate/deliverable replay
+                    # of already-generated data, stamped with a synthetic id
+                    # that never matches the real generating delegation(s))
+                    # skips this narrowing entirely — every row in the
+                    # ledger counts as already-seen, regardless of who wrote
+                    # it, since the whole point of that replay is to add
+                    # ZERO new rows.
+                    if (self.dedup_scope == "delegation"
+                            and "_delegation_id" in df_out.columns):
                         mine = (df_out["_delegation_id"].astype(str)
                                 == str(self.delegation_id)).to_numpy()
                         df_in = df_in[mine]
@@ -892,6 +917,15 @@ def get_evaluator(namespace: str | None = None) -> InstrumentedDataGenerator:
     # oracle through get_evaluator, regardless of how it was launched.
     _apply_process_governor(cfg, store_dir, delegation_id)
 
+    # F3DASM_DEDUP_SCOPE=all: set by notebook_exec.sandbox_env() for
+    # reproduction-gate/deliverable execution, where the process is stamped
+    # with a synthetic delegation id that never matches the real
+    # delegation(s) that actually generated the ledger's rows — the default
+    # per-delegation dedup scope would silently fail to recognize ANY
+    # existing row as already-seen there. Real campaign delegations never
+    # set this, so they keep the default "delegation" scope.
+    dedup_scope = os.environ.get("F3DASM_DEDUP_SCOPE", "delegation")
+
     return InstrumentedDataGenerator(
         inner=inner,
         store_dir=store_dir,
@@ -901,6 +935,7 @@ def get_evaluator(namespace: str | None = None) -> InstrumentedDataGenerator:
         lock_path=lock_path,
         extra_provenance=extra_provenance,
         eval_budget=cfg.get("eval_budget"),
+        dedup_scope=dedup_scope,
     )
 
 

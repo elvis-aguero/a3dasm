@@ -93,6 +93,21 @@ def sandbox_env(
     instead of hand-rolling multi-candidate path searches relative to the
     store. Isolation is unaffected: only the store is a copy; the study root is
     read-only reference code.
+
+    F3DASM_DEDUP_SCOPE=all: this is a validation REPLAY of already-generated
+    data (re-executing ``data_generation`` must add ZERO new rows to satisfy
+    the "LAZY" reproduction invariant below), not a live campaign delegation
+    doing new science — but this process is stamped with a fixed synthetic
+    ``delegation_id`` (default "D999") that never matches the real
+    delegation(s) that actually generated the ledger's rows (D005, D009,
+    ...). ``get_evaluator()``'s default dedup scope only recognizes a design
+    as already-seen when the SAME delegation id wrote it (correct for real
+    concurrent campaigns, where a different delegation legitimately
+    re-measuring a design is not waste) — under that default here, dedup
+    would silently fail to recognize ANY existing row, so replaying
+    ``data_generation`` would re-add every design point as if new. Forcing
+    "all" scope here means dedup checks the WHOLE ledger regardless of which
+    delegation wrote each row, matching what this replay actually needs.
     """
     env = dict(os.environ if base is None else base)
     env["F3DASM_CANONICAL_STORE"] = str(sb_store)
@@ -100,6 +115,7 @@ def sandbox_env(
     if study_root is not None:
         env["F3DASM_STUDY_ROOT"] = str(study_root)
     env.setdefault("F3DASM_DELEGATION_ID", str(delegation_id))
+    env.setdefault("F3DASM_DEDUP_SCOPE", "all")
     return env
 
 

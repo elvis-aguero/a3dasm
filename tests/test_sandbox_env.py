@@ -32,3 +32,25 @@ def test_sandbox_env_preserves_existing_delegation_id(tmp_path):
 def test_sandbox_env_omits_study_root_when_not_given(tmp_path):
     env = sandbox_env(tmp_path / "s", tmp_path / "c", base={})
     assert "F3DASM_STUDY_ROOT" not in env
+
+
+def test_sandbox_env_sets_dedup_scope_all(tmp_path):
+    """BACKLOG: this env is for reproduction-gate/deliverable execution — a
+    validation REPLAY of already-generated data stamped with a synthetic
+    delegation id ("D999") that never matches the real delegation(s) that
+    actually wrote the ledger's rows. get_evaluator()'s default dedup scope
+    only recognizes a design as already-seen when the SAME delegation id
+    wrote it, so under that default this replay would silently fail to
+    recognize ANY existing row and re-add every design point as if new —
+    violating the "LAZY: zero new rows" reproduction invariant. F3DASM_
+    DEDUP_SCOPE=all fixes this by dedupping against the whole ledger
+    regardless of which delegation wrote each row."""
+    env = sandbox_env(tmp_path / "s", tmp_path / "c", base={})
+    assert env["F3DASM_DEDUP_SCOPE"] == "all"
+
+
+def test_sandbox_env_preserves_existing_dedup_scope(tmp_path):
+    env = sandbox_env(
+        tmp_path / "s", tmp_path / "c",
+        base={"F3DASM_DEDUP_SCOPE": "delegation"})
+    assert env["F3DASM_DEDUP_SCOPE"] == "delegation"
