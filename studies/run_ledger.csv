@@ -73,3 +73,4 @@ db63c70,mathexpert_kinematic_matching_test,20260903T163807,FAILED,0,4,,,227846,4
 55220ac,mathexpert_kinematic_matching_test,20260903T205926,GATED,0,2,,,,,,,1,1,0,"{""ERROR_RETURN"": 2}"
 ef058cd,corpus_search_ollama_test,20260903T234452,GATED,0,2,,,,,,,0,2,0,"{""ERROR_RETURN"": 5}"
 ef058cd,corpus_search_ollama_test,20260903T235500,GATED,0,2,,,,,,,0,2,0,"{""ERROR_RETURN"": 1}"
+40190b0,quota_probe_test,20260904T145615,GATED,1,1,,,,,,,0,2,0,

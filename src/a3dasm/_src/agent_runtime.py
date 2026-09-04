@@ -783,6 +783,14 @@ class AgenticRun:
         _problem_statement_sha256 = hashlib.sha256(
             _ps_snapshot_path.read_text(encoding="utf-8").encode("utf-8")
         ).hexdigest()
+        # Captured BEFORE the constraint-snapshot preamble (budgets, elapsed
+        # time — always different between runs) gets prepended to `problem`
+        # below, so a resume's "did PROBLEM_STATEMENT.md change" check
+        # compares the same kind of content on both sides instead of always
+        # reporting "changed" (BACKLOG #35).
+        _live_problem_sha256 = hashlib.sha256(
+            problem.encode("utf-8")
+        ).hexdigest()
         notes_dir = debug_dir / "strategizer_notes"
         notes_dir.mkdir(parents=True, exist_ok=True)
         self._run_dir = run_dir
@@ -942,6 +950,96 @@ class AgenticRun:
                     checkpointer=saver,
                 )
                 graph_input = None if _resume is not None else initial_state
+                # A run that reached a terminal Command(goto=END) — i.e. EVERY
+                # normal close (GATED/UNGATED/FAILED all go through the same
+                # terminal branch in strategizer.py) — leaves the checkpoint
+                # with an empty `.next`. LangGraph's invoke(None, config) on
+                # such a checkpoint is a genuine no-op: no node re-runs, no
+                # new model call happens, it just hands back the stale
+                # last_report verbatim (confirmed empirically: a minimal
+                # StateGraph reproduction showed the node's own call counter
+                # never incremented on a second invoke(None) against an
+                # already-END'd thread). BACKLOG #34's resume_from guidance
+                # was silently useless for exactly the runs it targeted
+                # (externally-stopped, therefore terminal) until this fix —
+                # found because a "resumed" run replayed 19-hour-old cached
+                # text and was mistaken for a live re-test of the same stop
+                # condition (BACKLOG #35).
+                #
+                # Only a genuinely mid-flight interruption (crash, kill —
+                # `.next` non-empty, real pending tasks) should still use the
+                # plain invoke(None) replay-from-checkpoint path. A terminal
+                # checkpoint needs FRESH input to force real re-execution from
+                # the entry node (confirmed empirically too: invoke() with new
+                # non-None input on an already-terminal thread DOES re-run the
+                # node). The one case explicitly NOT worth resuming: the run
+                # already closed cleanly (GATED, an accepted Done()) and
+                # PROBLEM_STATEMENT.md hasn't changed since — there is
+                # nothing new to do, so this refuses loudly rather than
+                # silently no-op or silently redo finished work.
+                if _resume is not None and hasattr(graph, "get_state"):
+                    _resume_state = graph.get_state(config)
+                    if not _resume_state.next:  # terminal: reached END
+                        _prior_status: dict = {}
+                        try:
+                            _prior_status = json.loads(
+                                (debug_dir / "run_status.json")
+                                .read_text(encoding="utf-8")
+                            )
+                        except (OSError, json.JSONDecodeError):
+                            pass
+                        _resume_ps_changed = (
+                            _live_problem_sha256 != _problem_statement_sha256
+                        )
+                        if (
+                            _prior_status.get("status") == "GATED"
+                            and not _resume_ps_changed
+                        ):
+                            raise AgenticRunError(
+                                f"resume_from={run_dir} closed cleanly "
+                                "(GATED, an accepted Done()) and "
+                                "PROBLEM_STATEMENT.md is unchanged since — "
+                                "there is nothing new for this run to do. "
+                                "Resume is for a run that was interrupted or "
+                                "stopped short of a real close; edit "
+                                "PROBLEM_STATEMENT.md first if you want it "
+                                "reconsidered, or start a fresh run instead."
+                            )
+                        _reason_bits = []
+                        if _prior_status.get("stop_reason"):
+                            _reason_bits.append(
+                                "it was stopped by an external cause "
+                                f"({_prior_status['stop_reason']}), not by "
+                                "its own choice"
+                            )
+                        elif _prior_status.get("status", "GATED") != "GATED":
+                            _reason_bits.append(
+                                f"it closed {_prior_status['status']} "
+                                "without an accepted Done()"
+                            )
+                        if _resume_ps_changed:
+                            _reason_bits.append(
+                                "PROBLEM_STATEMENT.md has been edited since "
+                                "this run's original snapshot — the current "
+                                "text follows below"
+                            )
+                        _resume_note = (
+                            "[RESUME] This run previously closed, but "
+                            + "; and ".join(
+                                _reason_bits or ["you asked to resume it"]
+                            )
+                            + ". Continue using the accumulated conversation"
+                            " history above — do not restart from scratch."
+                        )
+                        if _resume_ps_changed:
+                            _resume_note += (
+                                f"\n\nCurrent PROBLEM_STATEMENT.md:\n\n"
+                                f"{problem}"
+                            )
+                        graph_input = {
+                            "messages": [HumanMessage(content=_resume_note)],
+                            "done": False,
+                        }
                 # On resume, the checkpointed state still carries the OLD
                 # budgets and start_time. Re-seed them from this AgenticRun so a
                 # run that halted on a budget can actually make progress after
