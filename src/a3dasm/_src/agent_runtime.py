@@ -190,6 +190,27 @@ def _init_canonical_store(
 
     eval_cfg = evaluator_config or {}
 
+    # This function is called UNCONDITIONALLY at the top of every execute()
+    # call — fresh run AND resume alike, with no `if _resume is None` guard —
+    # so a resumed run reaches here again for the SAME run_dir. Without
+    # reading back whatever is already on disk first, every dynamically
+    # registered oracle (register_evaluator_entrypoint(), called mid-run by a
+    # datagenerator delegation — the canonical entrypoint when config.yaml
+    # declares none of its own, AND any namespaced "oracles" entry) would be
+    # silently wiped the moment a run resumes, since the fresh config dict
+    # below has no way to know about anything registered after the FIRST
+    # call (BACKLOG #37). Preserve those specific fields from the existing
+    # file when present; eval_budget/mem_cap_bytes still refresh from THIS
+    # call's arguments unconditionally — the existing, deliberate "user
+    # raises the budget, resume can progress" behavior.
+    existing: dict = {}
+    run_config_path = run_dir / "debug" / "run_config.json"
+    if run_config_path.exists():
+        try:
+            existing = _json.loads(run_config_path.read_text(encoding="utf-8"))
+        except (OSError, _json.JSONDecodeError):
+            existing = {}
+
     config: dict = {
         "store_dir": str(store_dir),
         # Co-locate the lock with the data (store_dir/experiment_data/) so
@@ -204,16 +225,21 @@ def _init_canonical_store(
         # (fidelity, regime, seed, mesh, …). Stamped on every ledger row by
         # InstrumentedDataGenerator, never authored by the agent.
         "provenance": eval_cfg.get("provenance"),
-        "evaluator_entrypoint": eval_cfg.get("entrypoint"),
-        "evaluator_output_names": eval_cfg.get("output_names"),
-        "evaluator_lookup": eval_cfg.get("lookup"),
+        "evaluator_entrypoint": existing.get(
+            "evaluator_entrypoint", eval_cfg.get("entrypoint")),
+        "evaluator_output_names": existing.get(
+            "evaluator_output_names", eval_cfg.get("output_names")),
+        "evaluator_lookup": existing.get(
+            "evaluator_lookup", eval_cfg.get("lookup")),
         # Resource-governor knobs read by the in-process governor at the eval
         # boundary (get_evaluator/InstrumentedDataGenerator). eval_budget is a
         # SOFT cap (nudge only); mem_cap_bytes is the one HARD cap (host safety).
         "eval_budget": eval_budget,
         "mem_cap_bytes": mem_cap_bytes,
     }
-    (run_dir / "debug" / "run_config.json").write_text(
+    if "oracles" in existing:
+        config["oracles"] = existing["oracles"]
+    run_config_path.write_text(
         _json.dumps(config, indent=2), encoding="utf-8"
     )
     # No env-var export: run_config.json (written from config.yaml) is the single

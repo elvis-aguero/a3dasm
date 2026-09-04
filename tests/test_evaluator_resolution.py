@@ -516,6 +516,101 @@ def test_init_canonical_store_no_eval_cfg_backward_compat(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# BACKLOG #37 — _init_canonical_store is called unconditionally on EVERY
+# execute() (fresh or resumed, no `if _resume is None` guard in agent_runtime
+# .py) and previously rebuilt run_config.json from a literal dict with no
+# "oracles" key at all — silently wiping any dynamically-registered oracle
+# (register_evaluator_entrypoint(), namespace or canonical) the moment a run
+# resumes. Dynamically-registered fields must survive a second call for the
+# SAME run_dir; eval_budget/mem_cap_bytes must still refresh (the existing,
+# deliberate "raise the budget on resume" feature).
+# ---------------------------------------------------------------------------
+
+
+def test_init_canonical_store_preserves_namespace_oracles_across_calls(tmp_path):
+    from a3dasm._src.agent_runtime import (
+        _init_canonical_store,
+        register_evaluator_entrypoint,
+    )
+
+    run_dir = tmp_path / "runs" / "ts"
+    (run_dir / "debug").mkdir(parents=True, exist_ok=True)
+    study_dir = tmp_path / "my_study"
+    study_dir.mkdir()
+    (study_dir / "gen.py").write_text("def evaluate_kw(**kw): return 0.0\n")
+
+    # First call: a genuinely fresh run (execute()'s own unconditional call).
+    _init_canonical_store(run_dir, study_dir)
+
+    # Mid-run: a datagenerator delegation opens a namespaced design.
+    run_config_path = run_dir / "debug" / "run_config.json"
+    register_evaluator_entrypoint(
+        run_config_path, study_dir / "gen.py", "evaluate_kw",
+        output_names=["f"], namespace="release_scale",
+    )
+
+    # Resume: execute() calls _init_canonical_store AGAIN for the SAME
+    # run_dir, unconditionally, before any resume-specific logic runs.
+    cfg = _init_canonical_store(run_dir, study_dir)
+
+    assert "oracles" in cfg, (
+        "namespace registry was wiped by the second _init_canonical_store "
+        "call (BACKLOG #37)")
+    assert cfg["oracles"]["release_scale"]["evaluator_entrypoint"] == (
+        "gen.py:evaluate_kw")
+
+
+def test_init_canonical_store_preserves_canonical_entrypoint_across_calls(tmp_path):
+    """Same bug, the DEFAULT (namespace=None) oracle path: config.yaml often
+    declares no entrypoint at all (the "an agent authors + registers its own
+    evaluator" pattern) — a canonical registration made mid-run must also
+    survive a resume's second _init_canonical_store call."""
+    from a3dasm._src.agent_runtime import (
+        _init_canonical_store,
+        register_evaluator_entrypoint,
+    )
+
+    run_dir = tmp_path / "runs" / "ts"
+    (run_dir / "debug").mkdir(parents=True, exist_ok=True)
+    study_dir = tmp_path / "my_study"
+    study_dir.mkdir()
+    (study_dir / "gen.py").write_text("def evaluate_kw(**kw): return 0.0\n")
+
+    _init_canonical_store(run_dir, study_dir)  # evaluator_config=None
+
+    run_config_path = run_dir / "debug" / "run_config.json"
+    register_evaluator_entrypoint(
+        run_config_path, study_dir / "gen.py", "evaluate_kw",
+        output_names=["f"],
+    )
+
+    cfg = _init_canonical_store(run_dir, study_dir)  # simulates resume
+
+    assert cfg["evaluator_entrypoint"] == "gen.py:evaluate_kw", (
+        "canonical entrypoint was wiped by the second _init_canonical_store "
+        "call (BACKLOG #37)")
+    assert cfg["evaluator_output_names"] == ["f"]
+
+
+def test_init_canonical_store_still_refreshes_eval_budget_across_calls(tmp_path):
+    """Selective preservation, not a blanket freeze: eval_budget/mem_cap_bytes
+    must still pick up a NEW value on the second call — the existing,
+    deliberate "user raises the budget, resume can progress" feature must
+    keep working alongside the oracle-preservation fix."""
+    from a3dasm._src.agent_runtime import _init_canonical_store
+
+    run_dir = tmp_path / "runs" / "ts"
+    (run_dir / "debug").mkdir(parents=True, exist_ok=True)
+    study_dir = tmp_path / "my_study"
+    study_dir.mkdir()
+
+    _init_canonical_store(run_dir, study_dir, eval_budget=100)
+    cfg = _init_canonical_store(run_dir, study_dir, eval_budget=500)
+
+    assert cfg["eval_budget"] == 500
+
+
+# ---------------------------------------------------------------------------
 # config.yaml output_names write-back guardrail (keeps the human-facing config
 # in sync with the registered objective column — prevents the stale-config /
 # split-objective-column failure where an agent builds a pipeline around the
