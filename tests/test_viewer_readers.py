@@ -10,9 +10,11 @@ import pytest
 
 from a3dasm._src.viewer.readers import (
     graph_spec_json,
+    list_node_transcripts,
     load_graph_for_study,
     read_delegations,
     read_diagnostics_tail,
+    read_problem_statement,
     read_run_status,
     read_runs,
     read_transcript,
@@ -163,6 +165,62 @@ def test_read_transcript_parses_nested_strategizer_turn(tmp_path):
     )
     events = read_transcript(run_dir, "strategizer/turn_003")
     assert events == [{"ts": "t1", "type": "assistant", "text": "ok"}]
+
+
+# ---------------------------------------------------------------------------
+# read_problem_statement
+# ---------------------------------------------------------------------------
+
+def test_read_problem_statement_none_when_missing(tmp_path):
+    assert read_problem_statement(tmp_path / "run") is None
+
+
+def test_read_problem_statement_reads_snapshot_verbatim(tmp_path):
+    run_dir = tmp_path / "run"
+    (run_dir / "debug").mkdir(parents=True)
+    (run_dir / "debug" / "PROBLEM_STATEMENT_snapshot.md").write_text(
+        "# Trivial task\n\nDo the thing.\n", encoding="utf-8")
+    assert read_problem_statement(run_dir) == "# Trivial task\n\nDo the thing.\n"
+
+
+# ---------------------------------------------------------------------------
+# list_node_transcripts — real, disk-verified keys, never guessed
+# ---------------------------------------------------------------------------
+
+def test_list_node_transcripts_worker_returns_delegation_ids_to_it(tmp_path):
+    run_dir = tmp_path / "run"
+    _write_jsonl(run_dir / "debug" / "delegation_log.jsonl", [
+        {"id": "D001", "status": "DONE", "from_node": "strategizer",
+         "to_node": "implementer"},
+        {"id": "D002", "status": "DONE", "from_node": "strategizer",
+         "to_node": "critic"},
+    ])
+    assert list_node_transcripts(run_dir, "implementer") == ["D001"]
+    assert list_node_transcripts(run_dir, "critic") == ["D002"]
+    assert list_node_transcripts(run_dir, "nonexistent_node") == []
+
+
+def test_list_node_transcripts_entry_lists_real_turn_files_only(tmp_path):
+    """The entry node's keys are never a guessed count — only turn files
+    that genuinely exist on disk, sorted."""
+    run_dir = tmp_path / "run"
+    st_dir = run_dir / "debug" / "transcripts" / "strategizer"
+    st_dir.mkdir(parents=True)
+    (st_dir / "turn_001.jsonl").write_text("")
+    (st_dir / "turn_002.jsonl").write_text("")
+    # A worker delegation exists too -- must NOT leak into the entry
+    # node's own key list (it's a different node's transcript).
+    _write_jsonl(run_dir / "debug" / "delegation_log.jsonl", [
+        {"id": "D001", "status": "DONE", "from_node": "strategizer",
+         "to_node": "implementer"},
+    ])
+
+    keys = list_node_transcripts(run_dir, "strategizer", is_entry=True)
+    assert keys == ["strategizer/turn_001", "strategizer/turn_002"]
+
+
+def test_list_node_transcripts_entry_empty_when_no_turn_files(tmp_path):
+    assert list_node_transcripts(tmp_path / "run", "strategizer", is_entry=True) == []
 
 
 # ---------------------------------------------------------------------------

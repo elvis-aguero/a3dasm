@@ -115,6 +115,26 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             return _not_found(f"no such run {run_id!r}")
         return JSONResponse(readers.read_delegations(run_dir))
 
+    async def get_problem_statement(request):
+        run_id = request.path_params["run_id"]
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
+            return _not_found(f"no such run {run_id!r}")
+        text = readers.read_problem_statement(run_dir)
+        if text is None:
+            return _not_found("PROBLEM_STATEMENT_snapshot.md not found for this run")
+        return JSONResponse({"text": text})
+
+    async def get_node_transcripts(request):
+        run_id = request.path_params["run_id"]
+        name = request.path_params["name"]
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
+            return _not_found(f"no such run {run_id!r}")
+        is_entry = graph is not None and name == graph.entry
+        return JSONResponse(
+            readers.list_node_transcripts(run_dir, name, is_entry=is_entry))
+
     async def get_transcript(request):
         run_id = request.path_params["run_id"]
         key = request.path_params["key"]
@@ -140,9 +160,37 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         if events is None:
             return HTMLResponse(
                 "<p class='empty'>Transcripts not recorded for this run "
-                "(debug flag was off).</p>")
+                "(debug flag was off).</p>", status_code=404)
+        if not events:
+            # The FULL list (before slicing by `after`) being empty means
+            # this key has no transcript at all — e.g. a Done()-gate-check
+            # delegation_log entry (confirmed for real: "GATE190739",
+            # status GATE:PASS, has no transcripts/GATE190739.jsonl at all,
+            # since the gate check is recorded as a bookkeeping row, not a
+            # real sub-delegation with its own captured conversation) — NOT
+            # "an open, still-running transcript with nothing new since the
+            # last poll" (there, `events` itself is non-empty; only the
+            # `events[after:]` SLICE is). Without this check the endpoint
+            # silently returned 200 with an empty body for a key that will
+            # NEVER have content, and the panel just went blank with no
+            # explanation at all.
+            return HTMLResponse(
+                f"<p class='empty'>No transcript recorded for {key!r} — "
+                "likely a bookkeeping record (e.g. a gate-check verdict) "
+                "rather than a captured conversation.</p>",
+                status_code=404)
         html = "".join(_bubble_html(e) for e in events[after:])
-        return HTMLResponse(html)
+        # `after`/the response cursor MUST count raw events, not rendered
+        # bubbles — most events (stream_evt/partial/result) render to no
+        # bubble at all (confirmed for real: a genuine transcript had 527
+        # raw events, only 47 of them assistant/tool_result). A cursor
+        # counting bubbles instead falls behind the raw list on every call,
+        # so events already shown keep re-matching `events[after:]` and get
+        # duplicated on every poll, without the underlying file ever
+        # changing. X-Event-Count is the actual raw count consumed this
+        # call — the client's next `after` value, not a bubble count.
+        return HTMLResponse(
+            html, headers={"X-Event-Count": str(len(events))})
 
     async def stream(request):
         run_id = request.path_params["run_id"]
@@ -205,6 +253,8 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         Route("/api/runs", list_runs),
         Route("/api/runs/{run_id}/graph", get_graph),
         Route("/api/runs/{run_id}/delegations", get_delegations),
+        Route("/api/runs/{run_id}/problem_statement", get_problem_statement),
+        Route("/api/runs/{run_id}/node/{name}/transcripts", get_node_transcripts),
         Route(
             "/api/runs/{run_id}/transcript/{key:path}/fragment",
             get_transcript_fragment,

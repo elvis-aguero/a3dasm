@@ -1,0 +1,11 @@
+model: claude-haiku-4-5-20251001
+backend: claude
+# No evaluator: this study has no data-driven pipeline at all (see
+# PROBLEM_STATEMENT.md) -- graph is a custom 3-node one (run.py), not the
+# stock 5-node default.
+runtime:
+  pipeline_deliverable: false
+  # ON, deliberately: this run exists to be WATCHED live in the viewer, and
+  # the transcript panel has nothing to show without it (debug/transcripts/
+  # never gets created otherwise).
+  debug: true

@@ -26,6 +26,8 @@ __all__ = [
     "read_diagnostics_tail",
     "read_run_status",
     "read_transcript",
+    "read_problem_statement",
+    "list_node_transcripts",
     "graph_spec_json",
     "load_graph_for_study",
     "tail_jsonl",
@@ -133,6 +135,48 @@ def read_transcript(run_dir: Path | str, key: str) -> list[dict[str, Any]] | Non
         except json.JSONDecodeError:
             continue
     return out
+
+
+def read_problem_statement(run_dir: Path | str) -> str | None:
+    """The exact PROBLEM_STATEMENT.md this run answered — the verbatim
+    snapshot (``debug/PROBLEM_STATEMENT_snapshot.md``), never the live
+    study_dir file, which may have since been edited for a later run.
+    ``None`` if the snapshot doesn't exist (a run from before this file
+    was introduced, or one that crashed before writing it)."""
+    path = Path(run_dir) / "debug" / "PROBLEM_STATEMENT_snapshot.md"
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def list_node_transcripts(
+    run_dir: Path | str, node_name: str, is_entry: bool = False,
+) -> list[str]:
+    """Real, disk-verified transcript keys available for one node —
+    NEVER computed/guessed from a formula (a prior version of this viewer
+    guessed the entry node's turn number as
+    ``f"strategizer/turn_{len(delegations_touching_it):03d}"``, which has
+    no real relationship to actual turn-file numbering and would 404 or
+    open the wrong turn silently — found and removed, not left as a
+    latent bug).
+
+    A worker node's keys are the ``id`` of every delegation where
+    ``to_node == node_name`` (each maps 1:1 to a real
+    ``transcripts/{id}.jsonl`` file). The entry node has no delegations
+    TO it in a typical graph, so its keys are instead every real
+    ``transcripts/strategizer/turn_*.jsonl`` file that actually exists,
+    sorted — never a guessed count.
+    """
+    if is_entry:
+        st_dir = Path(run_dir) / "debug" / "transcripts" / "strategizer"
+        if not st_dir.is_dir():
+            return []
+        return sorted(
+            f"strategizer/{p.stem}" for p in st_dir.glob("turn_*.jsonl"))
+    return [
+        d["id"] for d in read_delegations(run_dir)
+        if d.get("to_node") == node_name
+    ]
 
 
 def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:

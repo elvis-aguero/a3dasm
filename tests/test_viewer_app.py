@@ -175,6 +175,72 @@ def test_get_delegations_404_for_missing_run(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# /api/runs/{id}/problem_statement
+# ---------------------------------------------------------------------------
+
+def test_get_problem_statement_returns_snapshot_text(tmp_path):
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    (run_dir / "debug" / "PROBLEM_STATEMENT_snapshot.md").write_text(
+        "# Do the thing\n", encoding="utf-8")
+    client = TestClient(create_app(study))
+    resp = client.get("/api/runs/20260904T120000/problem_statement")
+    assert resp.status_code == 200
+    assert resp.json() == {"text": "# Do the thing\n"}
+
+
+def test_get_problem_statement_404_when_snapshot_missing(tmp_path):
+    study = _make_study(tmp_path)
+    _make_run(study, "20260904T120000")
+    client = TestClient(create_app(study))
+    resp = client.get("/api/runs/20260904T120000/problem_statement")
+    assert resp.status_code == 404
+
+
+def test_get_problem_statement_404_for_missing_run(tmp_path):
+    study = _make_study(tmp_path)
+    client = TestClient(create_app(study))
+    resp = client.get("/api/runs/nonexistent/problem_statement")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# /api/runs/{id}/node/{name}/transcripts — real, disk-verified keys
+# ---------------------------------------------------------------------------
+
+def test_get_node_transcripts_worker(tmp_path):
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    _write_jsonl(run_dir / "debug" / "delegation_log.jsonl", [
+        {"id": "D001", "status": "DONE", "from_node": "strategizer",
+         "to_node": "critic"},
+    ])
+    client = TestClient(create_app(study))
+    resp = client.get("/api/runs/20260904T120000/node/critic/transcripts")
+    assert resp.status_code == 200
+    assert resp.json() == ["D001"]
+
+
+def test_get_node_transcripts_entry_lists_real_turn_files(tmp_path):
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    st_dir = run_dir / "debug" / "transcripts" / "strategizer"
+    st_dir.mkdir(parents=True)
+    (st_dir / "turn_001.jsonl").write_text("")
+    client = TestClient(create_app(study))
+    resp = client.get("/api/runs/20260904T120000/node/strategizer/transcripts")
+    assert resp.status_code == 200
+    assert resp.json() == ["strategizer/turn_001"]
+
+
+def test_get_node_transcripts_404_for_missing_run(tmp_path):
+    study = _make_study(tmp_path)
+    client = TestClient(create_app(study))
+    resp = client.get("/api/runs/nonexistent/node/critic/transcripts")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # /api/runs/{id}/transcript/{key} — both 404 flavors
 # ---------------------------------------------------------------------------
 
@@ -237,14 +303,67 @@ def test_transcript_fragment_returns_only_events_after_index(tmp_path):
     assert "third" in resp.text
 
 
-def test_transcript_fragment_empty_html_when_debug_off(tmp_path):
+def test_transcript_fragment_event_count_header_counts_raw_events_not_bubbles(
+    tmp_path,
+):
+    """The client's next `after` cursor must count RAW events consumed,
+    not rendered bubbles — most real events (stream_evt/partial/result)
+    render to no bubble at all. A cursor counting bubbles falls behind the
+    raw list and re-matches already-shown events on every subsequent poll,
+    duplicating content forever even once the underlying file has stopped
+    growing (confirmed for real: a genuine transcript had 527 raw events,
+    only 47 rendered as bubbles — polling with a bubble-counted cursor grew
+    the panel from 22KB to 74KB over three 2s polls on an already-finished
+    run). X-Event-Count must reflect ALL events consumed, bubble or not."""
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    _write_jsonl(run_dir / "debug" / "transcripts" / "D007.jsonl", [
+        {"ts": "t1", "type": "assistant", "text": "hello"},  # 1 bubble
+        {"ts": "t2", "type": "stream_evt", "evt": "ping"},   # 0 bubbles
+        {"ts": "t3", "type": "partial", "text": "..."},      # 0 bubbles
+        {"ts": "t4", "type": "result", "usage": {}},         # 0 bubbles
+    ])
+    client = TestClient(create_app(study))
+    resp = client.get(
+        "/api/runs/20260904T120000/transcript/D007/fragment?after=0")
+    assert resp.status_code == 200
+    assert resp.headers["X-Event-Count"] == "4"  # not "1" (the bubble count)
+
+    # A second poll using that cursor must return NOTHING new — the file
+    # hasn't grown, so a correct cursor is already past every event.
+    resp2 = client.get(
+        "/api/runs/20260904T120000/transcript/D007/fragment?after=4")
+    assert resp2.text == ""
+
+
+def test_transcript_fragment_404_when_debug_off(tmp_path):
+    """404 (not 200): the frontend's error path relies on !ok to stop
+    polling and show the message — a 200 with an "empty-looking" body was
+    indistinguishable from a legitimate empty poll, so the panel silently
+    stayed blank with no explanation and kept polling forever."""
     study = _make_study(tmp_path)
     _make_run(study, "20260904T120000")
     client = TestClient(create_app(study))
     resp = client.get(
         "/api/runs/20260904T120000/transcript/D007/fragment?after=0")
-    assert resp.status_code == 200
+    assert resp.status_code == 404
     assert "debug flag" in resp.text
+
+
+def test_transcript_fragment_404_for_key_with_no_transcript_file(tmp_path):
+    """A real delegation id with no captured conversation at all (e.g. a
+    Done()-gate-check bookkeeping record like "GATE190739", confirmed for
+    real to have a delegation_log.jsonl row but no transcripts/*.jsonl file)
+    must 404 with an honest explanation, not silently return 200 with an
+    empty body — the panel otherwise goes blank with zero explanation."""
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    (run_dir / "debug" / "transcripts").mkdir(parents=True)  # debug ON
+    client = TestClient(create_app(study))
+    resp = client.get(
+        "/api/runs/20260904T120000/transcript/GATE190739/fragment?after=0")
+    assert resp.status_code == 404
+    assert "No transcript recorded" in resp.text
 
 
 # ---------------------------------------------------------------------------
