@@ -86,6 +86,44 @@ def test_corpus_closures_produce_typed_json_schema_for_every_param(tmp_path):
             )
 
 
+def test_async_wrapped_discovery_tools_produce_typed_json_schema(tmp_path):
+    """The `asyncable()` wrapper (adds a `wait=` kwarg to every external
+    discovery tool -- search_semantic_scholar, search_openalex,
+    arxiv_search_papers, etc.) sets `wrapper.__signature__` by hand but never
+    set `wrapper.__annotations__` to match. `inspect.signature()` (which
+    StructuredTool.from_function's underlying pydantic schema builder uses
+    for parameter NAMES) follows the hand-set `__signature__`, but
+    `typing.get_type_hints()` (used for parameter TYPES) reads
+    `__annotations__` directly and ignores `__signature__` entirely -- so
+    every wrapped tool's real params were invisible to get_type_hints, and
+    pydantic's `type_hints[name]` lookup raised a bare KeyError for the
+    first param name on EVERY async-wrapped tool. This aborted the entire
+    OpenAI-compatible (Ollama/vLLM) tool-build loop before any tool
+    (including CorpusSearch/CorpusAdd, BACKLOG #32) could be reached at
+    all -- confirmed for real via a literature_reviewer delegation on a
+    local Ollama model."""
+    from langchain_core.tools import StructuredTool
+
+    agent = _make_agent()
+    tools = agent.build_closure_tools(
+        study_dir=tmp_path, lit_reviewer_notes_dir=tmp_path / "lit",
+    )
+    async_wrapped = (
+        "search_semantic_scholar", "get_semantic_scholar_paper_details",
+        "search_openalex", "get_openalex_citations", "get_openalex_references",
+        "get_semantic_scholar_recommendations", "DownloadPdf",
+        "arxiv_search_papers", "arxiv_download_paper", "arxiv_read_paper",
+    )
+    for name in async_wrapped:
+        assert name in tools, f"expected {name!r} among literature closures"
+        tool = StructuredTool.from_function(tools[name], name=name)
+        for param_name, schema in tool.args.items():
+            assert "type" in schema, (
+                f"{name}'s parameter {param_name!r} has no 'type' key in "
+                f"its generated JSON schema ({schema})."
+            )
+
+
 def test_corpus_add_closure_works(tmp_path):
     """CorpusAdd closure adds a .md file to the corpus."""
     agent = _make_agent()

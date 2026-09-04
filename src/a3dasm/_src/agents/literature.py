@@ -361,6 +361,15 @@ def _make_search_async_pool():
         try:
             wrapper.__signature__ = base_sig.replace(
                 parameters=list(base_sig.parameters.values()) + [wait_p])
+            # inspect.signature() (parameter NAMES, via __signature__ above)
+            # and typing.get_type_hints() (parameter TYPES, via
+            # __annotations__ below) are two independent lookups -- pydantic's
+            # schema builder uses both and KeyErrors if only one is set.
+            wrapper.__annotations__ = {
+                p.name: p.annotation for p in base_sig.parameters.values()
+                if p.annotation is not inspect.Parameter.empty
+            }
+            wrapper.__annotations__["wait"] = bool
         except (ValueError, TypeError):
             pass
         return wrapper

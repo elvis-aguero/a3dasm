@@ -1,0 +1,7 @@
+model: claude-haiku-4-5-20251001
+backend: claude
+# No evaluator: this study has no data-driven pipeline at all (see
+# PROBLEM_STATEMENT.md) -- graph is a custom 2-node one (run.py), not the
+# stock 5-node default.
+runtime:
+  pipeline_deliverable: false
