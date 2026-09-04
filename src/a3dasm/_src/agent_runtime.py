@@ -42,6 +42,19 @@ __all__ = [
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:1.5b"
+
+# Text the Claude Code CLI backend returns as an ORDINARY assistant message
+# (not a raised exception) when an org-level billing cap stops it mid-run —
+# confirmed for real: a run's strategizer turn ended with this exact text as
+# its final reply, made no further tool calls, and the run closed UNGATED
+# indistinguishable from the strategizer simply deciding it was done. This
+# is a distinct, externally-caused stop condition (not a science/critic
+# failure and not a bug in the agent's reasoning) that deserves its own
+# stop_reason and explicit resume guidance rather than being silently
+# folded into an ordinary UNGATED close (BACKLOG #34).
+_EXTERNAL_STOP_SIGNATURES = {
+    "org_spend_limit": "org's monthly spend limit",
+}
 # Default per-campaign-process hard memory cap (bytes) — the one HARD resource
 # boundary. 4 GiB: comfortably above a healthy GP-BO campaign, below the runaway
 # GP-on-5302-points blowup that pegged the host. See resolve_mem_cap_bytes for
@@ -987,6 +1000,21 @@ class AgenticRun:
             _gate_outcome = "UNGATED"
         else:
             _gate_outcome = "GATED"
+        _stop_reason = next(
+            (name for name, sig in _EXTERNAL_STOP_SIGNATURES.items()
+             if sig in report),
+            None,
+        )
+        if _stop_reason is not None:
+            log.warning(
+                "Run stopped by an external cause (%s), not a normal close "
+                "— resume it once the cause clears:\n"
+                "    from a3dasm import AgenticRun\n"
+                "    AgenticRun(study_dir=%r, graph=build_graph(),\n"
+                "               interactive=False,\n"
+                "               resume_from=%r).execute()",
+                _stop_reason, str(self.study_dir), str(run_dir),
+            )
         # Authoritative eval count = provenance-stamped rows in the canonical
         # ledger, NOT the run-state counter. evals_used is summed from a
         # registry that clears Done entries on loop-back, so it under-reports
@@ -1087,7 +1115,7 @@ class AgenticRun:
         self._write_run_status(
             debug_dir, status=_gate_outcome, model=self._model,
             evals_used=evals, timestamp=now_ts, run=str(run_dir),
-            thread_id=thread_id,
+            thread_id=thread_id, stop_reason=_stop_reason,
         )
 
         # Append a KPI row to the longitudinal ledger automatically (best
