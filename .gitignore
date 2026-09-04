@@ -49,9 +49,9 @@ dist/
 *.sqlite
 *.sqlite3
 .context/
-AGENTS.md
-GEMINI.md
-STATUS.md
-PLAN.md
-*_SUMMARY.md
-HANDOFF*.md
+/AGENTS.md
+/GEMINI.md
+/STATUS.md
+/PLAN.md
+/*_SUMMARY.md
+/HANDOFF*.md
