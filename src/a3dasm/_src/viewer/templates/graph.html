@@ -173,7 +173,10 @@
     }
   </style>
 </head>
-<body x-data="viewerApp()" x-init="init()" class="h-screen overflow-hidden flex flex-col">
+<!-- No x-init="init()": Alpine already calls a data object's init()
+     method automatically, so declaring both ran it TWICE — two
+     EventSource connections and two full replays of the stream. -->
+<body x-data="viewerApp()" class="h-screen overflow-hidden flex flex-col">
 
   <header class="px-4 py-2 border-b border-[#1c2027] text-sm flex items-center gap-3 shrink-0">
     <span class="font-semibold">a3dasm</span>
