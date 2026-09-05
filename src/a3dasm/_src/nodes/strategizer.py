@@ -276,6 +276,18 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         except Exception:  # noqa: BLE001
             return False
 
+    @property
+    def _current_run_dir(self):
+        """This run's root, derived from the notes dir the graph state sets.
+
+        ``run_dir`` arrives on the state, not on the node, and only
+        ``_current_notes_dir`` (``<run>/debug/strategizer_notes``) is kept
+        from it — so the run root is that path's grandparent. ``None``
+        before the first invoke, which callers must tolerate.
+        """
+        notes = self._current_notes_dir
+        return None if notes is None else notes.parent.parent
+
     def _drain_notifications(self) -> str:
         """Return and clear any pending push notifications, or empty
         string."""
@@ -293,6 +305,26 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
             _confer = self._confer_inbox.pop(self._name, [])
         if _confer:
             text = "\n\n".join(_confer) + "\n\n" + text
+        # Operator notes: messages a human queued in the viewer while the run
+        # was working. Delivered here, on the same path as Confer, so a note
+        # reaches the agent at its next tool call rather than interrupting a
+        # turn in progress. Marked as coming from the operator because the
+        # agent should weigh it differently from another agent's message —
+        # it is the one voice in the run that is not itself an agent.
+        run_dir = self._current_run_dir
+        if run_dir is not None:
+            from ..operator_channel import drain_notes
+            notes = drain_notes(run_dir)
+            if notes:
+                text = (
+                    "\n\n".join(
+                        f"[OPERATOR NOTE — from the human running this study. "
+                        f"Weigh it as a briefing correction, not as another "
+                        f"agent's opinion: {n}]"
+                        for n in notes
+                    )
+                    + "\n\n" + text
+                )
         if self._science_monitor is not None:
             offenders = self._science_monitor.escalation_due()
             _critic_name = self._find_critic_name()

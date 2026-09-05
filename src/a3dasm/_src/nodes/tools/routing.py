@@ -2389,29 +2389,107 @@ def build_routing_tools(node) -> dict:
                 "Proceed autonomously with the information you have."
             )
         node._ask_count += 1
-        # Prompt the human ONLY when interactive AND stdin is a real terminal.
-        # A headless/background run (no TTY) must never block on input() — that
-        # raises EOFError. In that case, and whenever the operator gives no
-        # answer, notify the agent that no operator is present and let it
-        # proceed autonomously.
+        # Two ways to reach a human, and the run takes whichever answers
+        # first: a terminal (as before) and the viewer, which answers by
+        # writing into the run's own debug/followups/ directory. The viewer
+        # is a separate process and may not exist, so the channel is on
+        # disk rather than in memory.
+        import select as _select
         import sys as _sys
-        _can_prompt = (
+
+        from ...operator_channel import (
+            answer_question as _answer_q,
+        )
+        from ...operator_channel import (
+            ask_question,
+            close_question,
+            is_watched,
+        )
+        from ...operator_channel import (
+            read_answer as _read_answer,
+        )
+
+        _tty = (
             interactive
             and getattr(_sys.stdin, "isatty", lambda: False)()
         )
-        if _can_prompt:
-            print(f"\n[Node {node._name}] {question}\nAnswer: ", end="", flush=True)
-            try:
-                answer = input()
-            except (EOFError, KeyboardInterrupt):
-                answer = ""
-            if answer.strip():
-                return answer
-        return (
+        _run_dir = node._current_run_dir
+        _unattended = (
             "No operator is present to answer. Proceed autonomously "
             "using only information available in the task message "
             "and files in the study directory."
         )
+        if _run_dir is None:
+            # Nowhere to publish the question, so nowhere an answer could
+            # come from except a terminal.
+            if _tty:
+                print(f"\n[Node {node._name}] {question}\nAnswer: ",
+                      end="", flush=True)
+                try:
+                    typed = input()
+                except (EOFError, KeyboardInterrupt):
+                    typed = ""
+                if typed.strip():
+                    return typed
+            return _unattended
+
+        qid = ask_question(_run_dir, node._name, question)
+
+        # Waiting is only reasonable when somebody could actually answer.
+        # With no terminal and nobody watching in the viewer, a wait is not
+        # patience, it is a stall that spends the run's wall budget on a
+        # question no one will ever see — so that case returns immediately,
+        # exactly as it did before this channel existed.
+        if not (_tty or is_watched(_run_dir)):
+            close_question(_run_dir, qid, "unattended")
+            return _unattended
+
+        from ...settings import get_int as _get_int
+        _deadline = time.monotonic() + _get_int("followup_wait_s", 600)
+        if _tty:
+            print(f"\n[Node {node._name}] {question}\nAnswer: ",
+                  end="", flush=True)
+
+        while time.monotonic() < _deadline:
+            # The viewer's answer and a typed one are polled together;
+            # blocking on input() would make a terminal-attached run deaf to
+            # the viewer, which is the case the operator is most likely to
+            # be using.
+            typed_ready = False
+            if _tty:
+                try:
+                    typed_ready = bool(
+                        _select.select([_sys.stdin], [], [], 0.5)[0])
+                except (OSError, ValueError):
+                    typed_ready = False
+            else:
+                time.sleep(0.5)
+
+            if typed_ready:
+                try:
+                    typed = _sys.stdin.readline()
+                except (EOFError, KeyboardInterrupt):
+                    typed = ""
+                if typed.strip():
+                    # Recorded so the run's own history shows what was
+                    # answered, regardless of which channel it arrived on.
+                    _answer_q(_run_dir, qid, typed.strip())
+                    return typed.strip()
+
+            from_viewer = _read_answer(_run_dir, qid)
+            if from_viewer:
+                if _tty:
+                    print(f"[answered in the viewer: {from_viewer}]", flush=True)
+                return from_viewer
+
+            # A watcher that goes away mid-wait ends the wait: the reason
+            # for waiting was that someone was there.
+            if not _tty and not is_watched(_run_dir):
+                close_question(_run_dir, qid, "unattended")
+                return _unattended
+
+        close_question(_run_dir, qid, "timeout")
+        return _unattended
 
     def WriteNote(path: str, body: str) -> str:
         """Write a Markdown (.md) note to strategizer_notes/ — free-form
