@@ -24,6 +24,8 @@ __all__ = [
     "read_runs",
     "read_delegations",
     "read_diagnostics_tail",
+    "read_hypotheses",
+    "read_milestones",
     "read_run_status",
     "read_transcript",
     "read_problem_statement",
@@ -269,6 +271,90 @@ def read_diagnostics_tail(run_dir: Path | str) -> list[dict[str, Any]]:
             out.append(json.loads(line))
         except json.JSONDecodeError:
             continue
+    return out
+
+
+# The epistemic ledger lives under a FIXED directory name, not one derived
+# from the entry node (``agent_runtime`` writes
+# ``debug/strategizer_notes`` literally, even for a graph whose entry node
+# is called something else).
+_NOTES_DIR = "strategizer_notes"
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    """A JSON object from *path*, or ``{}`` for any absence or damage.
+
+    Both ledgers are written repeatedly during a live run, so a read can
+    genuinely catch a half-written file — that must degrade to "nothing yet"
+    like every other missing input here, never to a 500.
+    """
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def read_hypotheses(run_dir: Path | str) -> list[dict[str, Any]]:
+    """Hypotheses with their CURRENT status already resolved.
+
+    ``hypotheses.json`` stores an append-only ``status_log`` per hypothesis
+    rather than a status field, so the live status is the last entry's. That
+    is resolved here rather than in the client: it is ledger semantics, and
+    two callers re-deriving "the last one wins" is how the two of them
+    eventually disagree.
+
+    ``opened_at`` comes from the FIRST log entry and ``updated_at`` from the
+    last, so a hypothesis that was proposed and then closed reports both.
+    """
+    path = Path(run_dir) / "debug" / _NOTES_DIR / "hypotheses.json"
+    out = []
+    for hid, h in sorted(_read_json_object(path).items()):
+        if not isinstance(h, dict):
+            continue
+        log = [e for e in h.get("status_log") or [] if isinstance(e, dict)]
+        latest = log[-1] if log else {}
+        out.append({
+            "id": h.get("id", hid),
+            "statement": h.get("statement", ""),
+            "prediction": h.get("prediction", ""),
+            "falsification_criterion": h.get("falsification_criterion", ""),
+            "proposed_by": h.get("proposed_by", ""),
+            "status": latest.get("status", "OPEN"),
+            "comment": latest.get("comment", ""),
+            "evidence": latest.get("evidence"),
+            "posterior": latest.get("posterior", h.get("prior")),
+            "validator_note": latest.get("validator_note"),
+            "triggered_by": latest.get("triggered_by"),
+            "opened_at": (log[0].get("ts") if log else h.get("proposed_at")),
+            "updated_at": latest.get("ts"),
+            "history": len(log),
+        })
+    return out
+
+
+def read_milestones(run_dir: Path | str) -> list[dict[str, Any]]:
+    """Milestones in id order, each with the note justifying its status.
+
+    The note matters as much as the status: a SKIPPED milestone with a
+    reason is a judgment the run made and defended, which reads very
+    differently from one that was simply never reached.
+    """
+    path = Path(run_dir) / "debug" / _NOTES_DIR / "milestones.json"
+    out = []
+    for mid, m in sorted(_read_json_object(path).items()):
+        if not isinstance(m, dict):
+            continue
+        out.append({
+            "id": m.get("id", mid),
+            "key": m.get("key", ""),
+            "description": m.get("description", ""),
+            "status": m.get("status", "OPEN"),
+            "note": m.get("note") or "",
+            "manual": bool(m.get("manual")),
+        })
     return out
 
 

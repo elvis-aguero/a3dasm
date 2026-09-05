@@ -14,6 +14,8 @@ from a3dasm._src.viewer.readers import (
     load_graph_for_study,
     read_delegations,
     read_diagnostics_tail,
+    read_hypotheses,
+    read_milestones,
     read_problem_statement,
     read_run_status,
     read_runs,
@@ -565,4 +567,92 @@ def test_tail_jsonl_backs_up_to_last_complete_line_when_already_mid_line(tmp_pat
     threading.Thread(target=_complete_the_line, daemon=True).start()
     row = _next_with_timeout(gen, timeout=10.0)
     assert row == {"partial": True}  # not {"a": 1} — that one was already complete
+
+
+# ---------------------------------------------------------------------------
+# hypotheses / milestones — the epistemic ledger
+# ---------------------------------------------------------------------------
+
+def _notes(run_dir: Path) -> Path:
+    d = run_dir / "debug" / "strategizer_notes"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def test_read_hypotheses_resolves_status_from_the_last_log_entry(tmp_path):
+    """hypotheses.json has no status field — the live status is the last
+    status_log entry's, and resolving that is ledger semantics that belongs
+    in one place rather than being re-derived by every caller."""
+    run = tmp_path / "runs" / "r1"
+    (_notes(run) / "hypotheses.json").write_text(json.dumps({
+        "H1": {
+            "id": "H1",
+            "statement": "s",
+            "prediction": "p",
+            "prior": 0.4,
+            "proposed_at": "2026-09-04T19:00:00+00:00",
+            "status_log": [
+                {"status": "OPEN", "ts": "2026-09-04T19:00:00+00:00",
+                 "posterior": 0.4},
+                {"status": "REFUTED", "ts": "2026-09-04T19:30:00+00:00",
+                 "posterior": 0.02, "triggered_by": "D004",
+                 "evidence": {"delegation": "D004"}},
+            ],
+        }
+    }), encoding="utf-8")
+
+    (h,) = read_hypotheses(run)
+    assert h["status"] == "REFUTED"
+    assert h["posterior"] == 0.02
+    assert h["triggered_by"] == "D004"
+    # Both ends of the log are reported, not just the latest.
+    assert h["opened_at"] == "2026-09-04T19:00:00+00:00"
+    assert h["updated_at"] == "2026-09-04T19:30:00+00:00"
+    assert h["history"] == 2
+
+
+def test_read_hypotheses_handles_an_empty_status_log(tmp_path):
+    """A hypothesis registered but never updated still has a status."""
+    run = tmp_path / "runs" / "r1"
+    (_notes(run) / "hypotheses.json").write_text(
+        json.dumps({"H1": {"statement": "s", "status_log": []}}),
+        encoding="utf-8")
+
+    (h,) = read_hypotheses(run)
+    assert h["id"] == "H1"          # falls back to the dict key
+    assert h["status"] == "OPEN"
+
+
+def test_read_milestones_keeps_the_note_that_justifies_the_status(tmp_path):
+    """A SKIPPED milestone with a defended reason is a judgment the run
+    made; without the note it is indistinguishable from one never reached."""
+    run = tmp_path / "runs" / "r1"
+    (_notes(run) / "milestones.json").write_text(json.dumps({
+        "M002": {"id": "M002", "key": "oracle_gold_state",
+                 "status": "SKIPPED", "note": "no oracle in this run"},
+        "M001": {"id": "M001", "key": "assess_literature_need",
+                 "status": "DONE", "note": ""},
+    }), encoding="utf-8")
+
+    ms = read_milestones(run)
+    assert [m["id"] for m in ms] == ["M001", "M002"]   # id order, not file order
+    assert ms[1]["note"] == "no oracle in this run"
+
+
+def test_ledger_readers_degrade_when_the_run_has_no_notes_dir(tmp_path):
+    """The debug flag may have been off, or the run may not have got that
+    far — both must read as "nothing yet", never as an error."""
+    run = tmp_path / "runs" / "r1"
+    (run / "debug").mkdir(parents=True)
+    assert read_hypotheses(run) == []
+    assert read_milestones(run) == []
+
+
+def test_ledger_readers_survive_a_half_written_file(tmp_path):
+    """Both ledgers are rewritten whole during a live run, so a poll can
+    genuinely catch a partial write."""
+    run = tmp_path / "runs" / "r1"
+    (_notes(run) / "hypotheses.json").write_text('{"H1": {"stat',
+                                                 encoding="utf-8")
+    assert read_hypotheses(run) == []
 

@@ -195,6 +195,23 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             return _not_found(f"no such run {run_id!r}")
         return JSONResponse(readers.read_delegations(run_dir))
 
+    async def get_ledger(request):
+        """The run's epistemic state: hypotheses and milestones.
+
+        Polled rather than streamed. Both are whole-file rewrites, not
+        append-only logs, so there is nothing for the JSONL tailer behind
+        /stream to tail — and a ledger changes at most a handful of times
+        per run, which does not warrant a second live channel.
+        """
+        run_id = request.path_params["run_id"]
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
+            return _not_found(f"no such run {run_id!r}")
+        return JSONResponse({
+            "hypotheses": readers.read_hypotheses(run_dir),
+            "milestones": readers.read_milestones(run_dir),
+        })
+
     async def get_problem_statement(request):
         run_id = request.path_params["run_id"]
         run_dir = _run_dir(study_dir, run_id)
@@ -349,12 +366,14 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         if _run_dir(study_dir, run_id) is None:
             return _not_found(f"no such run {run_id!r}")
         return templates.TemplateResponse(
-            request, "graph.html", {"run_id": run_id})
+            request, "graph.html",
+            {"run_id": run_id})
 
     routes = [
         Route("/api/runs", list_runs),
         Route("/api/runs/{run_id}/graph", get_graph),
         Route("/api/runs/{run_id}/delegations", get_delegations),
+        Route("/api/runs/{run_id}/ledger", get_ledger),
         Route("/api/runs/{run_id}/problem_statement", get_problem_statement),
         Route("/api/runs/{run_id}/node/{name}/transcripts", get_node_transcripts),
         Route(

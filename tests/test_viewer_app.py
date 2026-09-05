@@ -427,6 +427,43 @@ def test_graph_page_renders(tmp_path):
     assert "20260904T120000" in resp.text
 
 
+def test_ledger_endpoint_returns_hypotheses_and_milestones(tmp_path):
+    study = _make_study(tmp_path)
+    run = _make_run(study, "20260904T120000")
+    notes = run / "debug" / "strategizer_notes"
+    notes.mkdir(parents=True)
+    (notes / "hypotheses.json").write_text(json.dumps({
+        "H1": {"statement": "s", "status_log": [
+            {"status": "SUPPORTED", "ts": "t2"}]},
+    }))
+    (notes / "milestones.json").write_text(json.dumps({
+        "M001": {"key": "k", "status": "SKIPPED", "note": "why"},
+    }))
+
+    client = TestClient(create_app(study))
+    body = client.get("/api/runs/20260904T120000/ledger").json()
+    assert [h["status"] for h in body["hypotheses"]] == ["SUPPORTED"]
+    assert [m["note"] for m in body["milestones"]] == ["why"]
+
+
+def test_ledger_endpoint_empty_for_a_run_with_no_notes(tmp_path):
+    """A run with the debug flag off, or one that crashed early, answers
+    with empty lists rather than a 404 or a 500 — the client's "nothing
+    yet" path is the same path as "nothing on disk"."""
+    study = _make_study(tmp_path)
+    _make_run(study, "20260904T120000")
+    client = TestClient(create_app(study))
+    resp = client.get("/api/runs/20260904T120000/ledger")
+    assert resp.status_code == 200
+    assert resp.json() == {"hypotheses": [], "milestones": []}
+
+
+def test_ledger_endpoint_404_for_missing_run(tmp_path):
+    study = _make_study(tmp_path)
+    client = TestClient(create_app(study))
+    assert client.get("/api/runs/nope/ledger").status_code == 404
+
+
 def test_graph_page_404_for_missing_run(tmp_path):
     study = _make_study(tmp_path)
     client = TestClient(create_app(study))
