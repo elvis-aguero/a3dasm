@@ -1,10 +1,14 @@
 """Custom-graph runner for the MathExpert validation study.
 
-No DataGenerator/Implementer/critic -- see PROBLEM_STATEMENT.md. Graph:
+No DataGenerator/Implementer -- see PROBLEM_STATEMENT.md. Graph:
     strategizer (entry) -> literature_reviewer
                          -> math_expert
+                         -> critic
     math_expert          -> literature_reviewer   (its one outgoing edge,
                                                     grants Delegate/Wait/Reply)
+
+The critic is present so Done() faces a real acceptance gate. Without it
+the run 20260905T162233 closed GATED having produced nothing at all.
 
 Single-variable test of a local-model serving path: math_expert ONLY points
 at a local endpoint when either VLLM_BASE_URL or OLLAMA_BASE_URL is set in
@@ -40,6 +44,7 @@ from a3dasm import (
     MathExpertAgent,
     StrategizerAgent,
 )
+from a3dasm._src.agents import AdversarialCritiqueAgent
 
 STUDY_DIR = Path(__file__).parent
 VLLM_MODEL = "Qwen/Qwen3.8-27B-FP8"
@@ -60,11 +65,13 @@ def build_graph() -> Graph:
             "strategizer": StrategizerAgent(),
             "literature_reviewer": LiteratureReviewAgent(),
             "math_expert": math_expert,
+            "critic": AdversarialCritiqueAgent(),
         },
         edges=(
             Edge("strategizer", "literature_reviewer"),
             Edge("strategizer", "math_expert"),
             Edge("math_expert", "literature_reviewer"),
+            Edge("strategizer", "critic"),
         ),
         entry="strategizer",
     )
@@ -74,7 +81,10 @@ def main() -> None:
     report = AgenticRun(
         study_dir=STUDY_DIR,
         graph=build_graph(),
-        interactive=False,
+        # TTY-gated in AgenticRun (self._interactive is ANDed with
+        # sys.stdin.isatty()), so this only takes effect when the run is
+        # attached to a real terminal — run it under tmux and attach.
+        interactive=True,
     ).execute()
     print(report)
 

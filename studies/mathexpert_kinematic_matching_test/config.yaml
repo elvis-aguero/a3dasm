@@ -1,5 +1,9 @@
 model: claude-haiku-4-5-20251001
 backend: claude
+
+# 45 minutes. _parse_budget_str takes seconds or HH:MM:SS — "45m" would
+# raise, so it is spelled out.
+budget: "00:45:00"
 # No evaluator: this study has no data-driven pipeline at all (see
 # PROBLEM_STATEMENT.md) -- graph is a custom 3-node one (run.py), not the
 # stock 5-node default.
@@ -13,3 +17,7 @@ runtime:
   # separately too lenient in a critic-less graph (harmless here only
   # because of this redundant, independent check).
   pipeline_deliverable: false
+  # ON: without it debug/transcripts/ is never created and the
+  # viewer's Chat tab has nothing to show (the prior run
+  # 20260903T205926 has no transcripts/ for exactly this reason).
+  debug: true
