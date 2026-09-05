@@ -230,6 +230,23 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             return _not_found(f"no such run {run_id!r}")
         return JSONResponse(readers.read_vitals(run_dir))
 
+    async def get_artifacts(request):
+        run_id = request.path_params["run_id"]
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
+            return _not_found(f"no such run {run_id!r}")
+        return JSONResponse(readers.read_artifacts(run_dir, study_dir))
+
+    async def get_artifact(request):
+        run_id = request.path_params["run_id"]
+        if _run_dir(study_dir, run_id) is None:
+            return _not_found(f"no such run {run_id!r}")
+        rel = request.query_params.get("path", "")
+        text = readers.read_artifact_text(study_dir, rel)
+        if text is None:
+            return _not_found("not a readable artifact inside this study")
+        return JSONResponse({"path": rel, "text": text})
+
     async def get_problem_statement(request):
         run_id = request.path_params["run_id"]
         run_dir = _run_dir(study_dir, run_id)
@@ -393,6 +410,8 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         Route("/api/runs/{run_id}/delegations", get_delegations),
         Route("/api/runs/{run_id}/ledger", get_ledger),
         Route("/api/runs/{run_id}/vitals", get_vitals),
+        Route("/api/runs/{run_id}/artifacts", get_artifacts),
+        Route("/api/runs/{run_id}/artifact", get_artifact),
         Route("/api/runs/{run_id}/notebook", get_notebook),
         Route("/api/runs/{run_id}/problem_statement", get_problem_statement),
         Route("/api/runs/{run_id}/node/{name}/transcripts", get_node_transcripts),

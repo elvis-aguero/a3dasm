@@ -684,7 +684,7 @@
           <span class="label">wall</span>
         </div>
         <div>
-          <b class="m" x-text="costLabel()"></b>
+          <b class="m" x-text="costLabel()" :title="costTitle()"></b>
           <span class="label">cost</span>
         </div>
         <div>
@@ -1086,16 +1086,79 @@
       <div class="nb">
         <p class="empty" x-show="notebook === null">Loading…</p>
 
-        <!-- "No deliverable" is a real finding about the run, not an empty
-             state to hide: the reproduction gate has nothing to act on. -->
+        <!-- No notebook is a real finding, not an empty state to hide. But
+             a notebook is only ONE deliverable shape: a symbolic study
+             writes .tex/.py/.json into a workspace instead, and reporting
+             "no deliverable" while that sits one directory away is its own
+             kind of wrong. So the files are listed, split by what they can
+             honestly be attributed to. -->
         <template x-if="notebook && notebook.missing">
-          <div style="max-width:70ch; display:flex; flex-direction:column; gap:10px">
-            <p style="margin:0; font-size:16px">No deliverable notebook for this run.</p>
-            <p style="margin:0; font-size:var(--fs-body); line-height:1.6;
-                      color:var(--subtext0)">
-              Either the agent never wrote one, or it was overwritten by a
-              later run without being archived under this run's id.
-            </p>
+          <div style="display:flex; flex-direction:column; gap:26px">
+            <div style="max-width:74ch; display:flex; flex-direction:column; gap:8px">
+              <p style="margin:0; font-size:16px">No deliverable notebook for this run.</p>
+              <p style="margin:0; font-size:var(--fs-body); line-height:1.6;
+                        color:var(--subtext0)">
+                Expected for a study that sets
+                <code style="font-family:ui-monospace,Menlo,monospace">pipeline_deliverable: false</code>.
+                Files the run's work produced are below.
+              </p>
+            </div>
+
+            <div style="display:grid; grid-template-columns:minmax(0,380px) minmax(0,1fr); gap:28px">
+              <div style="display:flex; flex-direction:column; gap:22px; min-width:0">
+                <div style="display:flex; flex-direction:column; gap:9px">
+                  <span class="label">This run</span>
+                  <p class="empty" x-show="artifactsByScope('run').length === 0"
+                     style="font-size:var(--fs-ui)">No files.</p>
+                  <template x-for="a in artifactsByScope('run')" :key="a.path">
+                    <button class="rail-item" :class="{ active: a.path === artifactPath }"
+                            @click="openArtifact(a)" :disabled="!a.readable">
+                      <span class="grow m" style="font-size:12px" x-text="a.name"></span>
+                      <span class="count m" x-text="fmtSize(a.size)"></span>
+                    </button>
+                  </template>
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:9px">
+                  <span class="label">Shared workspace</span>
+                  <!-- Study-scoped: these persist across runs, so they are
+                       NOT attributable to this one. Same trap the notebook
+                       reader guards against — hence the timestamps. -->
+                  <p style="margin:0; font-size:var(--fs-meta); line-height:1.5;
+                            color:var(--overlay1); max-width:44ch">
+                    Kept beside the run directories and shared across runs.
+                    Check the time against this run before treating one as
+                    its output.
+                  </p>
+                  <template x-for="a in artifactsByScope('shared')" :key="a.path">
+                    <button class="rail-item" :class="{ active: a.path === artifactPath }"
+                            @click="openArtifact(a)" :disabled="!a.readable">
+                      <span class="grow m" style="font-size:12px" x-text="a.name"></span>
+                      <span class="count m" x-text="fmtWhen(a.mtime)"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <div style="min-width:0">
+                <p class="empty" x-show="!artifactPath">Pick a file.</p>
+                <template x-if="artifactPath">
+                  <div style="display:flex; flex-direction:column; gap:10px; min-width:0">
+                    <span class="m" style="font-size:12px; color:var(--overlay0)"
+                          x-text="artifactPath"></span>
+                    <p class="empty" x-show="artifactText === null">Loading…</p>
+                    <pre x-show="artifactText !== null"
+                         style="margin:0; padding:14px 16px; background:var(--crust);
+                                border:1px solid var(--surface0); border-radius:7px;
+                                font-family:ui-monospace,Menlo,monospace;
+                                font-size:var(--fs-meta); line-height:1.7;
+                                color:var(--subtext1); overflow-x:auto;
+                                white-space:pre-wrap; word-break:break-word;"
+                         x-text="artifactText"></pre>
+                  </div>
+                </template>
+              </div>
+            </div>
           </div>
         </template>
 
@@ -1187,6 +1250,10 @@
         selectedDelegation: null,
 
         notebook: null,
+        vitals: null,
+        artifacts: [],
+        artifactText: null,
+        artifactPath: null,
         // Which agent the profile view is showing, and where the back
         // button returns to — a profile is always opened FROM somewhere.
         profileName: null,
@@ -1249,6 +1316,7 @@
             // One last read: the ledger's final state can be written after
             // the last delegation row and before the run closes.
             this.loadLedger();
+            this.loadVitals();
             if (this._ledgerPoll) {
               clearInterval(this._ledgerPoll);
               this._ledgerPoll = null;
@@ -1256,13 +1324,28 @@
           });
 
           this.loadLedger();
+          this.loadVitals();
           // Polled, not streamed: both ledgers are whole-file rewrites
           // rather than append-only logs, so there is nothing to tail.
-          this._ledgerPoll = setInterval(() => this.loadLedger(), 5000);
+          this._ledgerPoll = setInterval(() => {
+            this.loadLedger();
+            this.loadVitals();
+          }, 5000);
 
           this._clock = setInterval(() => {
             if (this.runStatus === null) this.now = Date.now();
           }, 1000);
+        },
+
+        // Cost and wall come from telemetry, NOT from summing delegation
+        // rows. The critic's gate row was written uncosted, so a
+        // delegation-derived total silently omitted its whole budget —
+        // $0.697 shown against a real $1.078 on run 20260905T162758.
+        loadVitals() {
+          fetch(`/api/runs/${this.runId}/vitals`)
+            .then(r => r.ok ? r.json() : null)
+            .then(v => { if (v) this.vitals = v; })
+            .catch(() => {});
         },
 
         loadLedger() {
@@ -1365,8 +1448,7 @@
         rows() { return Object.values(this.delegations); },
 
         wallLabel() {
-          const secs = Math.max(
-            0, ...this.rows().map(d => (d.constraints || {}).wall_elapsed_s || 0));
+          const secs = this.vitals ? (this.vitals.elapsed_s || 0) : 0;
           if (!secs) return '—';
           const m = Math.floor(secs / 60);
           const s = Math.floor(secs % 60);
@@ -1374,9 +1456,15 @@
         },
 
         costLabel() {
-          const total = this.rows()
-            .reduce((acc, d) => acc + (d.cost_usd || 0), 0);
+          const total = this.vitals ? (this.vitals.cost_usd || 0) : 0;
           return total ? `$${total.toFixed(2)}` : '—';
+        },
+
+        costTitle() {
+          if (!this.vitals) return '';
+          return Object.entries(this.vitals.by_role || {})
+            .map(([r, v]) => `${r}: $${v.cost_usd.toFixed(3)} (${v.calls} calls)`)
+            .join('\n');
         },
 
         evalsLabel() {
@@ -1512,7 +1600,7 @@
         setTab(t) {
           this.tab = t;
           if (t === 'brief' && this.briefText === null) this.loadBrief();
-          if (t === 'result') this.loadNotebook();
+          if (t === 'result') { this.loadNotebook(); this.loadArtifacts(); }
         },
 
         // Re-read on every visit rather than caching: the implementer
@@ -1580,6 +1668,35 @@
           // stays in the title attribute and is what toolDocs is keyed on.
           const m = String(name).match(/^mcp__[^_]+(?:_[^_]+)*__(.+)$/);
           return m ? m[1] : name;
+        },
+
+        loadArtifacts() {
+          fetch(`/api/runs/${this.runId}/artifacts`)
+            .then(r => r.ok ? r.json() : [])
+            .then(a => { this.artifacts = a; })
+            .catch(() => {});
+        },
+
+        openArtifact(a) {
+          if (!a.readable) return;
+          this.artifactPath = a.path;
+          this.artifactText = null;
+          fetch(`/api/runs/${this.runId}/artifact?path=${encodeURIComponent(a.path)}`)
+            .then(r => r.ok ? r.json() : { text: '(could not read)' })
+            .then(d => { this.artifactText = d.text; })
+            .catch(() => { this.artifactText = '(could not read)'; });
+        },
+
+        artifactsByScope(scope) {
+          return this.artifacts.filter(a => a.scope === scope);
+        },
+
+        fmtSize(n) {
+          return n > 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`;
+        },
+
+        fmtWhen(ts) {
+          return new Date(ts * 1000).toISOString().slice(0, 16).replace('T', ' ');
         },
 
         notebookCaption() {

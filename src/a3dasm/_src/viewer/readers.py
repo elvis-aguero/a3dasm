@@ -29,6 +29,8 @@ __all__ = [
     "read_milestones",
     "read_notebook",
     "read_vitals",
+    "read_artifacts",
+    "read_artifact_text",
     "read_run_status",
     "read_transcript",
     "read_problem_statement",
@@ -479,6 +481,90 @@ def read_vitals(run_dir: Path | str) -> dict[str, Any]:
         "elapsed_s": elapsed,
         "closed": ended is not None,
     }
+
+
+# Text artifacts a read-only view can render. Anything else is listed but
+# not offered for reading.
+_READABLE_SUFFIXES = {".md", ".tex", ".py", ".json", ".txt", ".csv", ".yaml", ".yml"}
+
+
+def read_artifacts(
+    run_dir: Path | str, study_dir: Path | str,
+) -> list[dict[str, Any]]:
+    """Files this run's work produced, each tagged with what it can be
+    attributed to.
+
+    Two scopes, kept apart on purpose. ``run`` files live under this run's
+    own ``debug/delegations/<ID>/`` and are unambiguously its work.
+    ``shared`` files live in a study-level workspace beside the run
+    directories (``runs/math_workspace/``, and the like) — those persist
+    across runs and are NOT attributable to any one of them, which is the
+    same trap ``read_notebook`` guards against for pipeline.ipynb. They are
+    listed because a symbolic study's real deliverable lives there, but
+    they carry the scope and mtime so a reader can see for themselves
+    whether this run wrote them.
+    """
+    run_dir, study_dir = Path(run_dir), Path(study_dir)
+    out: list[dict[str, Any]] = []
+
+    def add(path: Path, scope: str, owner: str) -> None:
+        try:
+            st = path.stat()
+        except OSError:
+            return
+        out.append({
+            "path": str(path.relative_to(study_dir)),
+            "name": path.name,
+            "scope": scope,
+            "owner": owner,
+            "size": st.st_size,
+            "mtime": st.st_mtime,
+            "readable": path.suffix.lower() in _READABLE_SUFFIXES,
+        })
+
+    deleg_root = run_dir / "debug" / "delegations"
+    if deleg_root.is_dir():
+        for d in sorted(deleg_root.iterdir()):
+            if d.is_dir():
+                for f in sorted(d.rglob("*")):
+                    if f.is_file():
+                        add(f, "run", d.name)
+
+    runs_root = run_dir.parent
+    if runs_root.is_dir():
+        for entry in sorted(runs_root.iterdir()):
+            # Skip run directories themselves; a workspace is any other dir.
+            if not entry.is_dir() or (entry / "debug").is_dir():
+                continue
+            for f in sorted(entry.rglob("*")):
+                if f.is_file():
+                    add(f, "shared", entry.name)
+    return out
+
+
+def read_artifact_text(
+    study_dir: Path | str, rel_path: str,
+) -> str | None:
+    """One artifact's text, or ``None`` if it is not a readable file inside
+    the study.
+
+    *rel_path* arrives from the client, so it is resolved and checked to be
+    inside *study_dir* before anything is opened — a viewer that will read
+    an arbitrary path is a file-disclosure hole, however local it is.
+    """
+    study_dir = Path(study_dir).resolve()
+    try:
+        target = (study_dir / rel_path).resolve()
+    except (OSError, ValueError):
+        return None
+    if not target.is_relative_to(study_dir):
+        return None
+    if not target.is_file() or target.suffix.lower() not in _READABLE_SUFFIXES:
+        return None
+    try:
+        return target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
 
 
 def _normalize_output(out: dict[str, Any]) -> dict[str, Any] | None:
