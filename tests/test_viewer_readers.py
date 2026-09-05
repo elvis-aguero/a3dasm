@@ -16,6 +16,7 @@ from a3dasm._src.viewer.readers import (
     read_diagnostics_tail,
     read_hypotheses,
     read_milestones,
+    read_notebook,
     read_problem_statement,
     read_run_status,
     read_runs,
@@ -655,4 +656,85 @@ def test_ledger_readers_survive_a_half_written_file(tmp_path):
     (_notes(run) / "hypotheses.json").write_text('{"H1": {"stat',
                                                  encoding="utf-8")
     assert read_hypotheses(run) == []
+
+
+# ---------------------------------------------------------------------------
+# read_notebook — pipeline.ipynb is STUDY-scoped, so attribution matters
+# ---------------------------------------------------------------------------
+
+def _write_nb(path: Path, cells: list[dict], run: str | None = None) -> None:
+    nb = {"cells": cells, "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+    if run is not None:
+        nb["metadata"]["agentic"] = {"run": f"/some/study/runs/{run}"}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(nb), encoding="utf-8")
+
+
+def _code(src: str, outputs=None):
+    return {"cell_type": "code", "source": src, "execution_count": 1,
+            "metadata": {}, "outputs": outputs or []}
+
+
+def test_read_notebook_uses_the_live_file_when_it_is_stamped_for_this_run(tmp_path):
+    _write_nb(tmp_path / "pipeline.ipynb", [_code("x = 1")], run="R1")
+    nb = read_notebook(tmp_path, "R1")
+    assert nb["live"] is True
+    assert nb["cells"][0]["source"] == "x = 1"
+
+
+def test_read_notebook_refuses_a_live_file_stamped_for_another_run(tmp_path):
+    """The regression that matters: pipeline.ipynb lives in the STUDY dir
+    and belongs to whichever run last wrote it. Showing it on an older
+    run's page would attribute one run's deliverable to another — silently,
+    and plausibly enough that nobody would notice."""
+    _write_nb(tmp_path / "pipeline.ipynb", [_code("newer = 1")], run="R2")
+    assert read_notebook(tmp_path, "R1") is None
+
+
+def test_read_notebook_falls_back_to_this_runs_archive(tmp_path):
+    """A finished run's notebook is renamed pipeline_<run_id>.ipynb when the
+    next run starts, so an older run's page must read the archive."""
+    _write_nb(tmp_path / "pipeline.ipynb", [_code("newer = 1")], run="R2")
+    _write_nb(tmp_path / "pipeline_R1.ipynb", [_code("older = 1")], run="R1")
+    nb = read_notebook(tmp_path, "R1")
+    assert nb["live"] is False
+    assert nb["cells"][0]["source"] == "older = 1"
+
+
+def test_read_notebook_none_when_the_agent_never_wrote_one(tmp_path):
+    """Not an error state — "no deliverable" is itself a real finding."""
+    assert read_notebook(tmp_path, "R1") is None
+
+
+def test_read_notebook_normalizes_outputs(tmp_path):
+    _write_nb(tmp_path / "pipeline.ipynb", [
+        {"cell_type": "markdown", "source": "# Title", "metadata": {}},
+        _code("print(1)", [
+            {"output_type": "stream", "name": "stdout", "text": ["1\n"]},
+            {"output_type": "execute_result", "data": {"text/plain": "42"},
+             "metadata": {}, "execution_count": 1},
+            {"output_type": "display_data",
+             "data": {"image/png": "iVBORw0KGgo="}, "metadata": {}},
+            {"output_type": "error", "ename": "ValueError",
+             "evalue": "bad", "traceback": ["line1", "line2"]},
+        ]),
+    ], run="R1")
+
+    cells = read_notebook(tmp_path, "R1")["cells"]
+    assert cells[0]["type"] == "markdown"
+    kinds = [o["kind"] for o in cells[1]["outputs"]]
+    assert kinds == ["stream", "text", "image", "error"]
+    assert cells[1]["outputs"][0]["text"] == "1\n"
+    assert cells[1]["outputs"][2]["mime"] == "image/png"
+    assert cells[1]["outputs"][3]["text"] == "line1\nline2"
+
+
+def test_read_notebook_reports_a_corrupt_file_instead_of_hiding_it(tmp_path):
+    """A notebook that exists but cannot be parsed is a different answer
+    from no notebook at all, and the reader must not collapse the two."""
+    (tmp_path / "pipeline_R1.ipynb").write_text("{not json", encoding="utf-8")
+    nb = read_notebook(tmp_path, "R1")
+    assert nb is not None
+    assert nb["cells"] == []
+    assert "could not read" in nb["error"]
 

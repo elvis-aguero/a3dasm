@@ -458,6 +458,30 @@ def test_ledger_endpoint_empty_for_a_run_with_no_notes(tmp_path):
     assert resp.json() == {"hypotheses": [], "milestones": []}
 
 
+def test_notebook_endpoint_reports_missing_rather_than_404(tmp_path):
+    """A run with no deliverable is a real finding about that run, not a
+    routing error — the client must be able to say so in words."""
+    study = _make_study(tmp_path)
+    _make_run(study, "20260904T120000")
+    client = TestClient(create_app(study))
+    resp = client.get("/api/runs/20260904T120000/notebook")
+    assert resp.status_code == 200
+    assert resp.json() == {"cells": [], "missing": True}
+
+
+def test_notebook_endpoint_serves_this_runs_archive(tmp_path):
+    study = _make_study(tmp_path)
+    _make_run(study, "20260904T120000")
+    (study / "pipeline_20260904T120000.ipynb").write_text(json.dumps({
+        "cells": [{"cell_type": "code", "source": "x = 1",
+                   "execution_count": 1, "metadata": {}, "outputs": []}],
+        "metadata": {}, "nbformat": 4, "nbformat_minor": 5,
+    }))
+    client = TestClient(create_app(study))
+    body = client.get("/api/runs/20260904T120000/notebook").json()
+    assert [c["source"] for c in body["cells"]] == ["x = 1"]
+
+
 def test_ledger_endpoint_404_for_missing_run(tmp_path):
     study = _make_study(tmp_path)
     client = TestClient(create_app(study))

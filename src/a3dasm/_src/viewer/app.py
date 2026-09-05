@@ -212,6 +212,15 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             "milestones": readers.read_milestones(run_dir),
         })
 
+    async def get_notebook(request):
+        run_id = request.path_params["run_id"]
+        if _run_dir(study_dir, run_id) is None:
+            return _not_found(f"no such run {run_id!r}")
+        nb = readers.read_notebook(study_dir, run_id)
+        if nb is None:
+            return JSONResponse({"cells": [], "missing": True})
+        return JSONResponse(nb)
+
     async def get_problem_statement(request):
         run_id = request.path_params["run_id"]
         run_dir = _run_dir(study_dir, run_id)
@@ -374,6 +383,7 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         Route("/api/runs/{run_id}/graph", get_graph),
         Route("/api/runs/{run_id}/delegations", get_delegations),
         Route("/api/runs/{run_id}/ledger", get_ledger),
+        Route("/api/runs/{run_id}/notebook", get_notebook),
         Route("/api/runs/{run_id}/problem_statement", get_problem_statement),
         Route("/api/runs/{run_id}/node/{name}/transcripts", get_node_transcripts),
         Route(

@@ -26,6 +26,7 @@ __all__ = [
     "read_diagnostics_tail",
     "read_hypotheses",
     "read_milestones",
+    "read_notebook",
     "read_run_status",
     "read_transcript",
     "read_problem_statement",
@@ -356,6 +357,100 @@ def read_milestones(run_dir: Path | str) -> list[dict[str, Any]]:
             "manual": bool(m.get("manual")),
         })
     return out
+
+
+def _normalize_output(out: dict[str, Any]) -> dict[str, Any] | None:
+    """One notebook output reduced to what a read-only view can show."""
+    kind = out.get("output_type")
+    if kind == "stream":
+        text = out.get("text")
+        return {"kind": "stream", "name": out.get("name", "stdout"),
+                "text": "".join(text) if isinstance(text, list) else (text or "")}
+    if kind == "error":
+        tb = out.get("traceback") or []
+        return {"kind": "error", "ename": out.get("ename", ""),
+                "evalue": out.get("evalue", ""), "text": "\n".join(tb)}
+    if kind in ("execute_result", "display_data"):
+        data = out.get("data") or {}
+        for mime in ("image/png", "image/jpeg"):
+            if mime in data:
+                payload = data[mime]
+                if isinstance(payload, list):
+                    payload = "".join(payload)
+                # An embedded figure is base64 already; oversized ones are
+                # dropped rather than pushed through the JSON response,
+                # since one plot must not stall the whole view.
+                if len(payload) > 4_000_000:
+                    return {"kind": "image_too_large", "mime": mime}
+                return {"kind": "image", "mime": mime, "data": payload}
+        text = data.get("text/plain", "")
+        if isinstance(text, list):
+            text = "".join(text)
+        return {"kind": "text", "text": text}
+    return None
+
+
+def read_notebook(
+    study_dir: Path | str, run_id: str,
+) -> dict[str, Any] | None:
+    """The deliverable notebook belonging to *run_id*, or ``None``.
+
+    ``pipeline.ipynb`` is STUDY-scoped, not run-scoped: it lives at
+    ``<study_dir>/pipeline.ipynb`` and a fresh run archives any prior one to
+    ``pipeline_<that run's id>.ipynb``
+    (``agent_runtime._archive_prior_pipeline_notebook``). So the live file
+    belongs to whichever run last wrote it — showing it unconditionally on
+    an older run's page would attribute one run's deliverable to another,
+    silently and plausibly.
+
+    The live file is therefore only used when its own provenance stamp
+    (``metadata.agentic.run``) names this run; otherwise the archive for
+    this run id is used, and if neither exists the answer is "no notebook",
+    which is itself a real finding — the agent never wrote one.
+    """
+    study_dir = Path(study_dir)
+    path = None
+    live = study_dir / "pipeline.ipynb"
+    if live.exists():
+        try:
+            import nbformat
+            stamped = (nbformat.read(str(live), as_version=4)
+                       .metadata.get("agentic") or {}).get("run")
+            if stamped and Path(stamped).name == run_id:
+                path = live
+        except Exception:  # noqa: BLE001 — unreadable/unstamped: fall through
+            pass
+    if path is None:
+        archived = sorted(study_dir.glob(f"pipeline_{run_id}*.ipynb"))
+        if archived:
+            path = archived[0]
+    if path is None:
+        return None
+
+    try:
+        import nbformat
+        nb = nbformat.read(str(path), as_version=4)
+    except Exception as exc:  # noqa: BLE001
+        return {"cells": [], "path": str(path),
+                "error": f"could not read {path.name}: {exc}"}
+
+    cells = []
+    for cell in nb.get("cells", []):
+        src = cell.get("source", "")
+        if isinstance(src, list):
+            src = "".join(src)
+        if cell.get("cell_type") == "markdown":
+            cells.append({"type": "markdown", "source": src})
+        elif cell.get("cell_type") == "code":
+            outs = [_normalize_output(o) for o in (cell.get("outputs") or [])]
+            cells.append({
+                "type": "code",
+                "source": src,
+                "execution_count": cell.get("execution_count"),
+                "outputs": [o for o in outs if o is not None],
+            })
+    return {"cells": cells, "path": str(path),
+            "live": path == live, "error": None}
 
 
 def read_run_status(run_dir: Path | str) -> dict[str, Any] | None:
