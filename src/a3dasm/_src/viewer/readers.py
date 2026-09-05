@@ -642,23 +642,43 @@ def list_node_transcripts(
     open the wrong turn silently — found and removed, not left as a
     latent bug).
 
-    A worker node's keys are the ``id`` of every delegation where
-    ``to_node == node_name`` (each maps 1:1 to a real
-    ``transcripts/{id}.jsonl`` file). The entry node has no delegations
-    TO it in a typical graph, so its keys are instead every real
-    ``transcripts/strategizer/turn_*.jsonl`` file that actually exists,
-    sorted — never a guessed count.
+    Two on-disk layouts exist and a node can use EITHER, so both are
+    checked and the results merged:
+
+    * flat ``transcripts/<delegation id>.jsonl`` — a worker's per-delegation
+      transcript, keyed by the id of a delegation TO that node;
+    * nested ``transcripts/<node name>/<stem>.jsonl`` — used by the entry
+      node (``turn_001``) and, discovered the hard way, by the critic
+      (``call_001``). The critic has delegation rows (its gate check) whose
+      ids do NOT correspond to any flat file, so returning ids alone
+      offered a key that resolves to nothing: on run 20260905T162758 the
+      critic's transcript sat at ``transcripts/critic/call_001.jsonl``
+      while this function reported ``["GATE164710"]``.
+
+    The nested directory is keyed on the node's OWN name rather than the
+    literal "strategizer", so a graph whose entry node is called something
+    else still finds its turns. *is_entry* is consequently no longer needed
+    to pick a layout; it is kept so existing callers keep working.
+
+    Keys are never computed from a formula. A prior version guessed the
+    entry node's turn as
+    ``f"strategizer/turn_{len(delegations_touching_it):03d}"``, which bore
+    no relation to real turn numbering and would silently open the wrong
+    turn.
     """
-    if is_entry:
-        st_dir = Path(run_dir) / "debug" / "transcripts" / "strategizer"
-        if not st_dir.is_dir():
-            return []
-        return sorted(
-            f"strategizer/{p.stem}" for p in st_dir.glob("turn_*.jsonl"))
-    return [
+    root = Path(run_dir) / "debug" / "transcripts"
+    keys: list[str] = []
+
+    node_dir = root / node_name
+    if node_dir.is_dir():
+        keys += sorted(f"{node_name}/{p.stem}" for p in node_dir.glob("*.jsonl"))
+
+    keys += [
         d["id"] for d in read_delegations(run_dir)
         if d.get("to_node") == node_name
+        and (root / f"{d['id']}.jsonl").exists()
     ]
+    return keys
 
 
 def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:

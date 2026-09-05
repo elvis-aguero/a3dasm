@@ -198,9 +198,46 @@ def test_list_node_transcripts_worker_returns_delegation_ids_to_it(tmp_path):
         {"id": "D002", "status": "DONE", "from_node": "strategizer",
          "to_node": "critic"},
     ])
+    for did in ("D001", "D002"):
+        _write_jsonl(run_dir / "debug" / "transcripts" / f"{did}.jsonl",
+                     [{"type": "assistant", "text": "x"}])
+
     assert list_node_transcripts(run_dir, "implementer") == ["D001"]
     assert list_node_transcripts(run_dir, "critic") == ["D002"]
     assert list_node_transcripts(run_dir, "nonexistent_node") == []
+
+
+def test_list_node_transcripts_omits_ids_with_no_file_on_disk(tmp_path):
+    """A key that resolves to nothing is worse than no key.
+
+    The critic's gate delegation has an id (GATE...) but writes its
+    transcript to the NESTED critic/call_NNN.jsonl instead, so returning
+    the id offered the UI a transcript that did not exist — observed on run
+    20260905T162758, where the critic tab was simply blank.
+    """
+    run_dir = tmp_path / "run"
+    _write_jsonl(run_dir / "debug" / "delegation_log.jsonl", [
+        {"id": "GATE1200", "status": "GATE:PASS", "from_node": "strategizer",
+         "to_node": "critic"},
+    ])
+    _write_jsonl(run_dir / "debug" / "transcripts" / "critic" / "call_001.jsonl",
+                 [{"type": "assistant", "text": "verdict"}])
+
+    # The nested file is offered; the id with no flat file is not.
+    assert list_node_transcripts(run_dir, "critic") == ["critic/call_001"]
+
+
+def test_list_node_transcripts_finds_entry_turns_under_its_own_name(tmp_path):
+    """The nested directory is keyed on the node's real name.
+
+    It used to be the literal "strategizer", so a graph whose entry node was
+    called anything else silently had no transcripts at all.
+    """
+    run_dir = tmp_path / "run"
+    _write_jsonl(run_dir / "debug" / "transcripts" / "planner" / "turn_001.jsonl",
+                 [{"type": "assistant", "text": "plan"}])
+    assert list_node_transcripts(run_dir, "planner", is_entry=True) == [
+        "planner/turn_001"]
 
 
 def test_list_node_transcripts_entry_lists_real_turn_files_only(tmp_path):

@@ -215,6 +215,9 @@ def test_get_node_transcripts_worker(tmp_path):
         {"id": "D001", "status": "DONE", "from_node": "strategizer",
          "to_node": "critic"},
     ])
+    # The endpoint only offers keys that resolve to a real file on disk.
+    _write_jsonl(run_dir / "debug" / "transcripts" / "D001.jsonl",
+                 [{"type": "assistant", "text": "x"}])
     client = TestClient(create_app(study))
     resp = client.get("/api/runs/20260904T120000/node/critic/transcripts")
     assert resp.status_code == 200
