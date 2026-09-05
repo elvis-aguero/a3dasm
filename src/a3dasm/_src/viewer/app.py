@@ -376,7 +376,7 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             return _not_found(f"no such run {run_id!r}")
         return templates.TemplateResponse(
             request, "graph.html",
-            {"run_id": run_id})
+            {"run_id": run_id, "study_name": Path(study_dir).name})
 
     routes = [
         Route("/api/runs", list_runs),

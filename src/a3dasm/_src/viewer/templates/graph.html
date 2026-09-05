@@ -1,315 +1,1223 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>a3dasm run viewer — {{ run_id }}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>a3dasm — {{ run_id }}</title>
   <script defer src="https://unpkg.com/alpinejs@3.14.3/dist/cdn.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
   <style>
-    [x-cloak] { display: none !important; }
-    body { background: #0b0d10; color: #e7e5e2; }
-    .node-card {
-      background: #14171c; border: 1px solid #262b33; border-radius: 10px;
-      padding: 10px 16px; cursor: pointer; transition: border-color .15s;
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px;
-      min-width: 150px; text-align: center; position: relative;
-    }
-    .node-card:hover { border-color: #4b5563; }
-    .node-card.entry { border-color: #b4690e; }
-    .node-card.selected { border-color: #6b8cff; }
-    .status-dot {
-      display: inline-block; width: 9px; height: 9px; border-radius: 50%;
-      margin-right: 7px; vertical-align: middle;
-      background: #4b5563; /* idle/unknown */
-    }
-    .status-dot.done { background: #22c55e; }
-    .status-dot.failed { background: #ef4444; }
-    .status-dot.running {
-      background: #ef4444;
-      animation: pulse-glow 1.6s ease-in-out infinite;
-    }
-    @keyframes pulse-glow {
-      0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.55); }
-      70%  { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
-      100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
-    }
-    #edges-svg path { stroke: #3a4048; stroke-width: 1.6; fill: none; }
-    .panel-transition { transition: all .2s ease-out; }
+    /* Catppuccin Mocha. Every value below is an official token — grounds,
+       text ramp, and the two colour channels the interface uses:
+       IDENTITY (which agent) is a cool hue carried on an agent's NAME;
+       STATE (what happened) is a warm semantic carried only on dots and
+       pills. The two never share a mark, so they cannot be confused. */
+    :root {
+      --base:      #1e1e2e;
+      --mantle:    #181825;
+      --crust:     #11111b;
+      --surface0:  #313244;
+      --surface1:  #45475a;
+      --surface2:  #585b70;
+      --overlay0:  #6c7086;
+      --overlay1:  #7f849c;
+      --overlay2:  #9399b2;
+      --subtext0:  #a6adc8;
+      --subtext1:  #bac2de;
+      --text:      #cdd6f4;
 
-    /* One turn = one avatar + everything that model turn produced (thinking,
-       text, tool calls, their results) as a SINGLE visually-grouped unit —
-       the nested trace-tree convention real agent-trace viewers use, not a
-       flat list of same-weight bubbles. */
-    .turn {
-      display: flex; gap: 10px; padding: 10px 4px; font-size: 13px;
-      align-items: flex-start;
+      --green:     #a6e3a1;
+      --peach:     #fab387;
+      --red:       #f38ba8;
+
+      /* Identity ramp, cool arc. Index comes from the server
+         (`identity`), so a node keeps its colour across runs. */
+      --id0: #94e2d5;  /* teal */
+      --id1: #89b4fa;  /* blue */
+      --id2: #cba6f7;  /* mauve */
+      --id3: #f5c2e7;  /* pink */
+      --id4: #89dceb;  /* sky */
+      --id5: #b4befe;  /* lavender */
+
+      /* Type scale. Body text is 14px — the previous 11px-doing-a-body-
+         text-job was the single largest legibility complaint. */
+      --fs-body:  14px;
+      --fs-ui:    13px;
+      --fs-meta:  12px;
+      --fs-label: 10.5px;
     }
-    .turn + .turn { border-top: 1px solid #1a1e24; }
+
+    * { box-sizing: border-box; }
+    [x-cloak] { display: none !important; }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: var(--base);
+      color: var(--text);
+      /* System stack on purpose: the viewer is a local tool that must look
+         the same with no network. The legibility complaint was the type
+         SCALE, not the typeface. */
+      font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      font-size: var(--fs-ui);
+    }
+
+    .m {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    .label {
+      font-size: var(--fs-label);
+      letter-spacing: .11em;
+      text-transform: uppercase;
+      color: var(--overlay0);
+    }
+
+    /* ---- status bar ---------------------------------------------------- */
+    .statusbar {
+      flex: none;
+      height: 56px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--surface0);
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .run-id { display: flex; flex-direction: column; gap: 2px; }
+    .run-id b { font-size: var(--fs-body); font-weight: 600; letter-spacing: -.01em; }
+    .run-id span { font-size: var(--fs-label); color: var(--overlay0); }
+
+    .agent-strip {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      height: 28px;
+      padding-left: 20px;
+      border-left: 1px solid var(--surface0);
+      overflow-x: auto;
+    }
+    .agent-chip {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: var(--fs-meta);
+      white-space: nowrap;
+      background: none;
+      border: none;
+      padding: 0;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    /* STATE only. Never an identity hue. */
+    .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--overlay0);
+      flex: none;
+    }
+    .dot.done   { background: var(--green); }
+    .dot.failed { background: var(--red); }
+    .dot.running {
+      width: 7px; height: 7px;
+      background: var(--text);
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(205,214,244,.45); }
+      70%  { box-shadow: 0 0 0 7px rgba(205,214,244,0); }
+      100% { box-shadow: 0 0 0 0 rgba(205,214,244,0); }
+    }
+
+    .vitals { margin-left: auto; display: flex; align-items: center; gap: 24px; }
+    .outcome { display: flex; align-items: baseline; gap: 9px; }
+    .outcome b { font-size: 16px; font-weight: 500; }
+    .outcome .raw { font-size: var(--fs-label); color: var(--overlay0); }
+    .outcome.accepted b { color: var(--green); }
+    .outcome.failed b   { color: var(--red); }
+    .numbers {
+      display: flex; gap: 20px;
+      padding-left: 24px; border-left: 1px solid var(--surface0);
+    }
+    .numbers div {
+      display: flex; flex-direction: column; gap: 1px; align-items: flex-end;
+    }
+    .numbers b { font-size: var(--fs-body); font-weight: 400; }
+
+    /* ---- tabs ---------------------------------------------------------- */
+    .tabs {
+      flex: none;
+      height: 44px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--surface0);
+      display: flex;
+      align-items: stretch;
+      gap: 4px;
+    }
+    .tab {
+      display: flex; align-items: center;
+      padding: 0 14px;
+      font-family: inherit;
+      font-size: 13.5px;
+      color: var(--subtext0);
+      background: none; border: none;
+      cursor: pointer;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active {
+      color: var(--text);
+      font-weight: 500;
+      box-shadow: inset 0 -2px 0 var(--text);
+    }
+
+    main { flex: 1; min-height: 0; display: flex; }
+    .view { flex: 1; min-width: 0; min-height: 0; display: flex; }
+
+    /* ---- brief --------------------------------------------------------- */
+    .brief { flex: 1; overflow-y: auto; padding: 32px 40px 48px; }
+    .md { max-width: 78ch; font-size: var(--fs-body); line-height: 1.7; color: var(--subtext1); }
+    .md :is(h1,h2,h3) { color: var(--text); font-weight: 600; letter-spacing: -.01em; }
+    .md h1 { font-size: 26px; margin: 0 0 16px; }
+    .md h2 { font-size: 19px; margin: 28px 0 10px; }
+    .md h3 { font-size: 16px; margin: 22px 0 8px; }
+    .md p, .md li { text-wrap: pretty; }
+    .md ul, .md ol { padding-left: 22px; }
+    .md li { margin: 5px 0; }
+    .md code {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: var(--fs-meta);
+      background: var(--surface0);
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: var(--text);
+    }
+    .md pre {
+      background: var(--crust);
+      border: 1px solid var(--surface0);
+      border-radius: 7px;
+      padding: 14px 16px;
+      overflow-x: auto;
+    }
+    .md pre code { background: none; padding: 0; }
+    .md blockquote {
+      margin: 14px 0;
+      padding-left: 14px;
+      border-left: 2px solid var(--surface1);
+      color: var(--subtext0);
+    }
+    .md table { border-collapse: collapse; width: 100%; }
+    .md :is(th,td) {
+      border: 1px solid var(--surface0);
+      padding: 7px 10px;
+      text-align: left;
+      font-size: var(--fs-meta);
+    }
+    .md a { color: var(--id1); }
+
+    /* ---- overview ------------------------------------------------------ */
+    .overview { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .timeline {
+      flex: none;
+      padding: 22px 26px 24px;
+      border-bottom: 1px solid var(--surface0);
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    .timeline-head { display: flex; align-items: baseline; gap: 12px; }
+    .lanes { display: flex; flex-direction: column; gap: 4px; }
+    .axis {
+      position: relative;
+      height: 15px;
+      border-bottom: 1px solid var(--surface0);
+      margin-left: 150px;
+    }
+    .axis span {
+      position: absolute;
+      bottom: 3px;
+      font-size: 10px;
+      color: var(--overlay0);
+      transform: translateX(-50%);
+    }
+    .lane {
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr);
+      align-items: center;
+      height: 34px;
+    }
+    .lane-name {
+      font-size: var(--fs-ui);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding-right: 12px;
+    }
+    .track { position: relative; height: 34px; }
+    /* The base line is the lane itself — an agent with no delegations shows
+       an empty track rather than nothing at all, so a lane never reads as
+       missing data. */
+    .track-base {
+      position: absolute; left: 0; right: 0; top: 15px;
+      height: 3px; border-radius: 2px;
+      background: var(--mantle);
+    }
+    .track-base.entry { background: var(--surface0); }
+    .bar {
+      position: absolute; top: 5px; height: 24px;
+      background: var(--surface0);
+      border: none;
+      border-left: 3px solid var(--surface2);
+      border-radius: 3px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 8px;
+      font-family: inherit;
+      color: var(--subtext1);
+      cursor: pointer;
+      overflow: hidden;
+      white-space: nowrap;
+      min-width: 4px;
+    }
+    .bar:hover { background: var(--surface1); }
+    .bar.selected { background: var(--surface1); color: var(--text); }
+    .bar .bar-id { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+    .bar .bar-out { font-size: 11.5px; }
+
+    .deleg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .deleg-head {
+      flex: none;
+      display: flex; align-items: center; gap: 13px;
+      padding: 14px 26px;
+      border-bottom: 1px solid var(--surface0);
+    }
+    .deleg-body {
+      flex: 1; min-height: 0; overflow-y: auto;
+      padding: 20px 26px 32px;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+    .deleg-body h4 { margin: 0; }
+    .task {
+      margin: 0;
+      font-size: var(--fs-body);
+      line-height: 1.65;
+      color: var(--subtext1);
+      max-width: 82ch;
+      text-wrap: pretty;
+      white-space: pre-wrap;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: var(--fs-meta);
+      color: var(--subtext0);
+    }
+    .pill.done   { color: var(--green); }
+    .pill.failed { color: var(--red); }
+
+    /* ---- ledger -------------------------------------------------------- */
+    .ledger {
+      width: 348px;
+      flex: none;
+      border-left: 1px solid var(--surface0);
+      overflow-y: auto;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .ledger section { display: flex; flex-direction: column; gap: 12px; }
+    .ledger hr { border: none; border-top: 1px solid var(--surface0); margin: 0; }
+    .hyp { display: flex; flex-direction: column; gap: 8px; }
+    .hyp + .hyp { padding-top: 14px; border-top: 1px solid var(--surface0); }
+    .hyp-head { display: flex; align-items: baseline; gap: 10px; }
+    .hyp-statement {
+      margin: 0;
+      font-size: var(--fs-body);
+      line-height: 1.6;
+      color: var(--subtext1);
+      text-wrap: pretty;
+    }
+    .hyp-pred {
+      font-size: var(--fs-meta);
+      line-height: 1.55;
+      color: var(--subtext0);
+      padding-left: 10px;
+      border-left: 2px solid var(--surface0);
+    }
+    /* Status is the one place a hypothesis gets colour, and it is the warm
+       (state) channel, never an identity hue. */
+    .st { font-size: 13.5px; }
+    .st.SUPPORTED { color: var(--green); }
+    .st.REFUTED   { color: var(--red); }
+    .st.OPEN      { color: var(--text); }
+    .st.RETIRED, .st.SKIPPED { color: var(--overlay0); }
+
+    .ms { display: flex; flex-direction: column; gap: 5px; }
+    .ms-head { display: flex; align-items: baseline; gap: 10px; font-size: 13.5px; }
+    .ms-note {
+      font-size: var(--fs-meta);
+      line-height: 1.5;
+      color: var(--overlay1);
+      text-wrap: pretty;
+    }
+
+    .diag { display: flex; flex-direction: column; gap: 11px; }
+    .diag-row { display: flex; flex-direction: column; gap: 3px; }
+    .diag-top { display: flex; align-items: baseline; gap: 9px; font-size: var(--fs-meta); }
+    .diag-msg {
+      font-size: var(--fs-meta);
+      line-height: 1.5;
+      color: var(--subtext0);
+      text-wrap: pretty;
+    }
+
+    /* ---- agent profile -------------------------------------------------- */
+    .profile { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .profile-head {
+      flex: none;
+      display: flex; align-items: flex-start; gap: 20px;
+      padding: 26px 40px 22px;
+      border-bottom: 1px solid var(--surface0);
+    }
+    .profile-head h1 {
+      margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.015em;
+    }
+    .profile-desc {
+      margin: 0; font-size: 15px; line-height: 1.55;
+      color: var(--subtext0); max-width: 62ch;
+    }
+    .profile-body {
+      flex: 1; min-height: 0;
+      display: grid; grid-template-columns: 500px minmax(0, 1fr);
+    }
+    .profile-left {
+      border-right: 1px solid var(--surface0);
+      display: flex; flex-direction: column; min-height: 0;
+    }
+    .facts {
+      display: grid; grid-template-columns: 88px minmax(0, 1fr);
+      gap: 11px 18px; font-size: var(--fs-body);
+    }
+    .facts span:nth-child(odd) { color: var(--overlay0); }
+    /* Every tool gets its description — the split list, where a favoured
+       few were described and the rest were bare chips, read as two
+       different lists of two different things. */
+    .tools { display: flex; flex-direction: column; gap: 15px; }
+    .tool { display: flex; flex-direction: column; gap: 3px; }
+    .tool b {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 13px; font-weight: 400; color: var(--text);
+    }
+    .tool span { font-size: var(--fs-meta); line-height: 1.45; color: var(--overlay2); }
+    .tool span.undocumented { color: var(--overlay0); font-style: italic; }
+    .prompt-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 40px 32px; }
+    .prompt {
+      max-width: 76ch;
+      margin: 0;
+      font-size: 14.5px;
+      line-height: 1.72;
+      color: var(--subtext1);
+      white-space: pre-wrap;
+      font-family: inherit;
+      text-wrap: pretty;
+    }
+
+    /* ---- result (notebook) --------------------------------------------- */
+    .nb { flex: 1; overflow-y: auto; padding: 28px 40px 56px; }
+    .nb-inner { display: flex; flex-direction: column; gap: 22px; }
+    .nb-cell { display: flex; gap: 14px; }
+    .nb-gutter {
+      flex: none; width: 44px;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 11.5px;
+      color: var(--overlay0);
+      text-align: right;
+      padding-top: 13px;
+    }
+    .nb-code {
+      flex: 1; min-width: 0;
+      border: 1px solid var(--surface0);
+      border-radius: 7px;
+      overflow: hidden;
+    }
+    .nb-src {
+      margin: 0;
+      padding: 14px 16px;
+      background: var(--mantle);
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: var(--fs-meta);
+      line-height: 1.7;
+      color: var(--subtext1);
+      overflow-x: auto;
+    }
+    .nb-out {
+      border-top: 1px solid var(--surface0);
+      background: var(--crust);
+      padding: 12px 16px;
+    }
+    .nb-out pre {
+      margin: 0;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: var(--fs-meta);
+      line-height: 1.7;
+      color: var(--subtext0);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .nb-out.error pre { color: var(--red); }
+    .nb-out img { max-width: 100%; border-radius: 5px; }
+    /* Prose keeps a reading measure; code and outputs run full width. */
+    .nb-md { flex: 1; min-width: 0; }
+
+    /* ---- graph --------------------------------------------------------- */
+    .graph-scroll { flex: 1; overflow: auto; padding: 32px; }
+    .graph-canvas { position: relative; margin: 0 auto; }
+    .graph-canvas .edges { position: absolute; left: 0; top: 0; }
+    .node {
+      position: absolute;
+      background: var(--mantle);
+      border: 1px solid var(--surface0);
+      border-radius: 9px;
+      padding: 13px 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      text-align: left;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .node:hover { border-color: var(--surface2); background: var(--surface0); }
+    .node.entry { border-color: var(--surface1); }
+    .node.selected { border-color: var(--text); }
+    .node-name { font-size: 15.5px; font-weight: 600; }
+    .node-sub { font-size: var(--fs-meta); color: var(--subtext0); }
+
+    .hovercard {
+      position: fixed;
+      z-index: 30;
+      width: 340px;
+      max-width: calc(100vw - 24px);
+      background: var(--surface0);
+      border: 1px solid var(--surface2);
+      border-radius: 10px;
+      box-shadow: 0 18px 44px rgba(0,0,0,.55);
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      text-align: left;
+    }
+    .hovercard h3 { margin: 0; font-size: 18px; font-weight: 600; }
+    .hovercard p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--subtext0); }
+    .hc-facts { display: flex; flex-direction: column; gap: 9px; }
+    .hc-facts div { display: flex; align-items: baseline; gap: 12px; font-size: 13.5px; }
+    .hc-facts span:first-child { color: var(--overlay0); width: 62px; flex: none; }
+    .btn {
+      font-family: inherit;
+      font-size: var(--fs-ui);
+      color: var(--text);
+      background: transparent;
+      border: 1px solid var(--surface1);
+      border-radius: 6px;
+      padding: 8px 15px;
+      cursor: pointer;
+    }
+    .btn:hover { background: var(--surface1); }
+    .btn.primary { background: var(--text); color: var(--base); border-color: var(--text); }
+    .btn.primary:hover { background: #fff; }
+
+    /* ---- chat ---------------------------------------------------------- */
+    .chat-rail {
+      width: 210px;
+      flex: none;
+      border-right: 1px solid var(--surface0);
+      padding: 18px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      overflow-y: auto;
+    }
+    .rail-item {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 11px;
+      border-radius: 5px;
+      font-family: inherit;
+      font-size: 13.5px;
+      background: none; border: none;
+      color: var(--subtext1);
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+    }
+    .rail-item:hover { background: var(--surface0); }
+    .rail-item.active { background: var(--surface0); color: var(--text); }
+    .rail-item .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rail-item .count { font-size: 11px; color: var(--overlay0); }
+
+    .chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .chat-head {
+      flex: none;
+      display: flex; align-items: center; gap: 13px;
+      padding: 15px 32px;
+      border-bottom: 1px solid var(--surface0);
+    }
+    .chat-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    .chat-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 32px 32px; }
+
+    /* One turn = one avatar plus everything that model turn produced.
+       Tool calls and their results are children of the turn, not
+       independent same-weight bubbles. */
+    .turn { display: flex; gap: 15px; padding: 22px 0; }
+    .turn + .turn { border-top: 1px solid var(--surface0); }
     .avatar {
-      flex: none; width: 22px; height: 22px; border-radius: 6px;
+      flex: none;
+      width: 27px; height: 27px;
+      border-radius: 7px;
+      background: var(--surface0);
       display: flex; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 600; margin-top: 1px;
+      font-size: 11px; font-weight: 600;
     }
-    .avatar-assistant { background: #24314f; color: #8fa8ff; }
-    .turn-body { min-width: 0; flex: 1; }
-    .bubble-text { white-space: pre-wrap; line-height: 1.5; }
-    .thinking {
-      margin-bottom: 6px; font-size: 12px; color: #6b7280;
+    .turn-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 11px; }
+    .bubble-text {
+      margin: 0;
+      font-size: var(--fs-body);
+      line-height: 1.7;
+      white-space: pre-wrap;
+      text-wrap: pretty;
     }
-    .thinking summary { cursor: pointer; }
+    .thinking { font-size: var(--fs-ui); color: var(--subtext0); }
+    .thinking summary { cursor: pointer; font-style: italic; }
     .thinking-text {
-      white-space: pre-wrap; font-style: italic; margin-top: 4px;
-      padding-left: 10px; border-left: 2px solid #1f242b;
+      white-space: pre-wrap;
+      margin-top: 7px;
+      padding-left: 12px;
+      border-left: 2px solid var(--surface0);
+      line-height: 1.6;
     }
-    .tool-call {
-      display: flex; align-items: baseline; gap: 6px; margin-top: 6px;
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;
-      color: #9aa4b2; padding-left: 2px;
+    .tool-call { border: 1px solid var(--surface0); border-radius: 7px; overflow: hidden; }
+    .tool-call summary {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 13px;
+      background: var(--mantle);
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .tool-name {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 13px;
+      color: var(--text);
+    }
+    .tool-call pre, .tool-result-row pre {
+      margin: 0;
+      padding: 12px 14px;
+      background: var(--crust);
+      border-top: 1px solid var(--surface0);
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: var(--fs-meta);
+      line-height: 1.65;
+      color: var(--subtext0);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     .tool-result-row {
-      display: flex; align-items: baseline; gap: 6px; margin-top: 2px;
-      margin-left: 14px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-      font-size: 11.5px; color: #6b7280; border-left: 2px solid #1f242b;
-      padding-left: 8px;
+      border-top: 1px solid var(--surface0);
+      background: var(--crust);
     }
-    .tool-icon { color: #4b5563; flex: none; }
-    .tool-icon.result { color: #384049; }
-    .tool-name { color: #c3cad6; }
-    .tool-call details, .tool-result-row details { color: inherit; }
-    .tool-call summary, .tool-result-row summary { cursor: pointer; }
-    .tool-call pre, .tool-result-row pre, .thinking pre {
-      background: #0e1013; padding: 8px; border-radius: 6px; overflow-x: auto;
-      white-space: pre-wrap; word-break: break-word; margin-top: 4px;
+    .tool-result-row summary {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 13px;
+      cursor: pointer;
+      font-size: var(--fs-meta);
+      color: var(--overlay2);
     }
-    .empty { color: #6b7280; font-size: 13px; padding: 12px; }
-    .icon-btn {
-      color: #9aa4b2; background: transparent; border: none; cursor: pointer;
-      font-size: 13px; padding: 4px 8px; border-radius: 6px;
-    }
-    .icon-btn:hover { color: #fff; background: #1b1f26; }
-    .key-chip {
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px;
-      padding: 3px 8px; border-radius: 6px; border: 1px solid #262b33;
-      cursor: pointer; color: #9aa4b2;
-    }
-    .key-chip.active { border-color: #6b8cff; color: #e7e5e2; }
-    .run-status-pill {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px;
-      letter-spacing: .03em; padding: 3px 10px; border-radius: 999px;
-      border: 1px solid #262b33; color: #9aa4b2; background: #14171c;
-    }
-    .run-status-pill .status-dot { margin-right: 0; }
-    .run-status-pill.gated { border-color: #22c55e; color: #22c55e; }
-    .run-status-pill.ungated { border-color: #d97706; color: #d97706; }
-    .run-status-pill.failed, .run-status-pill.crashed { border-color: #ef4444; color: #ef4444; }
-    .run-status-pill.running .status-dot { background: #4b5563; }
-    .problem-md { font-size: 13px; line-height: 1.55; }
-    .problem-md :is(h1,h2,h3) { font-weight: 600; margin: 14px 0 6px; }
-    .problem-md h1 { font-size: 16px; }
-    .problem-md h2 { font-size: 14.5px; }
-    .problem-md h3 { font-size: 13.5px; }
-    .problem-md p { margin: 8px 0; }
-    .problem-md ul, .problem-md ol { margin: 8px 0 8px 20px; }
-    .problem-md li { margin: 3px 0; }
-    .problem-md code {
-      background: #14171c; border-radius: 4px; padding: 1px 5px;
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;
-    }
-    .problem-md pre {
-      background: #0e1013; border: 1px solid #1c2027; border-radius: 6px;
-      padding: 10px; overflow-x: auto; margin: 8px 0;
-    }
-    .problem-md pre code { background: none; padding: 0; }
-    .problem-md a { color: #6b8cff; }
-    .problem-md blockquote {
-      border-left: 2px solid #262b33; margin: 8px 0; padding-left: 10px;
-      color: #9aa4b2;
-    }
+    .tool-result-row pre { border-top: 1px solid var(--surface0); }
 
-    .node-hover-card {
-      position: fixed; z-index: 30; width: 280px; max-width: calc(100vw - 24px);
-      overflow-y: auto; /* max-height is set inline, per hover (depends on top) */
-      background: #14171c; border: 1px solid #262b33; border-radius: 10px;
-      box-shadow: 0 12px 32px rgba(0,0,0,.45); padding: 12px;
-      font-family: ui-sans-serif, system-ui; font-size: 12.5px; text-align: left;
-      cursor: default;
-    }
-    .node-hover-card .hc-title {
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px;
-      font-weight: 600; color: #e7e5e2;
-    }
-    .node-hover-card .hc-role {
-      font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
-      color: #6b7280; margin-top: 1px;
-    }
-    .node-hover-card .hc-model {
-      display: inline-block; margin-top: 8px; font-size: 11px;
-      color: #8fa8ff; background: #1b2338; border-radius: 5px;
-      padding: 2px 7px;
-    }
-    .node-hover-card .hc-desc {
-      margin-top: 8px; color: #c3cad6; line-height: 1.45;
-    }
-    .node-hover-card .hc-label {
-      margin-top: 10px; font-size: 10.5px; text-transform: uppercase;
-      letter-spacing: .04em; color: #6b7280;
-    }
-    .node-hover-card .hc-tools {
-      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px;
-    }
-    .tool-badge {
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10.5px;
-      padding: 2px 6px; border-radius: 5px; background: #1b1f26;
-      border: 1px solid #262b33; color: #9aa4b2; cursor: help;
-    }
-    .node-hover-card .hc-prompt {
-      margin-top: 5px; max-height: 150px; overflow-y: auto;
-      background: #0e1013; border: 1px solid #1c2027; border-radius: 6px;
-      padding: 8px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-      font-size: 11px; white-space: pre-wrap; color: #9aa4b2; line-height: 1.4;
+    .empty { color: var(--overlay0); font-size: var(--fs-body); padding: 8px 0; }
+
+    .jump {
+      position: absolute;
+      right: 28px; bottom: 24px;
+      background: var(--surface0);
+      border: 1px solid var(--surface1);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 7px 15px;
+      font-family: inherit;
+      font-size: var(--fs-meta);
+      cursor: pointer;
     }
   </style>
 </head>
-<!-- No x-init="init()": Alpine already calls a data object's init()
-     method automatically, so declaring both ran it TWICE — two
-     EventSource connections and two full replays of the stream. -->
-<body x-data="viewerApp()" class="h-screen overflow-hidden flex flex-col">
+<!-- No x-init="init()": Alpine already calls a data object's init() method
+     automatically, so declaring both ran it TWICE — two EventSource
+     connections, two replays of the whole stream. Delegations hid it (they
+     collapse into a map by id); diagnostics are a list, and doubled. -->
+<body x-data="viewerApp()">
 
-  <header class="px-4 py-2 border-b border-[#1c2027] text-sm flex items-center gap-3 shrink-0">
-    <span class="font-semibold">a3dasm</span>
-    <span class="text-[#6b7280]">/</span>
-    <span class="font-mono">{{ run_id }}</span>
-    <span class="run-status-pill" :class="runStatusClass()" :title="runStatusTitle()">
-      <span class="status-dot" :class="runStatus === null ? 'running' : ''"></span>
-      <span x-text="runStatusLabel()"></span>
-    </span>
-    <button class="icon-btn ml-auto" @click="openProblemStatement()">Problem</button>
-  </header>
+  <!-- ================= status bar ================= -->
+  <div class="statusbar">
+    <div class="run-id">
+      <b>{{ study_name }}</b>
+      <span class="m">{{ run_id }}</span>
+    </div>
 
-  <main class="flex-1 relative overflow-auto p-8" id="graph-container">
-    <svg id="edges-svg" class="absolute inset-0 w-full h-full pointer-events-none"></svg>
-    <div class="relative flex flex-col items-center gap-16" id="graph-rows">
-      <template x-for="row in rows" :key="row.layer">
-        <div class="flex gap-10 justify-center flex-wrap">
-          <template x-for="node in row.nodes" :key="node.name">
-            <div class="node-card" :class="{ entry: node.is_entry, selected: node.name === selectedNode }"
-                 :data-node="node.name"
-                 @click="openNode(node)"
-                 @mouseenter="onNodeHover(node, $event)"
-                 @mouseleave="onNodeLeave()">
-              <span class="status-dot" :class="statusClass(node.name)"></span>
-              <span x-text="node.name"></span>
-              <div class="text-[11px] text-[#6b7280] mt-1" x-text="node.role"></div>
+    <div class="agent-strip">
+      <template x-for="node in stripNodes()" :key="node.name">
+        <button class="agent-chip" @click="openNode(node)"
+                :title="node.description">
+          <span :style="`color: ${identityColor(node)}`" x-text="node.name"></span>
+          <span class="dot" :class="nodeStatus[node.name] || ''"></span>
+        </button>
+      </template>
+    </div>
+
+    <div class="vitals">
+      <div class="outcome" :class="outcomeTone()">
+        <b x-text="outcomeLabel()"></b>
+        <span class="raw m" x-show="rawStatus()" x-text="rawStatus()"></span>
+      </div>
+      <div class="numbers">
+        <div>
+          <b class="m" x-text="wallLabel()"></b>
+          <span class="label">wall</span>
+        </div>
+        <div>
+          <b class="m" x-text="costLabel()"></b>
+          <span class="label">cost</span>
+        </div>
+        <div>
+          <b class="m" x-text="evalsLabel()"></b>
+          <span class="label">evals</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= tabs ================= -->
+  <div class="tabs">
+    <button class="tab" :class="{ active: tab === 'brief' }"
+            @click="setTab('brief')">Brief</button>
+    <button class="tab" :class="{ active: tab === 'overview' }"
+            @click="setTab('overview')">Overview</button>
+    <button class="tab" :class="{ active: tab === 'graph' }"
+            @click="setTab('graph')">Graph</button>
+    <button class="tab" :class="{ active: tab === 'chat' }"
+            @click="setTab('chat')">Chat</button>
+    <button class="tab" :class="{ active: tab === 'result' }"
+            @click="setTab('result')">Result</button>
+
+    <span class="m" style="margin-left:auto; align-self:center;
+                           font-size:11.5px; color:var(--overlay0)"
+          x-show="tab === 'result' && notebook && !notebook.missing"
+          x-text="notebookCaption()"></span>
+  </div>
+
+  <main>
+    <!-- ================= brief ================= -->
+    <div class="view" x-show="tab === 'brief'" x-cloak>
+      <div class="brief">
+        <div class="md" x-html="renderMarkdown(briefText)"></div>
+      </div>
+    </div>
+
+    <!-- ================= overview ================= -->
+    <div class="view" x-show="tab === 'overview'" x-cloak>
+      <div class="overview">
+        <div class="timeline">
+          <div class="timeline-head">
+            <span class="label">Timeline</span>
+            <span class="m" style="font-size:11px; color:var(--overlay0)"
+                  x-text="timelineRange()"></span>
+          </div>
+
+          <p class="empty" x-show="rows().length === 0">
+            No delegations recorded for this run.
+          </p>
+
+          <div class="lanes" x-show="rows().length > 0">
+            <div class="axis">
+              <template x-for="t in axisTicks()" :key="t.at">
+                <span :style="`left:${t.at}%`" class="m" x-text="t.label"></span>
+              </template>
+            </div>
+
+            <!-- One lane per AGENT, bars are that agent's delegations. A
+                 node with several delegations therefore reads as several
+                 bars on one line, rather than as unrelated anonymous rows. -->
+            <template x-for="lane in lanes()" :key="lane.name">
+              <div class="lane">
+                <span class="lane-name" :style="`color: ${identityColor(lane.node)}`"
+                      x-text="lane.name"></span>
+                <div class="track">
+                  <div class="track-base" :class="{ entry: lane.node.is_entry }"></div>
+                  <template x-for="bar in lane.bars" :key="bar.id">
+                    <button class="bar" :class="{ selected: bar.id === selectedDelegation }"
+                            :style="`left:${bar.left}%; width:${bar.width}%; ` +
+                                    `border-left-color:${identityColor(lane.node)}`"
+                            :title="bar.title"
+                            @click="selectDelegation(bar.id)">
+                      <span class="bar-id" x-text="bar.label"></span>
+                      <span class="bar-out" x-show="bar.outcome"
+                            :style="`color:${bar.outcomeColor}`"
+                            x-text="bar.outcome"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="deleg">
+          <template x-if="!currentDelegation()">
+            <div class="deleg-body">
+              <p class="empty">Pick a delegation above.</p>
+            </div>
+          </template>
+
+          <template x-if="currentDelegation()">
+            <div style="display:flex; flex-direction:column; min-height:0; flex:1">
+              <div class="deleg-head">
+                <span class="m" style="font-size:14px; font-weight:500"
+                      x-text="currentDelegation().id"></span>
+                <span style="font-size:13px; color:var(--overlay0)">
+                  from <span :style="`color:${identityColorFor(currentDelegation().from_node)}`"
+                             x-text="currentDelegation().from_node"></span>
+                  to <span :style="`color:${identityColorFor(currentDelegation().to_node)}`"
+                           x-text="currentDelegation().to_node"></span>
+                </span>
+                <span class="pill" :class="stateOf(currentDelegation())">
+                  <span class="dot" :class="stateOf(currentDelegation())"></span>
+                  <span x-text="delegOutcome(currentDelegation())"></span>
+                </span>
+                <span class="m" style="font-size:11.5px; color:var(--overlay0)"
+                      x-text="delegVitals(currentDelegation())"></span>
+                <button class="btn" style="margin-left:auto"
+                        @click="openNodeByName(currentDelegation().to_node,
+                                               currentDelegation().id)">
+                  Open chat
+                </button>
+              </div>
+
+              <div class="deleg-body">
+                <div style="display:flex; flex-direction:column; gap:8px">
+                  <span class="label">Task</span>
+                  <p class="task" x-text="currentDelegation().task"></p>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px"
+                     x-show="currentDelegation().deliverable">
+                  <span class="label">Report</span>
+                  <div class="md" style="max-width:92ch"
+                       x-html="renderMarkdown(currentDelegation().deliverable)"></div>
+                </div>
+                <p class="empty" x-show="!currentDelegation().deliverable">
+                  No report yet.
+                </p>
+              </div>
             </div>
           </template>
         </div>
+      </div>
+
+      <!-- ---- science ledger ---- -->
+      <aside class="ledger">
+        <section>
+          <div style="display:flex; align-items:baseline; gap:10px">
+            <span class="label">Hypotheses</span>
+            <span class="m" style="font-size:11px; color:var(--overlay0)"
+                  x-text="hypotheses.length || ''"></span>
+          </div>
+          <p class="empty" x-show="hypotheses.length === 0"
+             style="font-size:var(--fs-ui)">None registered.</p>
+
+          <template x-for="h in hypotheses" :key="h.id">
+            <div class="hyp">
+              <div class="hyp-head">
+                <span class="m" style="font-size:13px" x-text="h.id"></span>
+                <span class="st" :class="h.status" x-text="h.status.toLowerCase()"></span>
+                <span class="m" style="margin-left:auto; font-size:11px; color:var(--overlay0)"
+                      x-show="h.triggered_by"
+                      x-text="h.triggered_by"></span>
+              </div>
+              <p class="hyp-statement" x-text="h.statement"></p>
+              <div class="hyp-pred" x-show="h.prediction">
+                <span x-text="h.prediction"></span>
+              </div>
+              <!-- Popper's rule made visible: a hypothesis closed without a
+                   falsification attempt on record is a different epistemic
+                   object from one that survived a real test, and the run
+                   log knows which this is. -->
+              <div style="display:flex; align-items:center; gap:8px"
+                   x-show="h.status !== 'OPEN'">
+                <span class="dot" :class="attemptFor(h) ? 'done' : ''"></span>
+                <span style="font-size:var(--fs-meta); color:var(--subtext0)"
+                      x-text="attemptFor(h)
+                        ? `falsification attempt — ${attemptFor(h)}`
+                        : 'no falsification attempt on record'"></span>
+              </div>
+            </div>
+          </template>
+        </section>
+
+        <hr>
+
+        <section>
+          <span class="label">Milestones</span>
+          <p class="empty" x-show="milestones.length === 0"
+             style="font-size:var(--fs-ui)">None.</p>
+          <template x-for="m in milestones" :key="m.id">
+            <div class="ms">
+              <div class="ms-head">
+                <span class="m" style="font-size:12px; color:var(--overlay0)"
+                      x-text="m.id"></span>
+                <span style="flex:1; color:var(--subtext1)" x-text="m.key"></span>
+                <span class="st" :class="m.status" style="font-size:var(--fs-meta)"
+                      x-text="m.status.toLowerCase()"></span>
+              </div>
+              <p class="ms-note" x-show="m.note" x-text="m.note"></p>
+            </div>
+          </template>
+        </section>
+
+        <hr>
+
+        <section>
+          <div style="display:flex; align-items:baseline; gap:10px">
+            <span class="label">Monitor</span>
+            <span class="m" style="font-size:11px; color:var(--overlay0)"
+                  x-text="diagnostics.length || ''"></span>
+          </div>
+          <p class="empty" x-show="diagnostics.length === 0"
+             style="font-size:var(--fs-ui)">No events.</p>
+          <div class="diag">
+            <template x-for="(d, i) in diagnostics.slice().reverse()" :key="i">
+              <div class="diag-row">
+                <div class="diag-top">
+                  <span class="m" style="color:var(--overlay0)"
+                        x-text="clockOf(d.ts)"></span>
+                  <span :style="`color:${d.fault === 'agent'
+                        ? 'var(--peach)' : 'var(--red)'}`"
+                        x-text="(d.error_type || 'event').toLowerCase()"></span>
+                  <span class="m" style="color:var(--subtext0)" x-text="d.tool"></span>
+                  <span x-show="d.node"
+                        :style="`color:${identityColorFor(d.node)}`"
+                        x-text="d.node"></span>
+                </div>
+                <p class="diag-msg" x-text="d.message"></p>
+              </div>
+            </template>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <!-- ================= graph ================= -->
+    <div class="view" x-show="tab === 'graph'" x-cloak
+      <div class="graph-scroll">
+        <p class="empty" x-show="spec && spec.nodes.length === 0">
+          No graph structure available for this run.
+        </p>
+        <template x-if="spec">
+          <div class="graph-canvas"
+               :style="`width:${spec.canvas_w}px; height:${spec.canvas_h}px`">
+            <!-- Edges are drawn from the SAME server coordinates the node
+                 boxes are positioned with, at 1:1 px in a container of
+                 exactly canvas_w x canvas_h — so an edge can never
+                 disagree with the box it points at, and nothing needs
+                 re-measuring on resize. -->
+            <!-- Built as markup rather than with x-for: a <template>
+                 written inside <svg> is parsed in the SVG namespace, so it
+                 is not an HTMLTemplateElement and has no .content — Alpine
+                 then throws "importNode: parameter 1 is not of type Node"
+                 and every binding inside it silently fails. Rendering the
+                 whole <svg> through x-html on an HTML element keeps it in
+                 the HTML parser, where it works. -->
+            <div class="edges" x-html="edgesSvg()"></div>
+
+            <template x-for="node in spec.nodes" :key="node.name">
+              <button class="node"
+                      :class="{ entry: node.is_entry, selected: node.name === selectedNode }"
+                      :data-node="node.name"
+                      :style="`left:${node.x}px; top:${node.y}px; width:${spec.node_w}px; min-height:${spec.node_h}px`"
+                      @click="openNode(node)"
+                      @mouseenter="onNodeHover(node, $event)"
+                      @mouseleave="onNodeLeave()">
+                <span class="node-name" :style="`color: ${identityColor(node)}`"
+                      x-text="node.name"></span>
+                <span class="node-sub" x-text="nodeSubtitle(node)"></span>
+              </button>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ================= chat ================= -->
+    <div class="view" x-show="tab === 'chat'" x-cloak>
+      <div class="chat-rail">
+        <span class="label" style="padding: 0 11px 9px">Agents</span>
+        <template x-for="node in stripNodes()" :key="node.name">
+          <button class="rail-item" :class="{ active: node.name === selectedNode }"
+                  @click="openNode(node)">
+            <span class="grow" :style="`color: ${identityColor(node)}`"
+                  x-text="node.name"></span>
+            <span class="dot" :class="nodeStatus[node.name] || ''"></span>
+          </button>
+        </template>
+
+        <template x-if="availableKeys.length > 1">
+          <div style="display:flex; flex-direction:column; gap:3px; margin-top:18px">
+            <span class="label" style="padding: 0 11px 9px">Transcripts</span>
+            <template x-for="k in availableKeys" :key="k">
+              <button class="rail-item" :class="{ active: k === currentKey }"
+                      @click="openTranscript(selectedNode, k)">
+                <span class="grow m" style="font-size:12px" x-text="k"></span>
+              </button>
+            </template>
+          </div>
+        </template>
+      </div>
+
+      <div class="chat-main">
+        <div class="chat-head">
+          <h2 :style="`color: ${identityColorFor(selectedNode)}`"
+              x-text="selectedNode || 'No agent selected'"></h2>
+          <span class="m" style="font-size:12px; color:var(--overlay0)"
+                x-text="currentKey"></span>
+          <button class="btn" style="margin-left:auto; padding:6px 12px;
+                                     font-size:var(--fs-meta)"
+                  x-show="selectedNode"
+                  @click="openProfileByName(selectedNode)">View profile</button>
+        </div>
+        <div class="chat-body" id="bubble-container" @scroll="onBubbleScroll($event)">
+          <p class="empty" x-show="!selectedNode">
+            Pick an agent to read its transcript.
+          </p>
+          <p class="empty" x-show="selectedNode && availableKeys.length === 0">
+            No transcript on disk for this agent yet.
+          </p>
+          <div x-ref="bubbles"></div>
+        </div>
+        <button class="jump" x-show="showJumpToNew" x-cloak
+                @click="scrollToBottom()">↓ new</button>
+      </div>
+    </div>
+    <!-- ================= agent profile ================= -->
+    <div class="view" x-show="tab === 'profile'" x-cloak>
+      <template x-if="profileNode()">
+        <div class="profile">
+          <div class="profile-head">
+            <button class="btn" style="padding:8px 11px; margin-top:4px"
+                    @click="setTab(returnTab)" title="Back">&larr;</button>
+            <div style="display:flex; flex-direction:column; gap:7px">
+              <div style="display:flex; align-items:center; gap:13px">
+                <h1 :style="`color: ${identityColor(profileNode())}`"
+                    x-text="profileNode().name"></h1>
+                <span class="dot" :class="nodeStatus[profileNode().name] || ''"></span>
+              </div>
+              <p class="profile-desc" x-text="profileNode().description"></p>
+            </div>
+            <div style="margin-left:auto; display:flex; gap:10px; margin-top:4px">
+              <button class="btn" @click="setTab('graph')">View on graph</button>
+              <button class="btn primary" @click="openNode(profileNode())">Open chat</button>
+            </div>
+          </div>
+
+          <div class="profile-body">
+            <div class="profile-left">
+              <div style="flex:none; padding:24px 32px 20px; display:flex;
+                          flex-direction:column; gap:20px">
+                <div class="facts">
+                  <span>model</span><span x-text="profileNode().model"></span>
+                  <span>backend</span><span x-text="spec.backend || '(default)'"></span>
+                  <span>role</span><span x-text="profileNode().role"></span>
+                  <span>this run</span><span x-text="runStatsFor(profileNode().name)"></span>
+                </div>
+                <hr style="border:none; border-top:1px solid var(--surface0); margin:0">
+                <div style="display:flex; align-items:baseline; gap:10px">
+                  <span class="label">Tools</span>
+                  <span class="m" style="font-size:11.5px; color:var(--overlay0)"
+                        x-text="profileNode().tools.length"></span>
+                </div>
+              </div>
+
+              <div style="flex:1; min-height:0; overflow-y:auto; padding:0 32px 28px">
+                <div class="tools">
+                  <template x-for="t in profileNode().tools" :key="t">
+                    <div class="tool">
+                      <b x-text="displayToolName(t)" :title="t"></b>
+                      <span :class="toolDocs[t] ? '' : 'undocumented'"
+                            x-text="toolDocs[t] || 'no description available'"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <!-- min-height:0 is load-bearing: a grid item defaults to
+                 min-height:auto, so without it this column refuses to
+                 shrink and .prompt-scroll never scrolls — a 30 000-character
+                 system prompt then runs off the bottom of the page. -->
+            <div style="display:flex; flex-direction:column; min-width:0; min-height:0">
+              <div style="flex:none; padding:24px 40px 14px; display:flex;
+                          align-items:baseline; gap:12px">
+                <span class="label">System prompt</span>
+                <span class="m" style="font-size:11.5px; color:var(--overlay0)"
+                      x-text="promptSize(profileNode())"></span>
+                <button class="btn" style="margin-left:auto; padding:6px 12px;
+                                           font-size:var(--fs-meta)"
+                        @click="copyPrompt(profileNode())"
+                        x-text="copied ? 'Copied' : 'Copy'"></button>
+              </div>
+              <div class="prompt-scroll">
+                <pre class="prompt" x-text="profileNode().system_prompt
+                     || 'This agent was given no system prompt.'"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
       </template>
     </div>
-    <p class="empty" x-show="rows.length === 0">
-      No graph structure available for this run.
-    </p>
+
+    <!-- ================= result ================= -->
+    <div class="view" x-show="tab === 'result'" x-cloak>
+      <div class="nb">
+        <p class="empty" x-show="notebook === null">Loading…</p>
+
+        <!-- "No deliverable" is a real finding about the run, not an empty
+             state to hide: the reproduction gate has nothing to act on. -->
+        <template x-if="notebook && notebook.missing">
+          <div style="max-width:70ch; display:flex; flex-direction:column; gap:10px">
+            <p style="margin:0; font-size:16px">No deliverable notebook for this run.</p>
+            <p style="margin:0; font-size:var(--fs-body); line-height:1.6;
+                      color:var(--subtext0)">
+              Either the agent never wrote one, or it was overwritten by a
+              later run without being archived under this run's id.
+            </p>
+          </div>
+        </template>
+
+        <template x-if="notebook && notebook.error">
+          <p class="empty" style="color:var(--red)" x-text="notebook.error"></p>
+        </template>
+
+        <div class="nb-inner" x-show="notebook && notebook.cells.length">
+          <template x-for="(cell, i) in (notebook ? notebook.cells : [])" :key="i">
+            <div class="nb-cell">
+              <template x-if="cell.type === 'markdown'">
+                <div class="nb-md md" x-html="renderMarkdown(cell.source)"></div>
+              </template>
+
+              <template x-if="cell.type === 'code'">
+                <div style="display:contents">
+                  <div class="nb-gutter"
+                       :style="cell.execution_count === null
+                               ? 'color: var(--text)' : ''"
+                       x-text="cell.execution_count === null
+                               ? '[*]' : `[${cell.execution_count}]`"></div>
+                  <div class="nb-code">
+                    <pre class="nb-src" x-text="cell.source"></pre>
+                    <template x-for="(out, j) in cell.outputs" :key="j">
+                      <div class="nb-out" :class="out.kind === 'error' ? 'error' : ''">
+                        <template x-if="out.kind === 'image'">
+                          <img :src="`data:${out.mime};base64,${out.data}`" alt="">
+                        </template>
+                        <template x-if="out.kind === 'image_too_large'">
+                          <pre x-text="`(${out.mime} output too large to display)`"></pre>
+                        </template>
+                        <template x-if="out.kind === 'error'">
+                          <pre x-text="`${out.ename}: ${out.evalue}\n\n${out.text}`"></pre>
+                        </template>
+                        <template x-if="out.kind === 'stream' || out.kind === 'text'">
+                          <pre x-text="out.text"></pre>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
   </main>
 
-  <!-- Node info hover card: fixed-positioned (not nested in the scrollable
-       graph container) so it can never be clipped by main's overflow-auto. -->
-  <div x-show="hoverNode !== null" x-cloak
-       class="node-hover-card" :style="hoverStyle"
+  <!-- ================= node hover card =================
+       Orientation only: who this agent is and what it runs on. The full
+       system prompt and the described tool list are far too much for a
+       popover (a real run has a 30KB prompt and 20+ tools) — hover
+       orients, click reads. -->
+  <div class="hovercard" x-show="hoverNode" x-cloak :style="hoverStyle"
        @mouseenter="onPopoverEnter()" @mouseleave="onPopoverLeave()">
     <template x-if="hoverNode">
-      <div>
-        <div class="hc-title" x-text="hoverNode.name"></div>
-        <div class="hc-role" x-text="hoverNode.role"></div>
-        <span class="hc-model" x-text="hoverNode.model"></span>
-        <div class="hc-desc" x-text="hoverNode.description || '(no description)'"></div>
-        <div class="hc-label">Tools (<span x-text="hoverNode.tools.length"></span>)</div>
-        <div class="hc-tools">
-          <template x-for="t in hoverNode.tools" :key="t">
-            <span class="tool-badge" :title="toolDocs[t] || '(no description)'"
-                  x-text="displayToolName(t)"></span>
-          </template>
+      <div style="display:flex; flex-direction:column; gap:15px">
+        <div style="display:flex; flex-direction:column; gap:6px">
+          <h3 :style="`color: ${identityColor(hoverNode)}`" x-text="hoverNode.name"></h3>
+          <p x-text="hoverNode.description"></p>
         </div>
-        <div class="hc-label">System prompt</div>
-        <div class="hc-prompt" x-text="hoverNode.system_prompt || '(none)'"></div>
+        <div class="hc-facts">
+          <div><span>model</span><span x-text="hoverNode.model"></span></div>
+          <div><span>role</span><span x-text="hoverNode.role"></span></div>
+          <div><span>this run</span><span x-text="runStatsFor(hoverNode.name)"></span></div>
+        </div>
+        <div style="display:flex; gap:9px">
+          <button class="btn primary" @click="openNode(hoverNode)">Open chat</button>
+          <button class="btn" @click="openProfile(hoverNode)">View profile</button>
+        </div>
       </div>
     </template>
-  </div>
-
-  <!-- Problem statement modal -->
-  <div x-show="problemOpen" x-cloak
-       class="fixed inset-0 bg-black/60 flex items-center justify-center z-20"
-       @click.self="problemOpen = false" @keydown.window.escape="problemOpen = false">
-    <div class="bg-[#0e1013] border border-[#262b33] rounded-xl max-w-2xl w-full mx-4 h-[70vh] flex flex-col">
-      <div class="flex items-center px-4 py-2 border-b border-[#1c2027] text-sm shrink-0">
-        <span>Problem statement</span>
-        <button class="icon-btn ml-auto" @click="problemOpen = false">✕</button>
-      </div>
-      <div class="problem-md p-4 overflow-y-auto flex-1 min-h-0" x-html="renderedProblemHtml()"></div>
-    </div>
-  </div>
-
-  <!-- Docked/maximizable transcript panel -->
-  <div x-show="panelOpen" x-cloak
-       class="panel-transition fixed bg-[#0e1013] border-t border-[#1c2027] shadow-2xl flex flex-col z-10"
-       :class="maximized ? 'inset-0' : 'bottom-0 inset-x-0 h-2/5'"
-       @keydown.window.escape="onEscape()">
-    <div class="flex items-center gap-3 px-4 py-2 border-b border-[#1c2027] text-sm shrink-0">
-      <span class="font-mono" x-text="panelTitle"></span>
-      <template x-if="availableKeys.length > 1">
-        <div class="flex gap-1">
-          <template x-for="k in availableKeys" :key="k">
-            <span class="key-chip" :class="{ active: k === currentKey }"
-                  @click="openTranscript(selectedNode, k)" x-text="k"></span>
-          </template>
-        </div>
-      </template>
-      <button class="icon-btn ml-auto" @click="maximized = !maximized"
-              title="Toggle maximize (Esc to restore/close)">
-        <span x-text="maximized ? '⤡' : '⤢'"></span>
-      </button>
-      <button class="icon-btn" @click="closePanel()" title="Close">✕</button>
-    </div>
-    <div class="overflow-y-auto p-4 flex-1 relative"
-         id="bubble-container"
-         @scroll="onBubbleScroll($event)">
-      <div x-ref="bubbles"></div>
-      <p class="empty" x-show="availableKeys.length === 0">
-        No delegations yet for this node.
-      </p>
-    </div>
-    <button x-show="showJumpToNew" @click="scrollToBottom()"
-            class="absolute bottom-4 right-4 bg-[#1b1f26] border border-[#262b33] rounded-full px-3 py-1 text-xs">
-      ↓ new
-    </button>
   </div>
 
   <script>
     function viewerApp() {
       return {
         runId: {{ run_id | tojson }},
-        rows: [],
-        edges: [],
-        nodeStatus: {},       // node name -> "running" | "done" | "failed"
+        tab: 'overview',
+        spec: null,
+        toolDocs: {},
+
+        // Wall-clock reference for in-flight bars. Ticks only while the run
+        // is open — a finished run's chart must not keep stretching to the
+        // right forever after the last delegation closed.
+        now: Date.now(),
+        _clock: null,
+        selectedDelegation: null,
+
+        notebook: null,
+        // Which agent the profile view is showing, and where the back
+        // button returns to — a profile is always opened FROM somewhere.
+        profileName: null,
+        returnTab: 'graph',
+        copied: false,
+        hypotheses: [],
+        milestones: [],
+        diagnostics: [],
+        _ledgerPoll: null,
+
+        // node name -> "running" | "done" | "failed"
+        nodeStatus: {},
+        // delegation id -> collapsed row, so re-emitted rows update in
+        // place rather than double-counting cost.
+        delegations: {},
+
         selectedNode: null,
         availableKeys: [],
         currentKey: null,
-        panelOpen: false,
-        maximized: false,
-        panelTitle: '',
         renderedCount: 0,
         stickToBottom: true,
         showJumpToNew: false,
-        problemOpen: false,
-        problemText: '',
         _pollHandle: null,
-        // null = still running (run_status.json doesn't exist yet, written
-        // only once at the very end); otherwise the parsed run_status.json
-        // object, e.g. {status: "GATED"} or {status: "FAILED", stop_reason: "..."}.
+
+        // null = run has not closed yet. run_status.json is written exactly
+        // once, at the very end, so its ABSENCE is the only "still running"
+        // signal that exists — not evidence of health.
         runStatus: null,
-        toolDocs: {},          // tool name -> docstring, for the hover badges
-        hoverNode: null,       // the node dict currently shown in the hover card
+
+        briefText: null,
+        hoverNode: null,
         hoverStyle: '',
         _hoverHideTimer: null,
 
@@ -317,144 +1225,484 @@
           fetch(`/api/runs/${this.runId}/graph`)
             .then(r => r.json())
             .then(spec => {
-              this.edges = spec.edges;
+              this.spec = spec;
               this.toolDocs = spec.tool_docs || {};
-              const byLayer = {};
-              for (const n of spec.nodes) {
-                (byLayer[n.layer] ||= []).push(n);
-              }
-              this.rows = Object.keys(byLayer).sort((a, b) => a - b)
-                .map(l => ({ layer: l, nodes: byLayer[l].sort((a, b) => a.name.localeCompare(b.name)) }));
-              this.$nextTick(() => this.drawEdges());
             });
 
           const es = new EventSource(`/api/runs/${this.runId}/stream`);
           es.addEventListener('delegation', (ev) => {
             const row = JSON.parse(ev.data);
-            const label = row.status === 'RUNNING' ? 'running'
-              : row.status.includes('FAIL') ? 'failed' : 'done';
-            this.nodeStatus[row.to_node] = label;
-            // A node currently open in the panel just finished: one last
-            // fetch to pick up any trailing content, then stop polling —
-            // no reason to keep hitting a delegation that's done/failed.
-            if (row.to_node === this.selectedNode && label !== 'running') {
+            this.delegations[row.id] = row;
+            this.nodeStatus[row.to_node] = this.stateOf(row);
+            if (row.to_node === this.selectedNode
+                && this.stateOf(row) !== 'running') {
               this.fetchMore(() => this.stopPolling());
             }
+          });
+          es.addEventListener('diagnostic', (ev) => {
+            this.diagnostics.push(JSON.parse(ev.data));
           });
 
           es.addEventListener('run_status', (ev) => {
             this.runStatus = JSON.parse(ev.data);
+            this.stopClock();
+            // One last read: the ledger's final state can be written after
+            // the last delegation row and before the run closes.
+            this.loadLedger();
+            if (this._ledgerPoll) {
+              clearInterval(this._ledgerPoll);
+              this._ledgerPoll = null;
+            }
           });
 
-          window.addEventListener('resize', () => this.drawEdges());
+          this.loadLedger();
+          // Polled, not streamed: both ledgers are whole-file rewrites
+          // rather than append-only logs, so there is nothing to tail.
+          this._ledgerPoll = setInterval(() => this.loadLedger(), 5000);
+
+          this._clock = setInterval(() => {
+            if (this.runStatus === null) this.now = Date.now();
+          }, 1000);
         },
 
-        statusClass(name) {
-          return this.nodeStatus[name] || '';
+        loadLedger() {
+          fetch(`/api/runs/${this.runId}/ledger`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+              if (!d) return;
+              this.hypotheses = d.hypotheses;
+              this.milestones = d.milestones;
+            })
+            .catch(() => {});
+        },
+
+        // A hypothesis closed WITHOUT a falsification attempt on record is a
+        // different epistemic object from one that survived a real test.
+        // The link is the delegation log's own is_falsification_attempt
+        // flag joined on hypothesis_ids — never inferred from the fact that
+        // a delegation happened to mention the hypothesis.
+        attemptFor(h) {
+          const hit = this.rows().find(d =>
+            d.is_falsification_attempt
+            && (d.hypothesis_ids || []).includes(h.id));
+          return hit ? hit.id : null;
+        },
+
+        clockOf(ts) {
+          const t = Date.parse(ts);
+          return isNaN(t) ? '' : new Date(t).toISOString().slice(11, 19);
+        },
+
+        stopClock() {
+          if (this._clock) {
+            clearInterval(this._clock);
+            this._clock = null;
+          }
+        },
+
+        // ---- state (warm channel) ----------------------------------------
+        stateOf(row) {
+          const s = (row.status || '').toUpperCase();
+          if (s === 'RUNNING') return 'running';
+          if (s.includes('FAIL')) return 'failed';
+          return 'done';
+        },
+
+        // ---- identity (cool channel) -------------------------------------
+        // The entry node is deliberately outside the ramp: it is the only
+        // node that can reach the operator, so it reads as neutral rather
+        // than as one agent among peers.
+        identityColor(node) {
+          if (!node || node.identity < 0) return 'var(--text)';
+          return `var(--id${node.identity % 6})`;
+        },
+
+        stripNodes() {
+          if (!this.spec) return [];
+          return [...this.spec.nodes].sort(
+            (a, b) => a.layer - b.layer || a.name.localeCompare(b.name));
+        },
+
+        nodeSubtitle(node) {
+          const mine = Object.values(this.delegations)
+            .filter(d => d.to_node === node.name);
+          if (node.is_entry) return 'entry · talks to you';
+          if (mine.length === 0) return node.role;
+          const running = mine.filter(d => this.stateOf(d) === 'running').length;
+          const n = `${mine.length} delegation${mine.length === 1 ? '' : 's'}`;
+          return running ? `${n} · ${running} running` : n;
+        },
+
+        // ---- outcome, in words -------------------------------------------
+        // "GATED" is internal vocabulary for "the critic's acceptance gate
+        // passed". Nobody outside this codebase can know that, so the bar
+        // says what happened and keeps the raw token as provenance.
+        outcomeLabel() {
+          if (this.runStatus === null) return 'Running';
+          const s = (this.runStatus.status || '').toUpperCase();
+          if (s === 'GATED') return 'Accepted';
+          if (s === 'UNGATED') return 'Not accepted';
+          if (s === 'FAILED') return 'Failed';
+          if (s === 'CRASHED') return 'Crashed';
+          return this.runStatus.status;
+        },
+
+        rawStatus() {
+          return this.runStatus === null ? '' : (this.runStatus.status || '');
+        },
+
+        outcomeTone() {
+          if (this.runStatus === null) return '';
+          const s = (this.runStatus.status || '').toUpperCase();
+          if (s === 'GATED') return 'accepted';
+          if (s === 'FAILED' || s === 'CRASHED') return 'failed';
+          return '';
+        },
+
+        // ---- vitals -------------------------------------------------------
+        // Sourced from the delegation rows the run itself wrote, so these
+        // are the run's own numbers, not the viewer's arithmetic on clocks.
+        rows() { return Object.values(this.delegations); },
+
+        wallLabel() {
+          const secs = Math.max(
+            0, ...this.rows().map(d => (d.constraints || {}).wall_elapsed_s || 0));
+          if (!secs) return '—';
+          const m = Math.floor(secs / 60);
+          const s = Math.floor(secs % 60);
+          return m ? `${m}m ${s}s` : `${s}s`;
+        },
+
+        costLabel() {
+          const total = this.rows()
+            .reduce((acc, d) => acc + (d.cost_usd || 0), 0);
+          return total ? `$${total.toFixed(2)}` : '—';
+        },
+
+        evalsLabel() {
+          const used = Math.max(
+            0, ...this.rows().map(d => (d.constraints || {}).evals_used || 0));
+          const budget = this.rows()
+            .map(d => (d.constraints || {}).eval_budget)
+            .find(b => b !== null && b !== undefined);
+          return budget ? `${used}/${budget}` : `${used}`;
+        },
+
+        // ---- timeline -----------------------------------------------------
+        // Lanes are agents and bars are delegations, so a node that received
+        // several delegations reads as several bars on ONE line. The
+        // alternative (one row per delegation) loses the agent as an axis
+        // entirely and repeats its name down the chart.
+        _span() {
+          const rows = this.rows();
+          const starts = rows.map(d => Date.parse(d.started_at))
+            .filter(t => !isNaN(t));
+          if (starts.length === 0) return null;
+          const t0 = Math.min(...starts);
+          const ends = rows.map(d => d.completed_at
+            ? Date.parse(d.completed_at) : this.now);
+          const t1 = Math.max(t0 + 1000, ...ends.filter(t => !isNaN(t)));
+          return { t0, t1, dur: t1 - t0 };
+        },
+
+        timelineRange() {
+          const s = this._span();
+          if (!s) return '';
+          const fmt = ms => new Date(ms).toISOString().slice(11, 19);
+          return this.runStatus === null
+            ? `${fmt(s.t0)} → now`
+            : `${fmt(s.t0)} → ${fmt(s.t1)}`;
+        },
+
+        axisTicks() {
+          const s = this._span();
+          if (!s) return [];
+          const total = s.dur / 1000;
+          // A round step that yields four or five ticks at any run length,
+          // from a 20-second smoke test to a multi-hour campaign.
+          const steps = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+          const step = steps.find(v => total / v <= 5) || 7200;
+          const out = [];
+          for (let t = 0; t <= total; t += step) {
+            const label = step >= 60 ? `${Math.round(t / 60)}m` : `${t}s`;
+            out.push({ at: (t / total) * 100, label: t === 0 ? '0' : label });
+          }
+          return out;
+        },
+
+        lanes() {
+          const s = this._span();
+          if (!s || !this.spec) return [];
+          return this.stripNodes().map(node => {
+            const bars = this.rows()
+              .filter(d => d.to_node === node.name)
+              .sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at))
+              .map(d => {
+                const start = Date.parse(d.started_at);
+                const end = d.completed_at ? Date.parse(d.completed_at) : this.now;
+                const left = ((start - s.t0) / s.dur) * 100;
+                const width = Math.max(1.2, ((end - start) / s.dur) * 100);
+                const state = this.stateOf(d);
+                return {
+                  id: d.id,
+                  label: this.delegLabel(d),
+                  left: Math.max(0, Math.min(100, left)),
+                  width: Math.min(100 - Math.max(0, left), width),
+                  outcome: this.gateOutcome(d),
+                  outcomeColor: state === 'failed'
+                    ? 'var(--red)' : 'var(--green)',
+                  title: `${d.id}: ${(d.task || '').slice(0, 160)}`,
+                };
+              });
+            return { name: node.name, node, bars };
+          });
+        },
+
+        // A gate check is a delegation like any other on disk, but "GATE…"
+        // is an internal id shape, so the chart says what it was.
+        delegLabel(d) {
+          return String(d.id).startsWith('GATE') ? 'review' : d.id;
+        },
+
+        gateOutcome(d) {
+          const s = (d.status || '').toUpperCase();
+          if (!s.startsWith('GATE:')) return '';
+          return s.endsWith('PASS') ? 'passed' : s.slice(5).toLowerCase();
+        },
+
+        delegOutcome(d) {
+          const s = (d.status || '').toUpperCase();
+          if (s.startsWith('GATE:')) return this.gateOutcome(d);
+          return this.stateOf(d);
+        },
+
+        delegVitals(d) {
+          const bits = [];
+          if (d.started_at && d.completed_at) {
+            const secs = (Date.parse(d.completed_at)
+              - Date.parse(d.started_at)) / 1000;
+            bits.push(secs >= 60
+              ? `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`
+              : `${Math.round(secs)}s`);
+          }
+          if (d.cost_usd) bits.push(`$${d.cost_usd.toFixed(3)}`);
+          if (d.tokens_out) bits.push(`${d.tokens_out} tokens out`);
+          return bits.join(' · ');
+        },
+
+        selectDelegation(id) { this.selectedDelegation = id; },
+        currentDelegation() {
+          return this.delegations[this.selectedDelegation] || null;
+        },
+
+        identityColorFor(name) {
+          const n = (this.spec ? this.spec.nodes : [])
+            .find(x => x.name === name);
+          return this.identityColor(n);
+        },
+
+        openNodeByName(name, key) {
+          const node = (this.spec ? this.spec.nodes : [])
+            .find(x => x.name === name);
+          if (!node) return;
+          this.openNode(node, key);
+        },
+
+        // ---- tabs ---------------------------------------------------------
+        setTab(t) {
+          this.tab = t;
+          if (t === 'brief' && this.briefText === null) this.loadBrief();
+          if (t === 'result') this.loadNotebook();
+        },
+
+        // Re-read on every visit rather than caching: the implementer
+        // writes this file cell by cell during a live run, so a cached copy
+        // would silently go stale exactly when it matters most.
+        loadNotebook() {
+          fetch(`/api/runs/${this.runId}/notebook`)
+            .then(r => r.ok ? r.json() : { cells: [], missing: true })
+            .then(nb => { this.notebook = nb; })
+            .catch(() => { this.notebook = { cells: [], missing: true }; });
+        },
+
+        // ---- agent profile -------------------------------------------------
+        // Hover orients, click reads: the popover carries identity and a way
+        // in, and everything long — the full prompt, every tool with its
+        // description — lives here, at a real reading width.
+        openProfile(node) {
+          clearTimeout(this._hoverHideTimer);
+          this.hoverNode = null;
+          this.profileName = node.name;
+          this.copied = false;
+          if (this.tab !== 'profile') this.returnTab = this.tab;
+          this.tab = 'profile';
+        },
+
+        openProfileByName(name) {
+          const node = (this.spec ? this.spec.nodes : [])
+            .find(n => n.name === name);
+          if (node) this.openProfile(node);
+        },
+
+        profileNode() {
+          if (!this.spec || !this.profileName) return null;
+          return this.spec.nodes.find(n => n.name === this.profileName) || null;
+        },
+
+        runStatsFor(name) {
+          const mine = this.rows().filter(d => d.to_node === name);
+          if (mine.length === 0) return 'no delegations';
+          const cost = mine.reduce((a, d) => a + (d.cost_usd || 0), 0);
+          const n = `${mine.length} delegation${mine.length === 1 ? '' : 's'}`;
+          return cost ? `${n} · $${cost.toFixed(2)}` : n;
+        },
+
+        promptSize(node) {
+          const p = node.system_prompt || '';
+          if (!p) return '';
+          const words = p.trim().split(/\s+/).length;
+          return `${words.toLocaleString()} words`;
+        },
+
+        copyPrompt(node) {
+          const text = node.system_prompt || '';
+          if (!text || !navigator.clipboard) return;
+          navigator.clipboard.writeText(text).then(() => {
+            this.copied = true;
+            setTimeout(() => { this.copied = false; }, 1500);
+          }).catch(() => {});
         },
 
         displayToolName(name) {
-          // Mirrors the server's own _display_tool_name(): strip a leading
-          // mcp__<server>__ registration prefix for readability. The raw
-          // name is still what the badge's title tooltip carries the doc
-          // under (looked up by the FULL name in toolDocs).
-          const m = name.match(/^mcp__[^_]+(?:_[^_]+)*__(.+)$/);
+          // Mirrors the server's _display_tool_name(): strip the
+          // mcp__<server>__ registration prefix, which is noise the reader
+          // would otherwise strip mentally on every line. The raw name
+          // stays in the title attribute and is what toolDocs is keyed on.
+          const m = String(name).match(/^mcp__[^_]+(?:_[^_]+)*__(.+)$/);
           return m ? m[1] : name;
         },
 
+        notebookCaption() {
+          if (!this.notebook || !this.notebook.cells) return '';
+          const n = this.notebook.cells.length;
+          const name = (this.notebook.path || '').split('/').pop();
+          // Says which FILE is on screen, because an archived notebook and
+          // the live one are different files with the same story.
+          return `${name} · ${n} cell${n === 1 ? '' : 's'}`;
+        },
+
+        loadBrief() {
+          this.briefText = '';
+          fetch(`/api/runs/${this.runId}/problem_statement`)
+            .then(r => r.ok
+              ? r.json().then(d => d.text)
+              : r.json().then(e => `*${e.error}*`))
+            .then(text => { this.briefText = text; });
+        },
+
+        // Markdown, rendered without an HTML-injection path and without a
+        // sanitizer dependency: HTML is escaped FIRST, then parsed as
+        // markdown. Escaping only touches < > &, which markdown syntax
+        // never uses, so headings, lists and code fences all still work —
+        // while any literal markup in the text (an agent's tool output can
+        // contain arbitrary fetched web content) renders as visible text
+        // rather than executing.
+        renderMarkdown(text) {
+          if (!text) return '';
+          const escaped = String(text)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;');
+          return marked.parse(escaped);
+        },
+
+        // ---- graph edges --------------------------------------------------
+        edgesSvg() {
+          if (!this.spec) return '';
+          const w = this.spec.canvas_w, h = this.spec.canvas_h;
+          // Colour goes through style="", not a presentation attribute:
+          // var() resolves in a CSS declaration, not in stroke="var(--id0)".
+          const body = this.edgePaths().map(e =>
+            `<path d="${e.d}" style="stroke:${e.color};fill:none" ` +
+            `stroke-width="1.8" opacity="0.85"/>` +
+            `<circle cx="${e.tipX}" cy="${e.tipY}" r="3" ` +
+            `style="fill:${e.color}"/>`
+          ).join('');
+          return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" ` +
+                 `role="img" aria-label="Agent graph">${body}</svg>`;
+        },
+
+        edgePaths() {
+          if (!this.spec) return [];
+          const by = {};
+          for (const n of this.spec.nodes) by[n.name] = n;
+          const w = this.spec.node_w, h = this.spec.node_h;
+          const out = [];
+          for (const e of this.spec.edges) {
+            const s = by[e.source], t = by[e.target];
+            if (!s || !t) continue;
+            const x1 = s.x + w / 2, y1 = s.y + h;
+            const x2 = t.x + w / 2, y2 = t.y;
+            const mid = (y1 + y2) / 2;
+            out.push({
+              d: `M ${x1},${y1} C ${x1},${mid} ${x2},${mid} ${x2},${y2}`,
+              color: this.identityColor(t),
+              tipX: x2, tipY: y2,
+            });
+          }
+          return out;
+        },
+
+        // ---- hover --------------------------------------------------------
         onNodeHover(node, ev) {
           clearTimeout(this._hoverHideTimer);
-          const rect = ev.currentTarget.getBoundingClientRect();
-          const cardWidth = 280;
-          let left = rect.left;
-          if (left + cardWidth > window.innerWidth - 12) {
-            left = window.innerWidth - cardWidth - 12;
+          const r = ev.currentTarget.getBoundingClientRect();
+          const cardW = 340;
+          let left = r.left;
+          if (left + cardW > window.innerWidth - 12) {
+            left = window.innerWidth - cardW - 12;
           }
-          // Clamp top too: a node with many tools/a long system prompt can
-          // produce a tall card, so starting it too low would leave almost
-          // nothing visible above the fold. max-height is set here (not in
-          // CSS) because it depends on `top` itself -- the card must never
-          // extend past the viewport bottom regardless of where it starts.
-          const top = Math.min(rect.bottom + 8, window.innerHeight - 100);
-          const maxHeight = window.innerHeight - top - 12;
+          const top = Math.min(r.bottom + 8, window.innerHeight - 120);
           this.hoverStyle =
-            `top:${top}px; left:${Math.max(12, left)}px; max-height:${maxHeight}px;`;
+            `left:${Math.max(12, left)}px; top:${top}px; ` +
+            `max-height:${window.innerHeight - top - 12}px; overflow-y:auto;`;
           this.hoverNode = node;
         },
 
+        // A grace period: the pointer crosses a gap between the node and the
+        // card below it, which would otherwise hide the card before it
+        // arrives.
         onNodeLeave() {
-          // A short grace period: the mouse crosses a gap between the node
-          // card and the popover below it, which would otherwise fire this
-          // leave and immediately hide the card before the mouse arrives.
           this._hoverHideTimer = setTimeout(() => { this.hoverNode = null; }, 150);
         },
+        onPopoverEnter() { clearTimeout(this._hoverHideTimer); },
+        onPopoverLeave() { this.hoverNode = null; },
 
-        onPopoverEnter() {
-          clearTimeout(this._hoverHideTimer);
-        },
-
-        onPopoverLeave() {
-          this.hoverNode = null;
-        },
-
-        // The per-node dots only ever reflect that node's most recent
-        // INCOMING delegation (the entry node never has one, hence its
-        // permanently grey dot) -- this pill is the separate, global "how
-        // did the whole run turn out" signal, sourced from run_status.json,
-        // which is written exactly once at the very end of the run.
-        runStatusLabel() {
-          if (this.runStatus === null) return 'running';
-          return this.runStatus.status.toLowerCase();
-        },
-
-        runStatusClass() {
-          if (this.runStatus === null) return 'running';
-          return this.runStatus.status.toLowerCase();
-        },
-
-        runStatusTitle() {
-          if (this.runStatus === null) return 'Run still in progress';
-          const reason = this.runStatus.stop_reason;
-          return reason ? `stop reason: ${reason}` : '';
-        },
-
-        openProblemStatement() {
-          fetch(`/api/runs/${this.runId}/problem_statement`)
-            .then(r => r.ok ? r.json() : r.json().then(e => ({ text: `(${e.error})` })))
-            .then(data => { this.problemText = data.text; this.problemOpen = true; });
-        },
-
-        renderedProblemHtml() {
-          if (!this.problemText) return '';
-          return marked.parse(this.problemText);
-        },
-
-        openNode(node) {
-          // A click is a more deliberate action than a hover -- don't leave
-          // the transient info popover sitting on top of the panel it just
-          // opened, waiting on its own mouseleave timer to clear it.
+        // ---- transcripts --------------------------------------------------
+        // *wanted* opens a specific transcript (a delegation id picked from
+        // the timeline); otherwise the most recent one.
+        openNode(node, wanted) {
           clearTimeout(this._hoverHideTimer);
           this.hoverNode = null;
           this.selectedNode = node.name;
+          this.tab = 'chat';
           fetch(`/api/runs/${this.runId}/node/${node.name}/transcripts`)
             .then(r => r.json())
             .then(keys => {
               this.availableKeys = keys;
-              this.panelOpen = true;
               if (keys.length === 0) {
                 this.currentKey = null;
-                this.panelTitle = node.name;
                 this.stopPolling();
                 this.clearBubbles();
                 return;
               }
-              this.openTranscript(node.name, keys[keys.length - 1]);
+              const key = keys.includes(wanted) ? wanted : keys[keys.length - 1];
+              this.openTranscript(node.name, key);
             });
         },
 
         openTranscript(nodeName, key) {
           this.currentKey = key;
-          this.panelTitle = `${nodeName} · ${key}`;
           this.clearBubbles();
           this.startPolling();
         },
@@ -474,14 +1722,13 @@
         },
 
         fetchMore(afterSuccess) {
-          if (!this.currentKey || !this.panelOpen) return;
+          if (!this.currentKey) return;
           const key = this.currentKey;
           fetch(`/api/runs/${this.runId}/transcript/${key}/fragment?after=${this.renderedCount}`)
             .then(r => r.text().then(html => (
               { ok: r.ok, html, count: r.headers.get('X-Event-Count') })))
             .then(({ ok, html, count }) => {
-              // A different node/transcript was opened while this request
-              // was in flight -- discard the stale response.
+              // A different transcript was opened while this was in flight.
               if (key !== this.currentKey) return;
               if (!ok) {
                 this.$refs.bubbles.innerHTML = `<p class="empty">${html}</p>`;
@@ -495,11 +1742,11 @@
               }
               // The cursor MUST count raw transcript events, not rendered
               // bubbles: most events (stream_evt/partial/result) render to
-              // no bubble at all, so a bubble-count cursor falls behind the
-              // raw list and re-matches already-shown events on every poll
-              // — confirmed for real to duplicate content indefinitely on
-              // an already-finished run (527 raw events, 47 bubbles).
-              // X-Event-Count is the server's own raw count for this call.
+              // nothing at all, so a bubble-count cursor falls behind and
+              // re-matches already-shown events on every poll — confirmed
+              // to duplicate content indefinitely on a finished run (527
+              // raw events, 47 bubbles). X-Event-Count is the server's own
+              // raw count for this call.
               if (count !== null) this.renderedCount = parseInt(count, 10);
               if (afterSuccess) afterSuccess();
             })
@@ -513,18 +1760,6 @@
           if (this.$refs.bubbles) this.$refs.bubbles.innerHTML = '';
         },
 
-        closePanel() {
-          this.stopPolling();
-          this.panelOpen = false;
-          this.maximized = false;
-          this.selectedNode = null;
-        },
-
-        onEscape() {
-          if (this.maximized) this.maximized = false;
-          else this.closePanel();
-        },
-
         onBubbleScroll(ev) {
           const el = ev.target;
           const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
@@ -534,30 +1769,8 @@
 
         scrollToBottom() {
           const el = document.getElementById('bubble-container');
-          el.scrollTop = el.scrollHeight;
+          if (el) el.scrollTop = el.scrollHeight;
           this.showJumpToNew = false;
-        },
-
-        drawEdges() {
-          const svg = document.getElementById('edges-svg');
-          const container = document.getElementById('graph-container');
-          const crect = container.getBoundingClientRect();
-          svg.innerHTML = '';
-          for (const e of this.edges) {
-            const src = document.querySelector(`[data-node="${e.source}"]`);
-            const dst = document.querySelector(`[data-node="${e.target}"]`);
-            if (!src || !dst) continue;
-            const s = src.getBoundingClientRect();
-            const d = dst.getBoundingClientRect();
-            const x1 = s.left + s.width / 2 - crect.left;
-            const y1 = s.bottom - crect.top;
-            const x2 = d.left + d.width / 2 - crect.left;
-            const y2 = d.top - crect.top;
-            const midY = (y1 + y2) / 2;
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', `M ${x1},${y1} C ${x1},${midY} ${x2},${midY} ${x2},${y2}`);
-            svg.appendChild(path);
-          }
         },
       };
     }

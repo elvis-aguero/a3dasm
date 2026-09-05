@@ -637,6 +637,10 @@ def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
     return {
         "nodes": nodes, "edges": edges, "entry": graph.entry,
         "tool_docs": tool_docs,
+        # Run-level, not per-node: config.yaml sets one backend for the
+        # whole run, so it is emitted once rather than repeated on every
+        # node as if it could differ between them.
+        "backend": config.get("backend") or "",
         "node_w": _NODE_W, "node_h": _NODE_H,
         "canvas_w": canvas_w, "canvas_h": canvas_h,
     }

@@ -488,6 +488,19 @@ def test_ledger_endpoint_404_for_missing_run(tmp_path):
     assert client.get("/api/runs/nope/ledger").status_code == 404
 
 
+def test_graph_page_shows_the_study_name_not_only_the_run_id(tmp_path):
+    """The status bar identifies the study, not just an opaque timestamp.
+
+    A run id like 20260904T120000 says nothing about which study produced
+    it, and the viewer can be left open on one run for a long time.
+    """
+    study = _make_study(tmp_path)
+    _make_run(study, "20260904T120000")
+    client = TestClient(create_app(study))
+    resp = client.get("/runs/20260904T120000")
+    assert study.name in resp.text
+
+
 def test_graph_page_404_for_missing_run(tmp_path):
     study = _make_study(tmp_path)
     client = TestClient(create_app(study))
