@@ -491,6 +491,77 @@ def test_ledger_endpoint_404_for_missing_run(tmp_path):
     assert client.get("/api/runs/nope/ledger").status_code == 404
 
 
+def test_operator_endpoint_reports_pending_questions_and_beats_the_heartbeat(tmp_path):
+    """Reading this endpoint IS the signal that a human is present.
+
+    A run only waits for an answer while the heartbeat is fresh, so the
+    poll that shows you the question must also be what tells the run you
+    are there to answer it.
+    """
+    from a3dasm._src import operator_channel as oc
+
+    study = _make_study(tmp_path)
+    run = _make_run(study, "20260904T120000")
+    qid = oc.ask_question(run, "strategizer", "Is the floor advisory?")
+    assert oc.is_watched(run) is False
+
+    client = TestClient(create_app(study))
+    body = client.get("/api/runs/20260904T120000/operator").json()
+
+    assert [q["id"] for q in body["questions"]] == [qid]
+    assert oc.is_watched(run) is True
+
+
+def test_answering_reaches_the_run(tmp_path):
+    from a3dasm._src import operator_channel as oc
+
+    study = _make_study(tmp_path)
+    run = _make_run(study, "20260904T120000")
+    qid = oc.ask_question(run, "strategizer", "?")
+
+    client = TestClient(create_app(study))
+    resp = client.post("/api/runs/20260904T120000/answer",
+                       json={"id": qid, "answer": "advisory"})
+    assert resp.status_code == 200
+    assert oc.read_answer(run, qid) == "advisory"
+
+
+def test_answering_a_question_the_run_gave_up_on_is_a_conflict(tmp_path):
+    """Must not report success for an answer the agent will never see."""
+    from a3dasm._src import operator_channel as oc
+
+    study = _make_study(tmp_path)
+    run = _make_run(study, "20260904T120000")
+    qid = oc.ask_question(run, "strategizer", "?")
+    oc.close_question(run, qid, "timeout")
+
+    client = TestClient(create_app(study))
+    resp = client.post("/api/runs/20260904T120000/answer",
+                       json={"id": qid, "answer": "too late"})
+    assert resp.status_code == 409
+
+
+def test_queueing_a_note_puts_it_where_the_node_drains_it(tmp_path):
+    from a3dasm._src import operator_channel as oc
+
+    study = _make_study(tmp_path)
+    run = _make_run(study, "20260904T120000")
+
+    client = TestClient(create_app(study))
+    resp = client.post("/api/runs/20260904T120000/note",
+                       json={"text": "re-run shell_05 first"})
+    assert resp.status_code == 200
+    assert oc.drain_notes(run) == ["re-run shell_05 first"]
+
+
+def test_an_empty_note_is_rejected_by_the_endpoint(tmp_path):
+    study = _make_study(tmp_path)
+    _make_run(study, "20260904T120000")
+    client = TestClient(create_app(study))
+    assert client.post("/api/runs/20260904T120000/note",
+                       json={"text": "   "}).status_code == 400
+
+
 def test_graph_page_shows_the_study_name_not_only_the_run_id(tmp_path):
     """The status bar identifies the study, not just an opaque timestamp.
 

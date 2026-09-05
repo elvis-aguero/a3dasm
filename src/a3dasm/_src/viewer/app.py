@@ -17,6 +17,7 @@ from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
+from .. import operator_channel
 from . import readers
 
 __all__ = ["create_app", "run_viewer"]
@@ -247,6 +248,47 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             return _not_found("not a readable artifact inside this study")
         return JSONResponse({"path": rel, "text": text})
 
+    async def get_operator(request):
+        """Pending questions for the human, and a heartbeat saying one is here.
+
+        Reading this endpoint IS the heartbeat: the viewer polls it while a
+        run is open, and a run only waits for an answer when that heartbeat
+        is fresh (operator_channel.is_watched). So an unattended run never
+        stalls on a question nobody can see.
+        """
+        run_id = request.path_params["run_id"]
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
+            return _not_found(f"no such run {run_id!r}")
+        operator_channel.touch_watch(run_dir)
+        return JSONResponse({
+            "questions": operator_channel.pending_questions(run_dir),
+        })
+
+    async def post_answer(request):
+        run_id = request.path_params["run_id"]
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
+            return _not_found(f"no such run {run_id!r}")
+        body = await request.json()
+        qid, text = body.get("id", ""), body.get("answer", "")
+        if not operator_channel.answer_question(run_dir, qid, text):
+            # Already answered, already given up on, or never asked — all of
+            # which mean this answer must NOT be presented as accepted.
+            return JSONResponse(
+                {"error": "question is not awaiting an answer"}, status_code=409)
+        return JSONResponse({"ok": True})
+
+    async def post_note(request):
+        run_id = request.path_params["run_id"]
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
+            return _not_found(f"no such run {run_id!r}")
+        body = await request.json()
+        if not operator_channel.queue_note(run_dir, body.get("text", "")):
+            return JSONResponse({"error": "empty note"}, status_code=400)
+        return JSONResponse({"ok": True})
+
     async def get_problem_statement(request):
         run_id = request.path_params["run_id"]
         run_dir = _run_dir(study_dir, run_id)
@@ -409,6 +451,9 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         Route("/api/runs/{run_id}/graph", get_graph),
         Route("/api/runs/{run_id}/delegations", get_delegations),
         Route("/api/runs/{run_id}/ledger", get_ledger),
+        Route("/api/runs/{run_id}/operator", get_operator),
+        Route("/api/runs/{run_id}/answer", post_answer, methods=["POST"]),
+        Route("/api/runs/{run_id}/note", post_note, methods=["POST"]),
         Route("/api/runs/{run_id}/vitals", get_vitals),
         Route("/api/runs/{run_id}/artifacts", get_artifacts),
         Route("/api/runs/{run_id}/artifact", get_artifact),

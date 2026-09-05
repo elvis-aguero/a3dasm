@@ -146,6 +146,35 @@
     }
     .numbers b { font-size: var(--fs-body); font-weight: 400; }
 
+    /* ---- operator: the run is waiting on you ---- */
+    .asking {
+      flex: none;
+      border-bottom: 1px solid var(--surface0);
+      border-left: 3px solid var(--peach);
+      background: var(--surface0);
+      padding: 17px 22px 17px 19px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .asking-q {
+      margin: 0; font-size: 15.5px; line-height: 1.62;
+      color: var(--text); max-width: 96ch; text-wrap: pretty;
+    }
+    .field {
+      flex: 1; background: var(--base);
+      border: 1px solid var(--surface2); border-radius: 6px;
+      padding: 11px 15px; color: var(--text);
+      font-family: inherit; font-size: 14.5px;
+    }
+    .field:focus { outline: none; border-color: var(--peach); }
+    .send {
+      font-family: inherit; font-size: 13.5px; font-weight: 500;
+      color: var(--base); background: var(--peach);
+      border: none; border-radius: 6px; padding: 12px 22px; cursor: pointer;
+    }
+    .send:disabled { opacity: .45; cursor: default; }
+    .composer { flex: none; border-top: 1px solid var(--surface0); padding: 16px 32px 18px; }
+    .composer .send { background: var(--text); }
+
     /* ---- tabs ---------------------------------------------------------- */
     .tabs {
       flex: none;
@@ -695,6 +724,30 @@
     </div>
   </div>
 
+  <!-- ============ the run is waiting on you ============
+       Run-level, not buried in one agent's transcript: a FollowUp blocks
+       the whole run, so it is the loudest thing on screen while it lasts. -->
+  <template x-for="q in questions" :key="q.id">
+    <div class="asking">
+      <div style="display:flex; align-items:baseline; gap:12px">
+        <span style="font-size:15px; font-weight:500">
+          <span :style="`color:${identityColorFor(q.node)}`" x-text="q.node"></span>
+          <span style="color:var(--peach)">is waiting for you</span>
+        </span>
+        <span class="m" style="font-size:11px; color:var(--overlay2)"
+              x-text="waitedFor(q)"></span>
+      </div>
+      <p class="asking-q" x-text="q.question"></p>
+      <div style="display:flex; align-items:center; gap:10px">
+        <input class="field" type="text" placeholder="Answer…"
+               x-model="answerDraft[q.id]"
+               @keydown.enter="sendAnswer(q)">
+        <button class="send" @click="sendAnswer(q)"
+                :disabled="!(answerDraft[q.id] || '').trim()">Send</button>
+      </div>
+    </div>
+  </template>
+
   <!-- ================= tabs ================= -->
   <div class="tabs">
     <button class="tab" :class="{ active: tab === 'brief' }"
@@ -1002,6 +1055,23 @@
         </div>
         <button class="jump" x-show="showJumpToNew" x-cloak
                 @click="scrollToBottom()">↓ new</button>
+
+        <!-- Only on the entry node, and only while the run is open. It is
+             the one node that can address the operator, and a note queued
+             for a finished run would never be read. -->
+        <div class="composer" x-show="canQueueNote()">
+          <div style="display:flex; align-items:center; gap:10px">
+            <input class="field" type="text"
+                   :placeholder="`Note for ${selectedNode}…`"
+                   x-model="noteDraft" @keydown.enter="sendNote()">
+            <button class="send" @click="sendNote()"
+                    :disabled="!noteDraft.trim()"
+                    x-text="noteSent ? 'Queued' : 'Queue'"></button>
+          </div>
+          <span style="font-size:var(--fs-meta); color:var(--overlay0)">
+            Delivered at its next action.
+          </span>
+        </div>
       </div>
     </div>
     <!-- ================= agent profile ================= -->
@@ -1251,6 +1321,11 @@
 
         notebook: null,
         vitals: null,
+        questions: [],
+        answerDraft: {},
+        noteDraft: '',
+        noteSent: false,
+        _operatorPoll: null,
         artifacts: [],
         artifactText: null,
         artifactPath: null,
@@ -1317,6 +1392,12 @@
             // the last delegation row and before the run closes.
             this.loadLedger();
             this.loadVitals();
+            // A closed run can neither ask nor be told anything.
+            this.questions = [];
+            if (this._operatorPoll) {
+              clearInterval(this._operatorPoll);
+              this._operatorPoll = null;
+            }
             if (this._ledgerPoll) {
               clearInterval(this._ledgerPoll);
               this._ledgerPoll = null;
@@ -1325,6 +1406,10 @@
 
           this.loadLedger();
           this.loadVitals();
+          this.pollOperator();
+          // Every poll refreshes the watch heartbeat server-side,
+          // which is what tells a run somebody is here to answer.
+          this._operatorPoll = setInterval(() => this.pollOperator(), 3000);
           // Polled, not streamed: both ledgers are whole-file rewrites
           // rather than append-only logs, so there is nothing to tail.
           this._ledgerPoll = setInterval(() => {
@@ -1345,6 +1430,63 @@
           fetch(`/api/runs/${this.runId}/vitals`)
             .then(r => r.ok ? r.json() : null)
             .then(v => { if (v) this.vitals = v; })
+            .catch(() => {});
+        },
+
+        pollOperator() {
+          fetch(`/api/runs/${this.runId}/operator`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d) this.questions = d.questions || []; })
+            .catch(() => {});
+        },
+
+        sendAnswer(q) {
+          const text = (this.answerDraft[q.id] || '').trim();
+          if (!text) return;
+          fetch(`/api/runs/${this.runId}/answer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: q.id, answer: text }),
+          })
+            .then(r => {
+              // 409 means the run stopped waiting before this arrived. Drop
+              // the question rather than claim an answer it never acted on.
+              this.answerDraft[q.id] = '';
+              this.questions = this.questions.filter(x => x.id !== q.id);
+              if (!r.ok) this.pollOperator();
+            })
+            .catch(() => {});
+        },
+
+        waitedFor(q) {
+          const secs = Math.max(0, (Date.now() / 1000) - (q.asked_at || 0));
+          const m = Math.floor(secs / 60);
+          return m ? `${m}m ${Math.floor(secs % 60)}s` : `${Math.floor(secs)}s`;
+        },
+
+        // Notes go to the entry node only: FollowUp routes to the operator
+        // solely when the asker IS the entry node, so it is the one agent
+        // in a position to hold a conversation with a human.
+        canQueueNote() {
+          if (!this.spec || !this.selectedNode || this.runStatus !== null) return false;
+          const n = this.spec.nodes.find(x => x.name === this.selectedNode);
+          return !!(n && n.is_entry);
+        },
+
+        sendNote() {
+          const text = this.noteDraft.trim();
+          if (!text) return;
+          fetch(`/api/runs/${this.runId}/note`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text }),
+          })
+            .then(r => {
+              if (!r.ok) return;
+              this.noteDraft = '';
+              this.noteSent = true;
+              setTimeout(() => { this.noteSent = false; }, 1600);
+            })
             .catch(() => {});
         },
 
