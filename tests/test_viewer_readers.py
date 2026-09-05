@@ -738,3 +738,39 @@ def test_read_notebook_reports_a_corrupt_file_instead_of_hiding_it(tmp_path):
     assert nb["cells"] == []
     assert "could not read" in nb["error"]
 
+
+# ---------------------------------------------------------------------------
+# tool documentation — read from source, not hand-copied
+# ---------------------------------------------------------------------------
+
+def test_every_tool_an_agent_is_handed_has_a_description():
+    """The agent profile exists to say what an agent can do, so a tool with
+    no description is a hole in the only page that answers that.
+
+    Most tools are nested closures built per-run, so their ``__doc__`` is
+    unreachable by import; the docs are parsed out of the node modules'
+    source instead. This guards the drift case: a tool added without a
+    docstring, or moved to a module the parser does not scan, silently
+    reappears here as "no description available".
+    """
+    from a3dasm._src.agents import _default_graph
+
+    graph = _default_graph()
+    spec = graph_spec_json(graph)
+    docs = spec["tool_docs"]
+    missing = sorted({
+        t for node in spec["nodes"] for t in node["tools"] if t not in docs
+    })
+    assert not missing, f"tools with no description: {missing}"
+
+
+def test_routing_tool_docs_ignores_non_tool_helpers():
+    """Tools are PascalCase; a lowercase local helper sharing a tool's name
+    must not be mistaken for one."""
+    from a3dasm._src.viewer.readers import _routing_tool_docs
+
+    docs = _routing_tool_docs()
+    assert docs, "expected some tool docstrings to be parsed out of source"
+    assert all(name[:1].isupper() for name in docs)
+    # First paragraph only, matching what the agent's own tool catalog shows.
+    assert all("\n\n" not in d for d in docs.values())

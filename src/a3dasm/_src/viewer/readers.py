@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Iterator
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,11 @@ _KNOWN_TOOL_DOCS: dict[str, str] = {
              "already exists.",
     "Edit": "Performs an exact string replacement in a file.",
     "Grep": "Searches file contents for a pattern (ripgrep-backed).",
+    "BashOutput": "Retrieves output from a running or completed background "
+                  "bash shell.",
+    "KillShell": "Kills a running background bash shell by its id.",
+    "Glob": "Finds files matching a glob pattern, sorted by modification "
+            "time.",
     "Delegate": "Hand a task to another node in the graph; returns "
                 "immediately (async) unless wait=True.",
     "Wait": "Block until a delegation finishes (Done or Errored), then "
@@ -83,6 +89,50 @@ _MODEL_LABELS: dict[str, str] = {
     "claude-opus-5": "Claude Opus 5",
     "claude-fable-5": "Claude Fable 5",
 }
+
+
+@lru_cache(maxsize=1)
+def _routing_tool_docs() -> dict[str, str]:
+    """Tool docstrings read straight out of ``nodes/tools/routing.py``'s source.
+
+    Most tools an agent declares are implemented as functions nested inside
+    per-run closure builders, so they exist only once a live registry has
+    been constructed — ``build_closure_tools()`` returns a handful, and the
+    rest cannot be imported to read ``__doc__`` from at all.
+
+    The alternative was a hand-maintained copy of those docstrings, which
+    is what ``_KNOWN_TOOL_DOCS`` is; the trouble with that is silent drift —
+    the map keeps claiming what a tool did a year ago and nothing fails.
+    Parsing the module's AST reads the SAME docstring the agent is given
+    (``tool_catalog.render_tool_catalog`` uses ``__doc__``), stays correct
+    as routing.py changes, and executes none of it.
+
+    Only the first paragraph is kept, matching what the tool catalog shows.
+    """
+    import ast
+
+    nodes_dir = Path(__file__).parent.parent / "nodes"
+    out: dict[str, str] = {}
+    # Tool definitions are split across the routing layer and the node
+    # modules that inject their own; scanned in a fixed order so the same
+    # name defined twice resolves the same way on every call.
+    for rel in ("tools/routing.py", "strategizer.py", "worker.py"):
+        path = nodes_dir / rel
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            # Tools are PascalCase; helpers and privates are not. This keeps
+            # a local helper from being mistaken for a tool of the same name.
+            if not node.name[:1].isupper():
+                continue
+            doc = (ast.get_docstring(node) or "").strip()
+            if doc and node.name not in out:
+                out[node.name] = doc.split("\n\n")[0].replace("\n", " ")
+    return out
 
 
 def _humanize_model(model_id: str | None) -> str:
@@ -558,10 +608,14 @@ def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
     layers = _bfs_layers(graph)
     config = _load_study_config(study_dir)
     run_model = config.get("model")
-    tool_docs: dict[str, str] = dict(_KNOWN_TOOL_DOCS)
     pos, canvas_w, canvas_h = _layout_nodes(layers)
     identity = _identity_indices(layers, graph.entry)
     nodes = []
+    # Precedence, weakest first: the hand-written map (which is the only
+    # source for native backend tools), then routing.py's real
+    # docstrings, then any live closure's own __doc__.
+    tool_docs: dict[str, str] = dict(_KNOWN_TOOL_DOCS)
+    tool_docs.update(_routing_tool_docs())
     for name, agent in graph.nodes.items():
         tools, docs = _node_tools_and_docs(name, agent, graph, study_dir)
         tool_docs.update(docs)
