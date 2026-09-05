@@ -2292,6 +2292,7 @@ def build_routing_tools(node) -> dict:
             _gate_started_at = datetime.now(
                 tz=timezone.utc).isoformat(timespec="seconds")
             critique_text = node._invoke_critic(task_msg)
+            _critic_usage = getattr(node, "_last_critic_usage", {}) or {}
             verdict = _parse_verdict(critique_text)
             # This is a delegation like any other (strategizer -> critic,
             # GATE mode) — log it as one. Previously the ONLY node-node
@@ -2311,9 +2312,9 @@ def build_routing_tools(node) -> dict:
                     completed_at=datetime.now(
                         tz=timezone.utc).isoformat(timespec="seconds"),
                     status=f"GATE:{verdict}",
-                    tokens_in=0,
-                    tokens_out=0,
-                    cost_usd=None,
+                    tokens_in=_critic_usage.get("input_tokens", 0) or 0,
+                    tokens_out=_critic_usage.get("output_tokens", 0) or 0,
+                    cost_usd=_critic_usage.get("total_cost_usd"),
                     constraints=_snapshot.as_dict(),
                 )
 
@@ -3445,6 +3446,7 @@ def build_routing_tools(node) -> dict:
             task_msg = _node._build_feedback_task_msg(
                 h_ids, constraints_text=_snapshot.as_text())
             text = _node._invoke_critic(task_msg)
+            _fb_usage = getattr(_node, "_last_critic_usage", {}) or {}
 
             # Log to delegation log
             if _node._delegation_log is not None:
@@ -3460,9 +3462,9 @@ def build_routing_tools(node) -> dict:
                         tz=timezone.utc
                     ).isoformat(timespec="seconds"),
                     status="FEEDBACK",
-                    tokens_in=0,
-                    tokens_out=0,
-                    cost_usd=None,
+                    tokens_in=_fb_usage.get("input_tokens", 0) or 0,
+                    tokens_out=_fb_usage.get("output_tokens", 0) or 0,
+                    cost_usd=_fb_usage.get("total_cost_usd"),
                     constraints=_snapshot.as_dict(),
                 )
 

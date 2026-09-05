@@ -215,6 +215,10 @@ class CriticGateMixin:
         )
         _notes = self._current_notes_dir
         _prev_sink = _get_sink()
+        # Cleared up front so a failed invoke cannot leave the PREVIOUS
+        # call's usage to be logged against this delegation.
+        self._last_critic_usage = {}
+        _ok = False
         if _dbg() and _notes is not None:
             _set_sink(str(
                 _notes.parent / "transcripts" / "critic"
@@ -223,6 +227,7 @@ class CriticGateMixin:
             critique = worker.invoke(
                 [{"role": "user", "content": task_msg}]
             )
+            _ok = True
         except Exception as _exc:  # noqa: BLE001
             # An infrastructure failure invoking the critic — NOT a problem with
             # your deliverable. Give a one-line cause, not a raw traceback, and a
@@ -241,8 +246,22 @@ class CriticGateMixin:
         # Account the critic's tokens/cost — critic consults are real LLM calls
         # and must land in token_totals AND telemetry (they were previously
         # uncounted, undercounting run cost and omitting the 'critic' role).
+        #
+        # Only when the call actually succeeded. ``last_usage`` lives on the
+        # adapter and survives a failed invoke, so reading it unconditionally
+        # bills THIS call for the previous one's tokens — a failed gate would
+        # be logged at the cost of the gate before it.
+        _usage = (getattr(worker, "last_usage", {}) or {}) if _ok else {}
+        # Also published for the CALLER to put on its delegation row. Both
+        # call sites (the Done() GATE check and AskForFeedback) log a
+        # strategizer -> critic delegation, and both used to hardcode
+        # tokens 0 / cost None on it — so the row representing the single
+        # interaction that decides whether a run closes carried no
+        # accounting at all, and anything summing cost_usd over
+        # delegation_log.jsonl silently omitted the critic's whole budget.
+        self._last_critic_usage = _usage
         self._record_usage(
-            getattr(worker, "last_usage", {}) or {},
+            _usage,
             role=self._role_of(critic_name),
             model=getattr(worker, "model", None),
             phase="critic_review",
