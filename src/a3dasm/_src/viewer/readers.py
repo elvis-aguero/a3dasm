@@ -48,8 +48,6 @@ _KNOWN_TOOL_DOCS: dict[str, str] = {
              "already exists.",
     "Edit": "Performs an exact string replacement in a file.",
     "Grep": "Searches file contents for a pattern (ripgrep-backed).",
-    "Glob": "Finds files matching a glob pattern, sorted by modification "
-            "time.",
     "Delegate": "Hand a task to another node in the graph; returns "
                 "immediately (async) unless wait=True.",
     "Wait": "Block until a delegation finishes (Done or Errored), then "
@@ -141,6 +139,78 @@ def _node_tools_and_docs(
             if doc:
                 docs[tool_name] = doc.split("\n\n")[0].replace("\n", " ")
     return tools, docs
+
+
+# Node-box geometry for the viewer's own graph layout, in abstract CSS px at
+# zoom 1. Deliberately NOT reused from run_diagram: that module's constants
+# size a 400px-wide documentation card whose HEIGHT depends on how much tool
+# text it wraps, which is the wrong shape for a compact live diagram.
+_NODE_W = 220
+_NODE_H = 74
+_COL_GAP = 90
+_ROW_GAP = 150
+_MARGIN = 40
+
+
+def _layout_nodes(
+    layers: dict[str, int],
+) -> tuple[dict[str, tuple[int, int]], int, int]:
+    """Deterministic (x, y) per node, plus the canvas size that contains them.
+
+    Computed here, server-side, rather than measured from the rendered DOM.
+    The previous client drew edges by reading ``getBoundingClientRect()``
+    after layout, which made every edge depend on layout timing, webfont
+    load and scroll position — the "flaky arrows" failure mode. Emitting
+    authoritative coordinates makes node placement and edge endpoints the
+    same numbers by construction, so an edge cannot disagree with the box it
+    points at, and no resize handler is needed to keep them in sync.
+
+    Within a layer, nodes are ordered by name so the layout is stable across
+    calls (``graph.nodes`` is insertion-ordered, which would silently
+    reshuffle the diagram if a study reordered its node registrations).
+    """
+    by_layer: dict[int, list[str]] = {}
+    for name, layer in layers.items():
+        by_layer.setdefault(layer, []).append(name)
+    for names in by_layer.values():
+        names.sort()
+
+    def row_width(n: int) -> int:
+        return n * _NODE_W + max(0, n - 1) * _COL_GAP
+
+    widest = max((row_width(len(v)) for v in by_layer.values()), default=0)
+    centre = _MARGIN + widest / 2
+
+    pos: dict[str, tuple[int, int]] = {}
+    for layer in sorted(by_layer):
+        names = by_layer[layer]
+        left = centre - row_width(len(names)) / 2
+        y = _MARGIN + layer * (_NODE_H + _ROW_GAP)
+        for i, name in enumerate(names):
+            pos[name] = (round(left + i * (_NODE_W + _COL_GAP)), y)
+
+    canvas_w = widest + 2 * _MARGIN
+    depth = max(by_layer, default=0)
+    canvas_h = _MARGIN * 2 + (depth + 1) * _NODE_H + depth * _ROW_GAP
+    return pos, canvas_w, canvas_h
+
+
+def _identity_indices(layers: dict[str, int], entry: str) -> dict[str, int]:
+    """Stable identity-colour index per node, or -1 for the entry node.
+
+    The entry node is excluded from the hue ramp on purpose: it is the only
+    node that can reach the human operator (``FollowUp`` routes to the
+    operator only when the asker IS the entry node), so it reads as neutral
+    rather than as one agent among peers.
+
+    Ordered by (layer, name) so a node keeps its colour across runs of the
+    same study, and so two studies sharing a topology colour it identically.
+    """
+    ordered = sorted(
+        (n for n in layers if n != entry), key=lambda n: (layers[n], n))
+    out = {name: i for i, name in enumerate(ordered)}
+    out[entry] = -1
+    return out
 
 
 def read_runs(study_dir: Path | str) -> list[dict[str, Any]]:
@@ -307,11 +377,14 @@ def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
     layers = _bfs_layers(graph)
     config = _load_study_config(study_dir)
     run_model = config.get("model")
-    nodes = []
     tool_docs: dict[str, str] = dict(_KNOWN_TOOL_DOCS)
+    pos, canvas_w, canvas_h = _layout_nodes(layers)
+    identity = _identity_indices(layers, graph.entry)
+    nodes = []
     for name, agent in graph.nodes.items():
         tools, docs = _node_tools_and_docs(name, agent, graph, study_dir)
         tool_docs.update(docs)
+        x, y = pos[name]
         nodes.append({
             "name": name,
             "role": agent.role,
@@ -321,11 +394,16 @@ def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
             "tools": tools,
             "model": _humanize_model(agent.model or run_model),
             "system_prompt": agent.system_prompt or "",
+            "x": x,
+            "y": y,
+            "identity": identity[name],
         })
     edges = [{"source": e.source, "target": e.target} for e in graph.edges]
     return {
         "nodes": nodes, "edges": edges, "entry": graph.entry,
         "tool_docs": tool_docs,
+        "node_w": _NODE_W, "node_h": _NODE_H,
+        "canvas_w": canvas_w, "canvas_h": canvas_h,
     }
 
 

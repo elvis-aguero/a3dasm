@@ -261,6 +261,103 @@ def test_graph_spec_json_reuses_bfs_layers_and_node_tools():
     assert by_name["critic"]["is_entry"] is False
 
 
+def _three_node_graph():
+    from a3dasm._src.backends.base import Agent, Edge, Graph
+
+    class _Strategizer(Agent):
+        role = "strategizer"
+        description = "hub"
+        tools = frozenset()
+
+    class _Implementer(Agent):
+        role = "implementer"
+        description = "writes and runs code"
+        tools = frozenset()
+
+    class _Critic(Agent):
+        role = "critic"
+        description = "gate"
+        tools = frozenset()
+
+    return Graph(
+        nodes={
+            "strategizer": _Strategizer(),
+            "implementer": _Implementer(),
+            "critic": _Critic(),
+        },
+        edges=(
+            Edge("strategizer", "implementer"),
+            Edge("strategizer", "critic"),
+        ),
+        entry="strategizer",
+    )
+
+
+def test_graph_spec_json_emits_authoritative_node_coordinates():
+    """Every node carries an (x, y) and the canvas that contains it.
+
+    These exist so the client never measures the DOM to place a node or aim
+    an edge — the regression this guards is the old ``drawEdges()``, which
+    read ``getBoundingClientRect()`` after layout and so drew edges that
+    disagreed with their boxes depending on load timing.
+    """
+    spec = graph_spec_json(_three_node_graph())
+
+    by_name = {n["name"]: n for n in spec["nodes"]}
+    for node in by_name.values():
+        assert isinstance(node["x"], int)
+        assert isinstance(node["y"], int)
+        # Inside the advertised canvas, box included.
+        assert 0 <= node["x"] <= spec["canvas_w"] - spec["node_w"]
+        assert 0 <= node["y"] <= spec["canvas_h"] - spec["node_h"]
+
+    # The entry node is a layer above its two workers, which share a row.
+    assert by_name["strategizer"]["y"] < by_name["implementer"]["y"]
+    assert by_name["implementer"]["y"] == by_name["critic"]["y"]
+    # Same-row nodes do not overlap.
+    xs = sorted((by_name["critic"]["x"], by_name["implementer"]["x"]))
+    assert xs[1] - xs[0] >= spec["node_w"]
+
+
+def test_graph_spec_json_layout_is_stable_under_node_reordering():
+    """Registration order must not move the diagram.
+
+    ``graph.nodes`` is insertion-ordered, so laying out in iteration order
+    would silently reshuffle a study's diagram the day someone reorders its
+    node registrations. Positions are keyed on (layer, name) instead.
+    """
+    from a3dasm._src.backends.base import Graph
+
+    graph = _three_node_graph()
+    shuffled = Graph(
+        nodes={k: graph.nodes[k] for k in
+               ("critic", "strategizer", "implementer")},
+        edges=graph.edges,
+        entry=graph.entry,
+    )
+
+    def positions(g):
+        return {n["name"]: (n["x"], n["y"], n["identity"])
+                for n in graph_spec_json(g)["nodes"]}
+
+    assert positions(graph) == positions(shuffled)
+
+
+def test_graph_spec_json_identity_index_excludes_the_entry_node():
+    """The entry node is not one hue among peers.
+
+    It is the only node that can reach the human operator (``FollowUp``
+    routes to the operator only when the asker is the entry node), so it is
+    deliberately outside the identity ramp and marked -1.
+    """
+    spec = graph_spec_json(_three_node_graph())
+    by_name = {n["name"]: n for n in spec["nodes"]}
+
+    assert by_name["strategizer"]["identity"] == -1
+    others = sorted(by_name[n]["identity"] for n in ("critic", "implementer"))
+    assert others == [0, 1]
+
+
 def test_graph_spec_json_exposes_model_system_prompt_and_tool_docs(tmp_path):
     from a3dasm._src.backends.base import Agent, Graph
 
@@ -468,3 +565,4 @@ def test_tail_jsonl_backs_up_to_last_complete_line_when_already_mid_line(tmp_pat
     threading.Thread(target=_complete_the_line, daemon=True).start()
     row = _next_with_timeout(gen, timeout=10.0)
     assert row == {"partial": True}  # not {"a": 1} — that one was already complete
+
