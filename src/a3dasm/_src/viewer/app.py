@@ -221,6 +221,15 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             return JSONResponse({"cells": [], "missing": True})
         return JSONResponse(nb)
 
+    async def get_vitals(request):
+        """The run's real cost and wall clock — see readers.read_vitals for
+        why these cannot come from the delegation log."""
+        run_id = request.path_params["run_id"]
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
+            return _not_found(f"no such run {run_id!r}")
+        return JSONResponse(readers.read_vitals(run_dir))
+
     async def get_problem_statement(request):
         run_id = request.path_params["run_id"]
         run_dir = _run_dir(study_dir, run_id)
@@ -383,6 +392,7 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         Route("/api/runs/{run_id}/graph", get_graph),
         Route("/api/runs/{run_id}/delegations", get_delegations),
         Route("/api/runs/{run_id}/ledger", get_ledger),
+        Route("/api/runs/{run_id}/vitals", get_vitals),
         Route("/api/runs/{run_id}/notebook", get_notebook),
         Route("/api/runs/{run_id}/problem_statement", get_problem_statement),
         Route("/api/runs/{run_id}/node/{name}/transcripts", get_node_transcripts),

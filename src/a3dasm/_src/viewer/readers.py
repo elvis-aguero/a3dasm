@@ -28,6 +28,7 @@ __all__ = [
     "read_hypotheses",
     "read_milestones",
     "read_notebook",
+    "read_vitals",
     "read_run_status",
     "read_transcript",
     "read_problem_statement",
@@ -407,6 +408,77 @@ def read_milestones(run_dir: Path | str) -> list[dict[str, Any]]:
             "manual": bool(m.get("manual")),
         })
     return out
+
+
+def read_vitals(run_dir: Path | str) -> dict[str, Any]:
+    """The run's REAL cost and wall clock, from telemetry and file times.
+
+    Not from the delegation log. A delegation row is not a complete account
+    of a run's spend: the critic's gate row is written with ``cost_usd``
+    None and ``tokens_out`` 0, while its actual work is recorded in
+    telemetry under internal ids the delegation log never sees
+    (``critic-1`` for the review, ``verdict-validator`` for each validation
+    pass). Summing ``cost_usd`` across delegations therefore under-reports
+    by the critic's entire budget — measured at $0.697 of a real $1.078 on
+    run 20260905T162758, a 35% undercount presented as a total.
+
+    ``telemetry/calls*.jsonl`` is append-per-call, so this is correct
+    mid-run as well as after close; ``summary.json`` is only written at the
+    end and is used as nothing more than a cross-check.
+
+    Wall comes from file mtimes (``run_config.json`` written at start,
+    ``run_status.json`` at close), deliberately NOT from parsing the run
+    directory name against ``run_status.timestamp`` — the directory name is
+    local time and that field is UTC, so mixing them is wrong by the
+    machine's UTC offset. mtimes are plain epochs and cannot disagree.
+    """
+    run_dir = Path(run_dir)
+    debug = run_dir / "debug"
+
+    cost = 0.0
+    calls = 0
+    out_tokens = 0
+    by_role: dict[str, dict[str, Any]] = {}
+    for path in sorted(debug.glob("telemetry/calls*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            c = row.get("total_cost_usd") or 0.0
+            o = row.get("output_tokens") or 0
+            cost += c
+            out_tokens += o
+            calls += 1
+            role = row.get("role") or "unknown"
+            slot = by_role.setdefault(role, {"calls": 0, "cost_usd": 0.0})
+            slot["calls"] += 1
+            slot["cost_usd"] += c
+
+    started = ended = None
+    cfg = debug / "run_config.json"
+    if cfg.exists():
+        started = cfg.stat().st_mtime
+    status = debug / "run_status.json"
+    if status.exists():
+        ended = status.stat().st_mtime
+    elapsed = None
+    if started is not None:
+        elapsed = (ended if ended is not None else time.time()) - started
+
+    return {
+        "cost_usd": round(cost, 6),
+        "calls": calls,
+        "output_tokens": out_tokens,
+        "by_role": {r: {"calls": v["calls"],
+                        "cost_usd": round(v["cost_usd"], 6)}
+                    for r, v in sorted(by_role.items())},
+        "elapsed_s": elapsed,
+        "closed": ended is not None,
+    }
 
 
 def _normalize_output(out: dict[str, Any]) -> dict[str, Any] | None:
