@@ -638,6 +638,28 @@ def test_a_torn_multibyte_append_does_not_500(tmp_path):
     assert client.get("/api/runs/20260904T120000/vitals").status_code == 200
 
 
+def test_the_viewer_never_writes_into_the_study(tmp_path):
+    """A read-only viewer must not create anything in the study it reads.
+
+    graph_spec_json() calls each agent's build_closure_tools(), and those
+    are not side-effect free: LiteratureReviewAgent's constructs a
+    LiteratureCorpus whose __init__ mkdir()s runs/lit_reviewer_notes/ and
+    papers/. Serving /graph therefore created directories inside the study
+    — which read_artifacts then listed back as a "shared workspace" the
+    viewer itself had produced.
+    """
+    study = _make_study(tmp_path)
+    _make_run(study, "20260904T120000")
+    before = sorted(p.name for p in study.rglob("*"))
+
+    client = TestClient(create_app(study))
+    for _ in range(3):
+        assert client.get("/api/runs/20260904T120000/graph").status_code == 200
+
+    after = sorted(p.name for p in study.rglob("*"))
+    assert before == after, f"viewer created: {sorted(set(after) - set(before))}"
+
+
 def test_graph_page_shows_the_study_name_not_only_the_run_id(tmp_path):
     """The status bar identifies the study, not just an opaque timestamp.
 

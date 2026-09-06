@@ -190,13 +190,25 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
     async def list_runs(request):
         return JSONResponse(readers.read_runs(study_dir))
 
+    # graph_spec_json() calls each agent's build_closure_tools(), which is
+    # NOT free: LiteratureReviewAgent's constructs a LiteratureCorpus, whose
+    # __init__ mkdir()s runs/lit_reviewer_notes/ and a papers/ subdir inside
+    # the study. Running that per request meant a read-only viewer wrote to
+    # the study on every /graph hit — and then listed the directory it had
+    # just created back as a "shared workspace". The spec is identical for
+    # every run of one study (it comes from the Graph and config.yaml), so
+    # it is computed once, like the Graph itself.
+    _spec_cache: dict = {}
+
     async def get_graph(request):
         run_id = request.path_params["run_id"]
         if _run_dir(study_dir, run_id) is None:
             return _not_found(f"no such run {run_id!r}")
         if graph is None:
             return JSONResponse({"nodes": [], "edges": [], "entry": None})
-        return JSONResponse(readers.graph_spec_json(graph, study_dir))
+        if "spec" not in _spec_cache:
+            _spec_cache["spec"] = readers.graph_spec_json(graph, study_dir)
+        return JSONResponse(_spec_cache["spec"])
 
     async def get_delegations(request):
         run_id = request.path_params["run_id"]

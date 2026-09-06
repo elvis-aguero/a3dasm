@@ -184,8 +184,18 @@ def _node_tools_and_docs(
     tools = _topology_tools(graph, name) + declared
     docs: dict[str, str] = {}
     if study_dir is not None:
+        # Built against a THROWAWAY directory, not the study. Closure
+        # builders are not side-effect free — LiteratureReviewAgent's
+        # constructs a LiteratureCorpus, whose __init__ mkdir()s
+        # runs/lit_reviewer_notes/ and papers/ — and a read-only viewer must
+        # not create directories inside the study it is only reading. The
+        # tool NAMES and docstrings are what is wanted here and neither
+        # depends on the path, so a temp dir yields the same surface with
+        # the writes landing somewhere disposable.
+        import tempfile
         try:
-            closures = agent.build_closure_tools(Path(study_dir))
+            with tempfile.TemporaryDirectory(prefix="a3dasm-viewer-") as tmp:
+                closures = agent.build_closure_tools(Path(tmp))
         except Exception:  # noqa: BLE001
             closures = {}
         extra = sorted(
@@ -893,7 +903,16 @@ def load_graph_for_study(study_dir: Path | str):
             spec = importlib.util.spec_from_file_location(
                 f"_a3dasm_viewer_study_{study_dir.name}", run_py)
             module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            # Executing run.py otherwise leaves a __pycache__ inside the
+            # study. Small, but the viewer's contract is that it reads a
+            # study and changes nothing in it.
+            import sys as _sys
+            _prev = _sys.dont_write_bytecode
+            _sys.dont_write_bytecode = True
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                _sys.dont_write_bytecode = _prev
             build_graph = getattr(module, "build_graph", None)
             if build_graph is not None:
                 return build_graph()
