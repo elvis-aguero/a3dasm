@@ -357,10 +357,13 @@ def test_transcript_fragment_resolves_tool_result_name_by_position(tmp_path):
     resp = client.get(
         "/api/runs/20260904T120000/transcript/D007/fragment?after=0")
     assert resp.status_code == 200
-    # Displayed name strips the mcp__<server>__ prefix for readability...
-    assert "Delegate result" in resp.text
-    # ...but the raw registered name is still preserved for precision.
+    # The result is attributed to the tool it answers, with the mcp__ 
+    # registration prefix stripped for readability...
+    assert "<span class='result-name'>Delegate</span>" in resp.text
+    # ...the raw registered name still preserved for precision on the call...
     assert "mcp__f3dasm_agent_tools__Delegate" in resp.text
+    # ...and the output itself shown inline, not hidden behind a disclosure.
+    assert "ok" in resp.text
 
 
 def test_transcript_fragment_resolution_correct_when_after_splits_events(
@@ -384,7 +387,8 @@ def test_transcript_fragment_resolution_correct_when_after_splits_events(
     resp = client.get(
         "/api/runs/20260904T120000/transcript/D007/fragment?after=1")
     assert resp.status_code == 200
-    assert "Read result" in resp.text
+    assert "<span class='result-name'>Read</span>" in resp.text
+    assert "file contents" in resp.text
 
 
 def test_transcript_fragment_404_when_debug_off(tmp_path):

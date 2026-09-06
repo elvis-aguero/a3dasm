@@ -53,19 +53,133 @@ def _display_tool_name(name: str) -> str:
     return name
 
 
+# The argument that identifies WHAT a call did, per tool. Ported from the
+# convention Claude Code, Codex and opencode all use: the headline is the
+# call's most salient argument, shown inline, so a transcript reads without
+# expanding anything. The previous rendering showed a literal "args" label
+# and a collapsed "Bash result", which meant every single line had to be
+# opened by hand to learn anything at all.
+_HEADLINE_KEYS = (
+    "command",       # Bash
+    "file_path",     # Read / Write / Edit / NotebookEdit
+    "path",
+    "pattern",       # Grep / Glob
+    "query",         # ConsultHandbook, store queries
+    "intent",        # Delegate
+    "question",      # FollowUp
+    "statement",     # HypothesisPropose
+    "hypothesis_id",
+    "delegation_id",
+    "url",
+)
+
+# Enough of a path to identify the file, without a 90-character absolute
+# path pushing everything else off the line.
+_PATH_KEYS = {"file_path", "path"}
+
+
+def _tool_headline(inp: dict) -> str:
+    if not isinstance(inp, dict):
+        return ""
+    for key in _HEADLINE_KEYS:
+        val = inp.get(key)
+        if isinstance(val, str) and val.strip():
+            text = " ".join(val.split())
+            if key in _PATH_KEYS:
+                parts = text.split("/")
+                text = "/".join(parts[-3:]) if len(parts) > 3 else text
+            return text if len(text) <= 160 else text[:157] + "..."
+    return ""
+
+
+def _result_text(content) -> str:
+    """Flatten a tool result into the text a human would read.
+
+    Results arrive as a list of content blocks ({"type": "text", "text":
+    ...}), which the previous renderer json.dumps()ed — so the reader was
+    shown a JSON envelope of the thing they wanted, and only after
+    expanding it.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text") or block.get("content") or "")
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(p for p in parts if p)
+    if content is None:
+        return ""
+    return json.dumps(content, indent=2)
+
+
+_PREVIEW_LINES = 3
+
+
+def _preview_block(text: str, css: str) -> str:
+    """First few lines inline, the rest behind a "+N lines" disclosure.
+
+    Inline-with-expansion rather than collapsed-by-default: the point of a
+    transcript is to be skimmable, and a reader should not have to open
+    anything to see that a command printed three passing tests.
+    """
+    text = (text or "").rstrip()
+    if not text:
+        return f"<div class='{css} empty-result'>(no output)</div>"
+    lines = text.splitlines()
+    head = "\n".join(lines[:_PREVIEW_LINES])
+    rest = len(lines) - _PREVIEW_LINES
+    html = f"<pre class='{css}'>{_esc(head)}</pre>"
+    if rest > 0:
+        html += (
+            f"<details class='more'><summary>+{rest} more "
+            f"line{'s' if rest != 1 else ''}</summary>"
+            f"<pre class='{css}'>{_esc(text)}</pre></details>"
+        )
+    return html
+
+
+# Two backends write transcripts in two shapes. The Claude backend records
+# type "assistant" with a `tools` list of {name, input}; the
+# OpenAI-compatible one (used when a node points at a local Ollama/vLLM
+# model) records the LangChain class name — AIMessage, ToolMessage,
+# HumanMessage — with `tools` as LangChain tool_calls ({name, args}).
+# Rendering only "assistant" meant a qwen3.8-backed agent's transcript
+# displayed as completely empty even once it had finished.
+_ASSISTANT_TYPES = {"assistant", "aimessage", "aimessagechunk"}
+_RESULT_TYPES = {"toolmessage", "functionmessage"}
+
+
+def _tool_input(tool: dict) -> dict:
+    """A tool call's arguments, under whichever key the backend used."""
+    for key in ("input", "args", "arguments"):
+        val = tool.get(key)
+        if isinstance(val, dict):
+            return val
+    return {}
+
+
 def _bubble_html(event: dict) -> str:
     """Render one ``assistant`` event as a chat-turn HTML fragment.
 
-    Matches the nested trace-tree convention real agent-trace viewers use
-    (thinking, then text, then each tool call as a subordinate child of the
-    SAME turn) rather than a flat list of same-weight bubbles — a tool
-    call's matching result is attached separately, by
-    ``get_transcript_fragment``, via ``_tool_result_html`` (results arrive
-    as their own later event on disk, so it can't be inlined here).
-    ``stream_evt``/``partial`` are intentionally not rendered — no live
-    token-by-token typing effect yet.
+    Thinking, then text, then each tool call as a subordinate child of the
+    SAME turn — the nested trace-tree convention agent-trace viewers use,
+    rather than a flat list of same-weight bubbles. A call's matching
+    result is attached separately by ``_render_fragment`` via
+    ``_tool_result_html``, because results arrive as their own later event
+    on disk. ``stream_evt``/``partial`` are intentionally not rendered.
     """
-    if event.get("type") != "assistant":
+    etype = str(event.get("type") or "").lower()
+    if etype in _RESULT_TYPES:
+        # LangChain reports a tool's OUTPUT as its own message; render it as
+        # the result row it is, not as another speaking turn.
+        return _tool_result_html(
+            {"results": [{"content": event.get("text") or ""}]},
+            [event.get("name") or "tool"],
+        )
+    if etype not in _ASSISTANT_TYPES:
         return ""
     text = event.get("text") or ""
     thinking = "".join(event.get("thinking") or [])
@@ -76,47 +190,76 @@ def _bubble_html(event: dict) -> str:
     tools_html = ""
     for tool in event.get("tools") or []:
         raw_name = tool.get("name", "tool")
+        inp = _tool_input(tool)
+        headline = _tool_headline(inp)
+        # The full arguments stay available, but behind a disclosure — the
+        # headline is what the reader needs on the line itself.
+        # Nothing to reveal when the headline IS the whole input — a
+        # Bash call's only argument is the command already on the line.
+        only_headline = (
+            len(inp) == 1 and headline
+            and str(next(iter(inp.values()))).strip() == headline
+        )
+        args_html = (
+            "<details class='more'><summary>arguments</summary>"
+            f"<pre>{_esc(json.dumps(inp, indent=2))}</pre></details>"
+        ) if inp and not only_headline else ""
         tools_html += (
             "<div class='tool-call'>"
-            "<span class='tool-icon'>&#8226;</span>"
+            "<div class='tool-line'>"
             f"<span class='tool-name' title='{_esc(raw_name)}'>"
             f"{_esc(_display_tool_name(raw_name))}</span>"
-            "<details><summary>args</summary>"
-            f"<pre>{_esc(json.dumps(tool.get('input', {}), indent=2))}</pre>"
-            "</details></div>"
+            f"<span class='tool-arg'>{_esc(headline)}</span>"
+            "</div>"
+            f"{args_html}"
+            "</div>"
         )
     if not text and not thinking_html and not tools_html:
         return ""
+    # An event carrying only tool calls is a continuation of the same
+    # speaker, not a new one. Giving each its own avatar and divider — as
+    # happens when a model emits one tool per event — turned a single
+    # coherent turn into a column of identical badges.
+    bare = not text.strip() and not thinking_html
+    body = (
+        f"{thinking_html}"
+        + (f"<div class='bubble-text'>{_esc(text)}</div>" if text.strip() else "")
+        + tools_html
+    )
+    if bare:
+        return f"<div class='turn turn-cont'><div class='turn-body'>{body}</div></div>"
     return (
         "<div class='turn'>"
         "<span class='avatar avatar-assistant' title='assistant'>A</span>"
-        "<div class='turn-body'>"
-        f"{thinking_html}"
-        f"<div class='bubble-text'>{_esc(text)}</div>"
-        f"{tools_html}"
-        "</div></div>"
+        f"<div class='turn-body'>{body}</div>"
+        "</div>"
     )
 
 
 def _tool_result_html(event: dict, names: list[str]) -> str:
-    """Render a ``tool_result`` event as a subordinate continuation row —
-    visually attached under the tool call it answers (no independent bubble
-    chrome), labelled with the REAL tool name it belongs to. *names* is this
-    event's ``results`` list, positionally resolved against the transcript's
-    full in-order tool-call queue by ``get_transcript_fragment`` (a
-    tool_result event carries only ``tool_use_id``, not the name — see that
-    function's docstring for why positional resolution is safe here)."""
+    """Render a ``tool_result`` event as the continuation of the call it
+    answers: a turnstile glyph, the tool's name, and the output's first
+    lines inline.
+
+    *names* is this event's ``results`` list positionally resolved against
+    the transcript's full in-order tool-call queue by ``_render_fragment``
+    (a tool_result event carries only ``tool_use_id``, never the name).
+    """
     results = event.get("results") or []
     html = ""
     for i, r in enumerate(results):
         name = names[i] if i < len(names) else "tool"
-        content = r.get("content", "")
+        text = _result_text(r.get("content", ""))
+        # An error is the one thing a reader must not have to expand to see.
+        is_error = bool(r.get("is_error")) or text.lstrip().startswith("ERROR")
         html += (
-            "<div class='tool-result-row'>"
-            "<span class='tool-icon result'>&#8618;</span>"
-            f"<details><summary>{_esc(_display_tool_name(name))} result</summary>"
-            f"<pre>{_esc(json.dumps(content, indent=2))}</pre>"
-            "</details></div>"
+            "<div class='tool-result-row"
+            f"{' is-error' if is_error else ''}'>"
+            "<span class='tool-icon result'>&#8735;</span>"
+            "<div class='result-body'>"
+            f"<span class='result-name'>{_esc(_display_tool_name(name))}</span>"
+            f"{_preview_block(text, 'result-pre')}"
+            "</div></div>"
         )
     return html
 
@@ -137,7 +280,8 @@ def _render_fragment(events: list[dict], after: int) -> str:
     """
     all_names = [
         tool.get("name", "tool")
-        for e in events if e.get("type") == "assistant"
+        for e in events
+        if str(e.get("type") or "").lower() in _ASSISTANT_TYPES
         for tool in (e.get("tools") or [])
     ]
     consumed = sum(
