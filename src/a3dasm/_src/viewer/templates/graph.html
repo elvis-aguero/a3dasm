@@ -2113,26 +2113,32 @@
           for (const n of this.spec.nodes) by[n.name] = n;
           const w = this.spec.node_w, h = this.spec.node_h;
           const out = [];
+          // Same-row edges each get their own lane depth, so two of them
+          // between the same row do not lie on top of each other and read
+          // as one line.
+          let sameRowSeen = 0;
           for (const e of this.spec.edges) {
             const s = by[e.source], t = by[e.target];
             if (!s || !t) continue;
-            // Same-row edges need side-to-side routing. Drawn with the
-            // parent-to-child convention (source bottom -> target top) they
-            // came out as a flat line skimming between two boxes at the
-            // same height, which reads as a stray rule rather than an edge.
+            // Same-row edges route BELOW the entire row, not between the
+            // boxes. A side-to-side bow only clears the gap between two
+            // ADJACENT nodes: peaking 26px under the row's centre line
+            // still sits inside the 74px node band, so an edge between
+            // non-adjacent peers (datagenerator -> literature_reviewer with
+            // another worker between them) ran straight through whatever
+            // node was in the way. Dropping under the row and arriving at
+            // the target's underside cannot cross anything, whatever the
+            // spacing.
             if (Math.abs(s.y - t.y) < 1) {
-              const goingRight = t.x > s.x;
-              const sx = goingRight ? s.x + w : s.x;
-              const tx = goingRight ? t.x : t.x + w;
-              const y = s.y + h / 2;
-              const tipX = tx + (goingRight ? -3 : 3);
-              const baseX = tipX + (goingRight ? -7 : 7);
-              const bow = y + 26;   // dip below, so it clears both boxes
+              const sx = s.x + w / 2, tx = t.x + w / 2;
+              const bottom = s.y + h;
+              const lane = bottom + 46 + (sameRowSeen++ * 18);
+              const tipY = bottom + 3;       // 3px under the target's base
+              const baseY = tipY + 7;
               out.push({
-                d: `M ${sx + (goingRight ? 1 : -1)},${y} `
-                   + `C ${sx + (goingRight ? 40 : -40)},${bow} `
-                   + `${baseX + (goingRight ? -40 : 40)},${bow} ${baseX},${y}`,
-                head: `${tipX},${y} ${baseX},${y - 4} ${baseX},${y + 4}`,
+                d: `M ${sx},${bottom - 1} C ${sx},${lane} ${tx},${lane} `
+                   + `${tx},${baseY}`,
+                head: `${tx},${tipY} ${tx - 4},${baseY} ${tx + 4},${baseY}`,
                 color: this.identityColor(t),
               });
               continue;
