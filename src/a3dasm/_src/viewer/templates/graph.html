@@ -175,6 +175,22 @@
     .composer { flex: none; border-top: 1px solid var(--surface0); padding: 16px 32px 18px; }
     .composer .send { background: var(--text); }
 
+    .nowbar {
+      flex: none;
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 10px 22px;
+      border-bottom: 1px solid var(--surface0);
+      background: var(--mantle);
+    }
+    .now-item { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+    .now-item .dot { align-self: center; }
+    .now-node { font-size: 13.5px; font-weight: 500; flex: none; }
+    .now-what {
+      font-size: 13px; color: var(--subtext0);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .now-since { margin-left: auto; font-size: 11.5px; color: var(--overlay0); flex: none; }
+
     /* ---- tabs ---------------------------------------------------------- */
     .tabs {
       flex: none;
@@ -505,6 +521,11 @@
     .graph-canvas .edges { position: absolute; left: 0; top: 0; }
     .node {
       position: absolute;
+      /* Exactly the height the server laid out with. With min-height a node
+         whose text wrapped grew past it, and the edge leaving that node
+         started from a point inside the box instead of its bottom edge. */
+      overflow: hidden;
+      justify-content: center;
       background: var(--mantle);
       border: 1px solid var(--surface0);
       border-radius: 9px;
@@ -599,6 +620,11 @@
        independent same-weight bubbles. */
     .turn { display: flex; gap: 15px; padding: 22px 0; }
     .turn + .turn { border-top: 1px solid var(--surface0); }
+    /* A tool-only event continues the turn above it: no avatar, no rule,
+       tucked under the same speaker so a sequence of calls reads as one
+       block of work rather than a column of badges. */
+    .turn.turn-cont { padding: 0 0 0 42px; border-top: none; }
+    .turn.turn-cont + .turn:not(.turn-cont) { margin-top: 14px; }
     .avatar {
       flex: none;
       width: 27px; height: 27px;
@@ -624,24 +650,44 @@
       border-left: 2px solid var(--surface0);
       line-height: 1.6;
     }
-    .tool-call { border: 1px solid var(--surface0); border-radius: 7px; overflow: hidden; }
-    .tool-call summary {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 13px;
-      background: var(--mantle);
-      cursor: pointer;
-      font-size: 13px;
-    }
-    .tool-name {
+    /* A tool call reads on ONE line: name, then the argument that says
+       what it did. Ported from the convention Claude Code / Codex /
+       opencode share — nothing important sits behind a disclosure. */
+    .tool-call { margin-top: 4px; }
+    .tool-line {
+      display: flex; align-items: baseline; gap: 9px;
       font-family: ui-monospace, Menlo, monospace;
-      font-size: 13px;
-      color: var(--text);
+      font-size: 12.5px;
+      line-height: 1.6;
     }
-    .tool-call pre, .tool-result-row pre {
-      margin: 0;
-      padding: 12px 14px;
+    .tool-line::before {
+      content: '\2192';
+      color: var(--overlay0);
+      flex: none;
+    }
+    .tool-name { color: var(--text); flex: none; }
+    .tool-arg {
+      color: var(--subtext0);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      min-width: 0;
+    }
+    /* Secondary by design: full arguments and long output are available but
+       must not compete with the line above them. */
+    .more { margin: 3px 0 0 22px; }
+    .more > summary {
+      cursor: pointer;
+      font-size: var(--fs-meta);
+      color: var(--overlay0);
+      list-style: none;
+    }
+    .more > summary:hover { color: var(--subtext0); }
+    .more > summary::-webkit-details-marker { display: none; }
+    .more pre {
+      margin: 6px 0 0;
+      padding: 10px 12px;
       background: var(--crust);
-      border-top: 1px solid var(--surface0);
+      border: 1px solid var(--surface0);
+      border-radius: 6px;
       font-family: ui-monospace, Menlo, monospace;
       font-size: var(--fs-meta);
       line-height: 1.65;
@@ -650,18 +696,34 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
+
     .tool-result-row {
-      border-top: 1px solid var(--surface0);
-      background: var(--crust);
+      display: flex; gap: 9px;
+      margin: 2px 0 0 4px;
+      padding-left: 8px;
+      border-left: 1px solid var(--surface0);
     }
-    .tool-result-row summary {
-      display: flex; align-items: center; gap: 9px;
-      padding: 9px 13px;
-      cursor: pointer;
+    .tool-icon.result { color: var(--overlay0); flex: none; font-size: 12px; }
+    .result-body { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+    .result-name {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 11.5px;
+      color: var(--overlay0);
+    }
+    .result-pre {
+      margin: 2px 0 0;
+      font-family: ui-monospace, Menlo, monospace;
       font-size: var(--fs-meta);
-      color: var(--overlay2);
+      line-height: 1.65;
+      color: var(--subtext1);
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: auto;
     }
-    .tool-result-row pre { border-top: 1px solid var(--surface0); }
+    .empty-result { font-size: var(--fs-meta); color: var(--overlay0); }
+    /* An error is the one thing that must be legible without expanding. */
+    .tool-result-row.is-error { border-left-color: var(--red); }
+    .tool-result-row.is-error .result-pre { color: var(--red); }
 
     .empty { color: var(--overlay0); font-size: var(--fs-body); padding: 8px 0; }
 
@@ -697,7 +759,7 @@
         <button class="agent-chip" @click="openNode(node)"
                 :title="node.description">
           <span :style="`color: ${identityColor(node)}`" x-text="node.name"></span>
-          <span class="dot" :class="nodeStatus[node.name] || ''"></span>
+          <span class="dot" :class="dotFor(node)"></span>
         </button>
       </template>
     </div>
@@ -722,6 +784,23 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ============ who is working right now ============
+       The single question a live dashboard has to answer on sight. A
+       status dot alone cannot: it says a node is busy, never what it is
+       doing, and the entry node never receives a delegation to be busy
+       from. -->
+  <div class="nowbar" x-show="activeNow().length > 0" x-cloak>
+    <template x-for="a in activeNow()" :key="a.node + a.what">
+      <div class="now-item">
+        <span class="dot running"></span>
+        <span class="now-node" :style="`color:${identityColorFor(a.node)}`"
+              x-text="a.node"></span>
+        <span class="now-what" x-text="a.what"></span>
+        <span class="now-since m" x-show="a.since" x-text="a.since"></span>
+      </div>
+    </template>
   </div>
 
   <!-- ============ the run is waiting on you ============
@@ -995,7 +1074,7 @@
               <button class="node"
                       :class="{ entry: node.is_entry, selected: node.name === selectedNode }"
                       :data-node="node.name"
-                      :style="`left:${node.x}px; top:${node.y}px; width:${spec.node_w}px; min-height:${spec.node_h}px`"
+                      :style="`left:${node.x}px; top:${node.y}px; width:${spec.node_w}px; height:${spec.node_h}px`"
                       @click="openNode(node)"
                       @mouseenter="onNodeHover(node, $event)"
                       @mouseleave="onNodeLeave()">
@@ -1018,7 +1097,7 @@
                   @click="openNode(node)">
             <span class="grow" :style="`color: ${identityColor(node)}`"
                   x-text="node.name"></span>
-            <span class="dot" :class="nodeStatus[node.name] || ''"></span>
+            <span class="dot" :class="dotFor(node)"></span>
           </button>
         </template>
 
@@ -1568,6 +1647,60 @@
           return `var(--id${node.identity % 6})`;
         },
 
+        // Who is doing something RIGHT NOW. A running delegation names its
+        // agent directly. When the run is open and no delegation is
+        // running, the hub is between delegations — it is the only party
+        // that can be working, so saying so is an inference the log
+        // supports, not a guess.
+        activeNow() {
+          if (this.runStatus !== null) return [];
+          const running = this.rows().filter(d => this.stateOf(d) === 'running');
+          if (running.length) {
+            return running.map(d => ({
+              node: d.to_node,
+              what: this.taskGist(d.task),
+              since: this.sinceLabel(d.started_at),
+            }));
+          }
+          // Nothing invented when no delegation is running: the hub's own
+          // pulse in the agent strip says it is working, and the log knows
+          // nothing about WHAT it is doing between delegations. A sentence
+          // made up to fill the space would be the interface asserting
+          // something it cannot know.
+          return [];
+        },
+
+        taskGist(task) {
+          const text = String(task || '').replace(/[*#`]/g, ' ')
+            .split(/\s+/).join(' ').trim();
+          if (!text) return 'working';
+          return text.length > 90 ? text.slice(0, 87) + '…' : text;
+        },
+
+        sinceLabel(iso) {
+          const t = Date.parse(iso);
+          if (isNaN(t)) return '';
+          const secs = Math.max(0, (this.now - t) / 1000);
+          const m = Math.floor(secs / 60);
+          return m ? `${m}m ${Math.floor(secs % 60)}s` : `${Math.floor(secs)}s`;
+        },
+
+        // The entry node receives no delegations, so a status derived only
+        // from incoming rows left it permanently grey — including while it
+        // was the only thing running.
+        dotFor(node) {
+          if (this.runStatus !== null) return this.nodeStatus[node.name] || '';
+          if (this.activeNow().some(a => a.node === node.name)) return 'running';
+          // The hub receives no delegations, so an incoming-only status left
+          // it grey even while it was the only thing working. With the run
+          // open and no worker running, it is the active party.
+          if (node.is_entry
+              && !this.rows().some(d => this.stateOf(d) === 'running')) {
+            return 'running';
+          }
+          return this.nodeStatus[node.name] || '';
+        },
+
         stripNodes() {
           if (!this.spec) return [];
           return [...this.spec.nodes].sort(
@@ -1578,7 +1711,9 @@
           const mine = Object.values(this.delegations)
             .filter(d => d.to_node === node.name);
           if (node.is_entry) return 'entry · talks to you';
-          if (mine.length === 0) return node.role;
+          // The role is only worth the line when it says something the name
+          // does not — "literature_reviewer / literature_reviewer" is noise.
+          if (mine.length === 0) return node.role === node.name ? '' : node.role;
           const running = mine.filter(d => this.stateOf(d) === 'running').length;
           const n = `${mine.length} delegation${mine.length === 1 ? '' : 's'}`;
           return running ? `${n} · ${running} running` : n;
@@ -1615,8 +1750,16 @@
         // are the run's own numbers, not the viewer's arithmetic on clocks.
         rows() { return Object.values(this.delegations); },
 
+        // Ticks every second off the local clock, anchored to the run's
+        // real start. Rendering the server's elapsed_s directly froze the
+        // display between the 5s polls that refreshed it.
         wallLabel() {
-          const secs = this.vitals ? (this.vitals.elapsed_s || 0) : 0;
+          const v = this.vitals;
+          if (!v) return '—';
+          let secs = v.elapsed_s || 0;
+          if (!v.closed && v.started_at) {
+            secs = Math.max(secs, (this.now / 1000) - v.started_at);
+          }
           if (!secs) return '—';
           const m = Math.floor(secs / 60);
           const s = Math.floor(secs % 60);
@@ -1957,9 +2100,8 @@
           // var() resolves in a CSS declaration, not in stroke="var(--id0)".
           const body = this.edgePaths().map(e =>
             `<path d="${e.d}" style="stroke:${e.color};fill:none" ` +
-            `stroke-width="1.8" opacity="0.85"/>` +
-            `<circle cx="${e.tipX}" cy="${e.tipY}" r="3" ` +
-            `style="fill:${e.color}"/>`
+            `stroke-width="1.6" stroke-linecap="round"/>` +
+            `<polygon points="${e.head}" style="fill:${e.color}"/>`
           ).join('');
           return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" ` +
                  `role="img" aria-label="Agent graph">${body}</svg>`;
@@ -1974,13 +2116,44 @@
           for (const e of this.spec.edges) {
             const s = by[e.source], t = by[e.target];
             if (!s || !t) continue;
+            // Same-row edges need side-to-side routing. Drawn with the
+            // parent-to-child convention (source bottom -> target top) they
+            // came out as a flat line skimming between two boxes at the
+            // same height, which reads as a stray rule rather than an edge.
+            if (Math.abs(s.y - t.y) < 1) {
+              const goingRight = t.x > s.x;
+              const sx = goingRight ? s.x + w : s.x;
+              const tx = goingRight ? t.x : t.x + w;
+              const y = s.y + h / 2;
+              const tipX = tx + (goingRight ? -3 : 3);
+              const baseX = tipX + (goingRight ? -7 : 7);
+              const bow = y + 26;   // dip below, so it clears both boxes
+              out.push({
+                d: `M ${sx + (goingRight ? 1 : -1)},${y} `
+                   + `C ${sx + (goingRight ? 40 : -40)},${bow} `
+                   + `${baseX + (goingRight ? -40 : 40)},${bow} ${baseX},${y}`,
+                head: `${tipX},${y} ${baseX},${y - 4} ${baseX},${y + 4}`,
+                color: this.identityColor(t),
+              });
+              continue;
+            }
             const x1 = s.x + w / 2, y1 = s.y + h;
             const x2 = t.x + w / 2, y2 = t.y;
-            const mid = (y1 + y2) / 2;
+            // Stop the curve short of the box and finish with an arrowhead
+            // whose tip sits just above it. Ending ON the border put the
+            // marker half underneath the node div (which paints over the
+            // SVG), so every edge looked severed at its end.
+            const GAP = 3;      // clear air between arrow tip and the box
+            const HEAD = 7;     // arrowhead length
+            const tipY = y2 - GAP;
+            const baseY = tipY - HEAD;
+            const mid = (y1 + baseY) / 2;
             out.push({
-              d: `M ${x1},${y1} C ${x1},${mid} ${x2},${mid} ${x2},${y2}`,
+              // Start 1px inside the source so the stroke's antialiased end
+              // is hidden by the box rather than leaving a seam.
+              d: `M ${x1},${y1 - 1} C ${x1},${mid} ${x2},${mid} ${x2},${baseY}`,
+              head: `${x2},${tipY} ${x2 - 4},${baseY} ${x2 + 4},${baseY}`,
               color: this.identityColor(t),
-              tipX: x2, tipY: y2,
             });
           }
           return out;

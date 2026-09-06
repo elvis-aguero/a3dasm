@@ -489,6 +489,10 @@ def read_vitals(run_dir: Path | str) -> dict[str, Any]:
         elapsed = (ended if ended is not None else time.time()) - started
 
     return {
+        # started_at lets the client tick the clock itself. Serving only a
+        # snapshot of elapsed_s made the wall time freeze between polls —
+        # it looked stopped, because for five seconds at a time it was.
+        "started_at": started,
         "cost_usd": round(cost, 6),
         "calls": calls,
         "output_tokens": out_tokens,
