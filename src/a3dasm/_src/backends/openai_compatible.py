@@ -764,21 +764,58 @@ class OpenAICompatibleAdapter:
             self._agent = self._build_agent()
 
         lc_msgs = _to_lc_messages(messages)
-        result = self._agent.invoke(
-            {"messages": lc_msgs},
-            config={"configurable": {"thread_id": str(uuid.uuid4())}},
-        )
-        last = result["messages"][-1]
+        cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
-        # DEBUG: capture full reasoning + tool-calls (parity with Claude).
+        # DEBUG: capture reasoning + tool-calls (parity with Claude).
+        #
+        # Streamed, and recorded AS IT GOES, for two reasons that only show
+        # up on a real run. A batch write after invoke() returns means a
+        # delegation in flight has no transcript at all — a literature
+        # review that runs for half an hour is completely unobservable while
+        # it is the thing you most want to watch. And if the call raises
+        # (a provider error mid-turn), a write placed after it never
+        # happens, so the delegation that failed leaves no trace of what it
+        # did before dying — exactly the case where the transcript is worth
+        # most. Observed on run 20260906T122744: D002 failed inside
+        # langchain_openai and D003 ran 25+ minutes, and neither had a
+        # single line on disk.
         from .base import append_transcript, debug_enabled
-        if debug_enabled():
-            for _m in result.get("messages", []):
+        _debug = debug_enabled()
+        result = None
+        seen = 0
+
+        def _flush(state) -> None:
+            """Append whatever messages are new since the last flush."""
+            nonlocal seen
+            msgs = (state or {}).get("messages") or []
+            for _m in msgs[seen:]:
                 append_transcript({
                     "type": _m.__class__.__name__,
                     "text": str(getattr(_m, "content", "")),
                     "tools": getattr(_m, "tool_calls", None) or [],
                 })
+            seen = max(seen, len(msgs))
+
+        if not _debug:
+            result = self._agent.invoke({"messages": lc_msgs}, config=cfg)
+        else:
+            try:
+                # stream_mode="values" yields the whole state after each
+                # step, so the last one seen is the final state invoke()
+                # would have returned.
+                for state in self._agent.stream(
+                    {"messages": lc_msgs}, config=cfg, stream_mode="values",
+                ):
+                    result = state
+                    _flush(state)
+            except Exception:
+                # A failed turn keeps everything captured up to the failure.
+                if result is not None:
+                    _flush(result)
+                raise
+        if result is None:
+            result = {"messages": []}
+        last = result["messages"][-1]
 
         # Extract token usage from LangChain response metadata.
         meta = getattr(last, "usage_metadata", None) or {}
