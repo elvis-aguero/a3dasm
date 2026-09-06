@@ -184,7 +184,7 @@ def _bubble_html(event: dict) -> str:
     text = event.get("text") or ""
     thinking = "".join(event.get("thinking") or [])
     thinking_html = (
-        "<details class='thinking'><summary>&#9656; thinking</summary>"
+        "<details class='thinking'><summary>thinking</summary>"
         f"<div class='thinking-text'>{_esc(thinking)}</div></details>"
     ) if thinking.strip() else ""
     tools_html = ""

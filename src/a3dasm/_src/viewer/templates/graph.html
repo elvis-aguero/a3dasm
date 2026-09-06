@@ -471,7 +471,7 @@
     .evals { display: flex; flex-direction: column; }
     .eval-row {
       display: grid;
-      grid-template-columns: 56px 74px minmax(0,1fr) 60px 74px;
+      grid-template-columns: 14px 56px 74px minmax(0,1fr) 60px 74px;
       align-items: baseline;
       gap: 12px;
       width: 100%;
@@ -487,6 +487,11 @@
     }
     .eval-row:hover { background: var(--mantle); }
     .eval-row.open { background: var(--surface0); color: var(--text); }
+    .eval-caret {
+      color: var(--overlay0); font-size: 9px;
+      transition: transform .12s ease;
+    }
+    .eval-row.open .eval-caret { transform: rotate(90deg); }
     .eval-i { color: var(--overlay0); font-size: 12px; }
     .eval-d { font-size: 12px; }
     .eval-st { font-size: var(--fs-meta); color: var(--overlay1); }
@@ -693,7 +698,20 @@
       text-wrap: pretty;
     }
     .thinking { font-size: var(--fs-ui); color: var(--subtext0); }
-    .thinking summary { cursor: pointer; font-style: italic; }
+    /* Same caret as .more, so every disclosure in a transcript looks and
+       behaves alike — and points DOWN when open, which a literal character
+       baked into the markup could not do. */
+    .thinking summary {
+      cursor: pointer; font-style: italic;
+      list-style: none;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .thinking summary::-webkit-details-marker { display: none; }
+    .thinking summary::before {
+      content: '\25B8'; font-size: 9px; font-style: normal;
+      transition: transform .12s ease;
+    }
+    .thinking[open] summary::before { transform: rotate(90deg); }
     .thinking-text {
       white-space: pre-wrap;
       margin-top: 7px;
@@ -725,14 +743,28 @@
     /* Secondary by design: full arguments and long output are available but
        must not compete with the line above them. */
     .more { margin: 3px 0 0 22px; }
+    /* A disclosure needs to LOOK like one before it is hovered. Hiding the
+       marker left "arguments" and "+N more lines" — the most-used
+       expanders in a transcript — reading as dim static text, so nothing
+       said they could be opened. .thinking already carried a caret; these
+       now match it. */
     .more > summary {
       cursor: pointer;
       font-size: var(--fs-meta);
       color: var(--overlay0);
       list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
-    .more > summary:hover { color: var(--subtext0); }
     .more > summary::-webkit-details-marker { display: none; }
+    .more > summary::before {
+      content: '\25B8';
+      font-size: 9px;
+      transition: transform .12s ease;
+    }
+    .more[open] > summary::before { transform: rotate(90deg); }
+    .more > summary:hover { color: var(--subtext1); }
     .more pre {
       margin: 6px 0 0;
       padding: 10px 12px;
@@ -1200,7 +1232,7 @@
                    x-model="noteDraft" @keydown.enter="sendNote()">
             <button class="send" @click="sendNote()"
                     :disabled="!noteDraft.trim()"
-                    x-text="noteSent ? 'Queued' : 'Queue'"></button>
+                    x-text="noteSent ? 'Sent' : 'Send'"></button>
           </div>
           <span style="font-size:var(--fs-meta); color:var(--overlay0)">
             Delivered at its next action.
@@ -1333,6 +1365,7 @@
                               :class="{ open: evalOpen === st.path + ev.index }"
                               @click="evalOpen = (evalOpen === st.path + ev.index)
                                       ? null : st.path + ev.index">
+                        <span class="eval-caret">&#9656;</span>
                         <span class="m eval-i" x-text="`#${ev.index}`"></span>
                         <span class="m eval-d"
                               :style="`color:${identityColorFor(nodeForDelegation(ev.delegation_id))}`"
