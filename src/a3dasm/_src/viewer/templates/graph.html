@@ -745,6 +745,8 @@
         <button class="send" @click="sendAnswer(q)"
                 :disabled="!(answerDraft[q.id] || '').trim()">Send</button>
       </div>
+      <span x-show="answerError[q.id]" style="font-size:var(--fs-meta); color:var(--red)"
+            x-text="answerError[q.id]"></span>
     </div>
   </template>
 
@@ -967,7 +969,7 @@
     </div>
 
     <!-- ================= graph ================= -->
-    <div class="view" x-show="tab === 'graph'" x-cloak
+    <div class="view" x-show="tab === 'graph'" x-cloak>
       <div class="graph-scroll">
         <p class="empty" x-show="spec && spec.nodes.length === 0">
           No graph structure available for this run.
@@ -1323,6 +1325,7 @@
         vitals: null,
         questions: [],
         answerDraft: {},
+        answerError: {},
         noteDraft: '',
         noteSent: false,
         _operatorPoll: null,
@@ -1352,6 +1355,13 @@
         stickToBottom: true,
         showJumpToNew: false,
         _pollHandle: null,
+        // Bumped on every user action that changes what should be on
+        // screen. A response is applied only if its generation is still
+        // current, which a key comparison cannot do: clicking A, B, then
+        // A again leaves two in-flight requests both matching key A, and
+        // both used to append the full transcript.
+        _gen: 0,
+        _transcriptGen: 0,
 
         // null = run has not closed yet. run_status.json is written exactly
         // once, at the very end, so its ABSENCE is the only "still running"
@@ -1376,8 +1386,11 @@
             const row = JSON.parse(ev.data);
             this.delegations[row.id] = row;
             this.nodeStatus[row.to_node] = this.stateOf(row);
-            if (row.to_node === this.selectedNode
-                && this.stateOf(row) !== 'running') {
+            // Keyed on the delegation being READ, not merely on its target
+            // node: a sibling delegation finishing used to stop the poll on
+            // a still-running transcript, freezing it mid-conversation with
+            // nothing on screen to say so.
+            if (row.id === this.currentKey && this.stateOf(row) !== 'running') {
               this.fetchMore(() => this.stopPolling());
             }
           });
@@ -1394,6 +1407,7 @@
             this.loadVitals();
             // A closed run can neither ask nor be told anything.
             this.questions = [];
+            this.stopPolling();
             if (this._operatorPoll) {
               clearInterval(this._operatorPoll);
               this._operatorPoll = null;
@@ -1436,7 +1450,11 @@
         pollOperator() {
           fetch(`/api/runs/${this.runId}/operator`)
             .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d) this.questions = d.questions || []; })
+            .then(d => {
+              // A response still in flight when the run closed must not
+              // resurrect the "is waiting for you" band on a finished run.
+              if (d && this.runStatus === null) this.questions = d.questions || [];
+            })
             .catch(() => {});
         },
 
@@ -1449,13 +1467,21 @@
             body: JSON.stringify({ id: q.id, answer: text }),
           })
             .then(r => {
-              // 409 means the run stopped waiting before this arrived. Drop
-              // the question rather than claim an answer it never acted on.
+              if (!r.ok) {
+                // 409: the run stopped waiting before this arrived. Say so
+                // and KEEP what was typed — silently clearing a long answer
+                // to a blocking question loses work with no way back.
+                this.answerError[q.id] =
+                  'The run stopped waiting for this and has moved on.';
+                return;
+              }
               this.answerDraft[q.id] = '';
+              this.answerError[q.id] = '';
               this.questions = this.questions.filter(x => x.id !== q.id);
-              if (!r.ok) this.pollOperator();
             })
-            .catch(() => {});
+            .catch(() => {
+              this.answerError[q.id] = 'Could not reach the run.';
+            });
         },
 
         waitedFor(q) {
@@ -1779,10 +1805,19 @@
           return this.spec.nodes.find(n => n.name === this.profileName) || null;
         },
 
+        // Cost comes from telemetry by role, never from summing delegation
+        // rows. Summing them here contradicted the status bar on the same
+        // screen — the critic's gate row is uncosted, so its card read
+        // $0.00 while the header read the real total.
         runStatsFor(name) {
           const mine = this.rows().filter(d => d.to_node === name);
-          if (mine.length === 0) return 'no delegations';
-          const cost = mine.reduce((a, d) => a + (d.cost_usd || 0), 0);
+          const node = (this.spec ? this.spec.nodes : []).find(x => x.name === name);
+          const role = node ? node.role : null;
+          const byRole = (this.vitals || {}).by_role || {};
+          const cost = role && byRole[role] ? byRole[role].cost_usd : null;
+          if (mine.length === 0) {
+            return cost ? `no delegations · $${cost.toFixed(2)}` : 'no delegations';
+          }
           const n = `${mine.length} delegation${mine.length === 1 ? '' : 's'}`;
           return cost ? `${n} · $${cost.toFixed(2)}` : n;
         },
@@ -1823,10 +1858,16 @@
           if (!a.readable) return;
           this.artifactPath = a.path;
           this.artifactText = null;
+          const want = a.path;
           fetch(`/api/runs/${this.runId}/artifact?path=${encodeURIComponent(a.path)}`)
             .then(r => r.ok ? r.json() : { text: '(could not read)' })
-            .then(d => { this.artifactText = d.text; })
-            .catch(() => { this.artifactText = '(could not read)'; });
+            // Guarded on the path: a slower response for a previously
+            // clicked file would otherwise show its bytes under the newly
+            // selected filename.
+            .then(d => { if (want === this.artifactPath) this.artifactText = d.text; })
+            .catch(() => {
+              if (want === this.artifactPath) this.artifactText = '(could not read)';
+            });
         },
 
         artifactsByScope(scope) {
@@ -1866,13 +1907,46 @@
         // while any literal markup in the text (an agent's tool output can
         // contain arbitrary fetched web content) renders as visible text
         // rather than executing.
+        // Markdown from model-authored text, rendered without an execution
+        // path. Sanitising the PARSED tree, not the source string: escaping
+        // the source blocks raw markup but cannot touch markdown link syntax
+        // (which uses none of the escaped characters), and it corrupts code
+        // spans, because marked escapes those itself and the pre-escaped
+        // entities get escaped a second time — `x < 1` came out as
+        // "x &lt; 1" on screen.
+        //
+        // Parsing happens in an inert DOMParser document, so nothing loads
+        // or executes even while being cleaned.
         renderMarkdown(text) {
           if (!text) return '';
-          const escaped = String(text)
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;');
-          return marked.parse(escaped);
+          const doc = new DOMParser().parseFromString(
+            marked.parse(String(text)), 'text/html');
+
+          const BANNED = new Set([
+            'SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'STYLE',
+            'BASE', 'FORM', 'META', 'SVG', 'MATH',
+          ]);
+          for (const el of [...doc.body.querySelectorAll('*')]) {
+            if (BANNED.has(el.tagName)) { el.remove(); continue; }
+            for (const attr of [...el.attributes]) {
+              const name = attr.name.toLowerCase();
+              // Any on* handler goes, whatever the element.
+              if (name.startsWith('on')) { el.removeAttribute(attr.name); continue; }
+              if (name !== 'href' && name !== 'src') continue;
+              // Allow-list the scheme rather than block-listing: anything not
+              // plainly safe becomes inert text instead of a live link.
+              // marked stopped filtering protocols in v5, so without this
+              // [x](javascript:...) renders as a working anchor — and this
+              // viewer exposes POST endpoints that steer a live run.
+              const scheme = /^\s*([a-z][a-z0-9+.-]*):/i.exec(attr.value);
+              if (scheme && !['http', 'https', 'mailto'].includes(
+                    scheme[1].toLowerCase())) {
+                el.removeAttribute(attr.name);
+                el.setAttribute('data-blocked-url', attr.value);
+              }
+            }
+          }
+          return doc.body.innerHTML;
         },
 
         // ---- graph edges --------------------------------------------------
@@ -1945,9 +2019,17 @@
           this.hoverNode = null;
           this.selectedNode = node.name;
           this.tab = 'chat';
-          fetch(`/api/runs/${this.runId}/node/${node.name}/transcripts`)
-            .then(r => r.json())
+          this.stopPolling();
+          this.clearBubbles();
+          const gen = ++this._gen;
+          fetch(`/api/runs/${this.runId}/node/${encodeURIComponent(node.name)}/transcripts`)
+            .then(r => r.ok ? r.json() : [])
             .then(keys => {
+              // A slower response for a PREVIOUSLY clicked agent must not
+              // land: it would render that agent's conversation under this
+              // one's name and colour.
+              if (gen !== this._gen) return;
+              if (!Array.isArray(keys)) keys = [];
               this.availableKeys = keys;
               if (keys.length === 0) {
                 this.currentKey = null;
@@ -1957,10 +2039,13 @@
               }
               const key = keys.includes(wanted) ? wanted : keys[keys.length - 1];
               this.openTranscript(node.name, key);
-            });
+            })
+            .catch(() => { if (gen === this._gen) this.availableKeys = []; });
         },
 
         openTranscript(nodeName, key) {
+          if (nodeName && nodeName !== this.selectedNode) return;
+          this._gen++;
           this.currentKey = key;
           this.clearBubbles();
           this.startPolling();
@@ -1969,6 +2054,7 @@
         startPolling() {
           this.stopPolling();
           this.renderedCount = 0;
+          this._transcriptGen = this._gen;
           this.fetchMore();
           this._pollHandle = setInterval(() => this.fetchMore(), 2000);
         },
@@ -1983,14 +2069,17 @@
         fetchMore(afterSuccess) {
           if (!this.currentKey) return;
           const key = this.currentKey;
+          const gen = this._transcriptGen;
           fetch(`/api/runs/${this.runId}/transcript/${key}/fragment?after=${this.renderedCount}`)
             .then(r => r.text().then(html => (
               { ok: r.ok, html, count: r.headers.get('X-Event-Count') })))
             .then(({ ok, html, count }) => {
-              // A different transcript was opened while this was in flight.
-              if (key !== this.currentKey) return;
+              // A different transcript — or a second opening of the SAME
+              // one — was started while this was in flight.
+              if (key !== this.currentKey || gen !== this._transcriptGen) return;
               if (!ok) {
-                this.$refs.bubbles.innerHTML = `<p class="empty">${html}</p>`;
+                this.$refs.bubbles.textContent =
+                  'This transcript could not be read.';
                 this.stopPolling();
                 return;
               }
@@ -2009,7 +2098,10 @@
               if (count !== null) this.renderedCount = parseInt(count, 10);
               if (afterSuccess) afterSuccess();
             })
-            .catch(() => this.stopPolling());
+            // A dropped request is not a finished transcript. Polling
+            // continues, so a server restart or a WiFi blip no longer
+            // freezes the view while still presenting it as live.
+            .catch(() => {});
         },
 
         clearBubbles() {
