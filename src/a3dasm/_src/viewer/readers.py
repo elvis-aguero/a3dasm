@@ -30,6 +30,7 @@ __all__ = [
     "read_milestones",
     "read_notebook",
     "read_vitals",
+    "read_oracle",
     "read_artifacts",
     "read_artifact_text",
     "read_run_status",
@@ -423,6 +424,130 @@ def read_milestones(run_dir: Path | str) -> list[dict[str, Any]]:
     return out
 
 
+# Columns f3dasm's output ledger adds for provenance rather than science.
+# Kept apart from real outputs: "which delegation produced this row, when,
+# and how long it took" answers a different question from "what did the
+# oracle return", and mixing them makes a result table unreadable.
+_PROVENANCE_COLS = {
+    "_delegation_id", "_source", "_ts", "_wall_ms",
+}
+
+# The default store's own data directory. The name is reserved by
+# agent_runtime (a namespace may not be called this), and it is how every
+# accounting helper tells the canonical store from a namespace store.
+_DATA_DIR = "experiment_data"
+
+# Cap on rows returned per store. A campaign can ledger thousands; the
+# count is always reported in full so a truncated view never reads as the
+# whole ledger.
+_MAX_EVAL_ROWS = 400
+
+
+def _read_csv_rows(path: Path) -> tuple[list[str], list[list[str]]]:
+    """Header and rows of a ledger CSV, or ([], []) if unreadable."""
+    import csv
+    try:
+        with path.open(newline="", encoding="utf-8", errors="replace") as fh:
+            rows = list(csv.reader(fh))
+    except OSError:
+        return [], []
+    if not rows:
+        return [], []
+    return rows[0], rows[1:]
+
+
+def _read_one_store(store: Path, namespace: str | None) -> dict[str, Any]:
+    """One oracle store's input space and ledgered evaluations."""
+    data = store / _DATA_DIR
+    space: list[str] = []
+    dom = data / "domain.json"
+    if dom.exists():
+        parsed = _read_json_object(dom)
+        space = sorted((parsed.get("input_space") or {}).keys())
+
+    in_head, in_rows = _read_csv_rows(data / "input.csv")
+    out_head, out_rows = _read_csv_rows(data / "output.csv")
+    _, job_rows = _read_csv_rows(data / "jobs.csv")
+    statuses = [r[1] if len(r) > 1 else "" for r in job_rows]
+
+    n = max(len(in_rows), len(out_rows))
+    # Newest first: a live run's interesting rows are the ones just added.
+    order = list(range(n))[::-1][:_MAX_EVAL_ROWS]
+    evals = []
+    for i in order:
+        inputs, outputs, prov = {}, {}, {}
+        if i < len(in_rows):
+            for col, val in zip(in_head[1:], in_rows[i][1:], strict=False):
+                if val != "":
+                    inputs[col] = val
+        if i < len(out_rows):
+            for col, val in zip(out_head[1:], out_rows[i][1:], strict=False):
+                if val == "":
+                    continue
+                (prov if col in _PROVENANCE_COLS else outputs)[col] = val
+        evals.append({
+            "index": i,
+            "status": statuses[i] if i < len(statuses) else "",
+            "inputs": inputs,
+            "outputs": outputs,
+            "delegation_id": prov.get("_delegation_id") or "",
+            "ts": prov.get("_ts") or "",
+            "wall_ms": prov.get("_wall_ms") or "",
+        })
+    return {
+        "namespace": namespace,
+        "path": str(store),
+        "input_space": space,
+        "n_evals": n,
+        "truncated": n > len(order),
+        "evals": evals,
+    }
+
+
+def read_oracle(run_dir: Path | str) -> dict[str, Any]:
+    """What the run's oracle is, and every evaluation it has ledgered.
+
+    Namespaces are enumerated from DISK as well as from run_config.json's
+    ``oracles`` map. A namespace store is created the moment it is
+    registered, and the config is rewritten separately, so trusting the
+    config alone can miss one — and an eval count that misses a namespace
+    is the bug agent_runtime's own eval accounting had to fix (a run
+    reported 100 evals against 200 real ones because it counted the
+    canonical store only).
+    """
+    run_dir = Path(run_dir)
+    cfg = _read_json_object(run_dir / "debug" / "run_config.json")
+    base = cfg.get("store_dir")
+    base_path = Path(base) if base else run_dir / _DATA_DIR
+
+    stores: list[dict[str, Any]] = []
+    if (base_path / _DATA_DIR).is_dir():
+        stores.append(_read_one_store(base_path, None))
+
+    seen = {s["path"] for s in stores}
+    names = set((cfg.get("oracles") or {}).keys())
+    if base_path.is_dir():
+        for entry in sorted(base_path.iterdir()):
+            if entry.is_dir() and entry.name != _DATA_DIR:
+                names.add(entry.name)
+    for name in sorted(names):
+        ns_store = base_path / name
+        if str(ns_store) in seen or not (ns_store / _DATA_DIR).is_dir():
+            continue
+        stores.append(_read_one_store(ns_store, name))
+
+    return {
+        "evaluator_name": cfg.get("evaluator_name") or "",
+        "entrypoint": cfg.get("evaluator_entrypoint") or "",
+        "eval_budget": cfg.get("eval_budget"),
+        "store_dir": str(base_path),
+        "stores": stores,
+        # Summed across canonical AND namespaces, for the same reason the
+        # runtime's own accounting does.
+        "total_evals": sum(s["n_evals"] for s in stores),
+    }
+
+
 def read_vitals(run_dir: Path | str) -> dict[str, Any]:
     """The run's REAL cost and wall clock, from telemetry and file times.
 
@@ -477,10 +602,23 @@ def read_vitals(run_dir: Path | str) -> dict[str, Any]:
             slot["calls"] += 1
             slot["cost_usd"] += c
 
+    # The EARLIEST mtime among the files written once at run start, not any
+    # single one of them. run_config.json alone was wrong: something
+    # rewrites it mid-run (oracle registration), and anchoring on it made a
+    # run that had been going 1h58m report 67 seconds — the wall clock
+    # visibly reset to zero while the operator watched. Taking the minimum
+    # is robust to any one of these being rewritten.
     started = ended = None
-    cfg = debug / "run_config.json"
-    if cfg.exists():
-        started = cfg.stat().st_mtime
+    stamps = []
+    for name in ("thread_id", "PROBLEM_STATEMENT_snapshot.md",
+                 "run_config.json"):
+        path = debug / name
+        try:
+            stamps.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    if stamps:
+        started = min(stamps)
     status = debug / "run_status.json"
     if status.exists():
         ended = status.stat().st_mtime
