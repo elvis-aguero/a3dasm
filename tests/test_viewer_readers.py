@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from a3dasm._src.viewer.readers import (
+    read_artifacts,
     graph_spec_json,
     list_node_transcripts,
     load_graph_for_study,
@@ -811,3 +812,62 @@ def test_routing_tool_docs_ignores_non_tool_helpers():
     assert all(name[:1].isupper() for name in docs)
     # First paragraph only, matching what the agent's own tool catalog shows.
     assert all("\n\n" not in d for d in docs.values())
+
+
+def test_read_notebook_does_not_prefix_match_another_runs_archive(tmp_path):
+    """"pipeline_{run_id}*" let run R1 match pipeline_R10.ipynb.
+
+    Timestamped ids happen to be fixed width, but nothing enforces that and
+    run_id arrives from the URL — and showing another run's deliverable as
+    this one's is the exact failure this reader exists to prevent.
+    """
+    _write_nb(tmp_path / "pipeline_R10.ipynb", [_code("other = 1")], run="R10")
+    assert read_notebook(tmp_path, "R1") is None
+
+    # The uuid suffix the archiver adds for a repeated id still resolves.
+    _write_nb(tmp_path / "pipeline_R1_ab12cd34.ipynb", [_code("mine = 1")],
+              run="R1")
+    nb = read_notebook(tmp_path, "R1")
+    assert nb["cells"][0]["source"] == "mine = 1"
+
+
+def test_read_artifacts_does_not_call_a_started_run_a_shared_workspace(tmp_path):
+    """A run that has not created debug/ yet is still a run.
+
+    Treating it as a shared workspace labels its files "not attributable to
+    any run", which is the opposite of the truth.
+    """
+    study = tmp_path
+    run = study / "runs" / "20260904T120000"
+    (run / "debug" / "delegations" / "D001").mkdir(parents=True)
+    (run / "debug" / "delegations" / "D001" / "report.md").write_text("x")
+    pending = study / "runs" / "20260905T090000"
+    pending.mkdir(parents=True)
+    (pending / "notes.md").write_text("not yours", encoding="utf-8")
+
+    rows = read_artifacts(run, study)
+    assert all("20260905T090000" not in r["path"] for r in rows)
+    assert [r["scope"] for r in rows] == ["run"]
+
+
+def test_tail_jsonl_stops_when_asked(tmp_path):
+    """Without a stop signal the generator never returns, so the thread
+    running it outlives the SSE connection that started it."""
+    path = tmp_path / "log.jsonl"
+    path.write_text('{"a": 1}\n', encoding="utf-8")
+    stop = {"now": False}
+    it = tail_jsonl(path, poll_interval=0.01, should_stop=lambda: stop["now"])
+    stop["now"] = True
+    assert list(it) == []
+
+
+def test_tail_jsonl_waiting_for_a_file_still_honours_the_stop_signal(tmp_path):
+    """The wait-for-creation loop needs the stop check too.
+
+    A run that never writes diagnostics.jsonl leaves that tailer parked in
+    this loop forever — it never even reaches the tail proper, so a stop
+    check only in the main loop would not free the thread.
+    """
+    it = tail_jsonl(tmp_path / "never.jsonl", poll_interval=0.01,
+                    should_stop=lambda: True)
+    assert list(it) == []

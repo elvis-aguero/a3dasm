@@ -562,6 +562,82 @@ def test_an_empty_note_is_rejected_by_the_endpoint(tmp_path):
                        json={"text": "   "}).status_code == 400
 
 
+def test_transcript_key_cannot_escape_the_run_directory(tmp_path):
+    """The severe one: {key:path} reaches read_transcript raw.
+
+    Before containment, GET /transcript/%2e%2e%2f*5/secret returned 200 with
+    the contents of any .jsonl on the host — and this server is routinely
+    bound to a LAN/ZeroTier address, so it was remotely reachable. The
+    percent-encoding matters: it survives the client-side normalisation that
+    would collapse a literal "../".
+    """
+    study = _make_study(tmp_path)
+    run = _make_run(study, "20260904T120000")
+    (run / "debug" / "transcripts").mkdir(parents=True)
+    secret = tmp_path / "secret.jsonl"
+    secret.write_text('{"type": "assistant", "text": "TOP SECRET"}\n',
+                      encoding="utf-8")
+
+    client = TestClient(create_app(study))
+    for depth in range(1, 9):
+        esc = "%2e%2e%2f" * depth
+        for route in (f"/api/runs/20260904T120000/transcript/{esc}secret",
+                      f"/api/runs/20260904T120000/transcript/{esc}secret/fragment"):
+            resp = client.get(route)
+            assert "TOP SECRET" not in resp.text, f"leaked via {route}"
+
+
+def test_a_tool_name_cannot_inject_an_event_handler(tmp_path):
+    """Tool names are model output and land in a single-quoted attribute.
+
+    _esc did not escape the apostrophe, so a name of
+    ``x' onmouseover='alert(1)`` closed title='...' and added a live handler
+    to the served page.
+    """
+    from a3dasm._src.viewer.app import _bubble_html
+
+    html = _bubble_html({
+        "type": "assistant", "text": "hi",
+        "tools": [{"name": "x' onmouseover='alert(1)", "input": {}}],
+    })
+    assert "onmouseover='alert(1)'" not in html
+    assert "&#39;" in html
+
+
+def test_malformed_client_input_does_not_500(tmp_path):
+    """Unauthenticated endpoints on a network-bound server."""
+    study = _make_study(tmp_path)
+    run = _make_run(study, "20260904T120000")
+    _write_jsonl(run / "debug" / "transcripts" / "D001.jsonl",
+                 [{"type": "assistant", "text": "x"}])
+    client = TestClient(create_app(study))
+
+    for bad in ("abc", "-5", "1e9999"):
+        r = client.get(
+            f"/api/runs/20260904T120000/transcript/D001/fragment?after={bad}")
+        assert r.status_code < 500, f"after={bad} -> {r.status_code}"
+
+    for route in ("note", "answer"):
+        r = client.post(f"/api/runs/20260904T120000/{route}", content="notjson")
+        assert r.status_code == 400
+
+
+def test_a_torn_multibyte_append_does_not_500(tmp_path):
+    """The readers' stated contract is that partial data degrades.
+
+    A JSONL file caught mid-append can split a multibyte character, and
+    read_text() raises UnicodeDecodeError before any line is parsed — so the
+    per-line JSON guard never gets a chance.
+    """
+    study = _make_study(tmp_path)
+    run = _make_run(study, "20260904T120000")
+    (run / "debug" / "diagnostics.jsonl").write_bytes(
+        b'{"ts": 1, "message": "caf\xc3')
+
+    client = TestClient(create_app(study))
+    assert client.get("/api/runs/20260904T120000/vitals").status_code == 200
+
+
 def test_graph_page_shows_the_study_name_not_only_the_run_id(tmp_path):
     """The status bar identifies the study, not just an opaque timestamp.
 

@@ -157,9 +157,18 @@ def _render_fragment(events: list[dict], after: int) -> str:
 
 
 def _esc(s: str) -> str:
+    """HTML-escape, INCLUDING the single quote.
+
+    _bubble_html emits tool names into single-quoted attributes
+    (title='...'), so leaving ' unescaped let a tool name of
+    ``x' onmouseover='alert(1)`` close the attribute and add a live event
+    handler to the served page. Tool names come from the model's own
+    output on disk, so any prompt-injected or malformed name became script
+    execution in the operator's browser.
+    """
     return (
         (s or "").replace("&", "&amp;").replace("<", "&lt;")
-        .replace(">", "&gt;").replace('"', "&quot;")
+        .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
     )
 
 
@@ -270,7 +279,10 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         run_dir = _run_dir(study_dir, run_id)
         if run_dir is None:
             return _not_found(f"no such run {run_id!r}")
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 — any malformed body
+            return JSONResponse({"error": "malformed body"}, status_code=400)
         qid, text = body.get("id", ""), body.get("answer", "")
         if not operator_channel.answer_question(run_dir, qid, text):
             # Already answered, already given up on, or never asked — all of
@@ -284,7 +296,10 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         run_dir = _run_dir(study_dir, run_id)
         if run_dir is None:
             return _not_found(f"no such run {run_id!r}")
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 — any malformed body
+            return JSONResponse({"error": "malformed body"}, status_code=400)
         if not operator_channel.queue_note(run_dir, body.get("text", "")):
             return JSONResponse({"error": "empty note"}, status_code=400)
         return JSONResponse({"ok": True})
@@ -326,7 +341,12 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
     async def get_transcript_fragment(request):
         run_id = request.path_params["run_id"]
         key = request.path_params["key"]
-        after = int(request.query_params.get("after", 0))
+        try:
+            after = max(0, int(request.query_params.get("after", 0)))
+        except (TypeError, ValueError):
+            # A non-numeric cursor is a client bug, not a server error; a
+            # negative one silently re-rendered the tail of the transcript.
+            after = 0
         run_dir = _run_dir(study_dir, run_id)
         if run_dir is None:
             return _not_found(f"no such run {run_id!r}")
@@ -393,16 +413,22 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
                 run_status_seen = True
 
             q: queue.Queue = queue.Queue()
+            # Set when this connection ends, so the tailer threads below stop
+            # instead of polling the disk forever into a queue with no
+            # consumer.
+            done = threading.Event()
 
             def _tail_delegations():
                 for _ in readers.tail_jsonl(
-                    run_dir / "debug" / "delegation_log.jsonl"
+                    run_dir / "debug" / "delegation_log.jsonl",
+                    should_stop=done.is_set,
                 ):
                     q.put(("delegation_touched", None))
 
             def _tail_diagnostics():
                 for row in readers.tail_jsonl(
-                    run_dir / "debug" / "diagnostics.jsonl"
+                    run_dir / "debug" / "diagnostics.jsonl",
+                    should_stop=done.is_set,
                 ):
                     q.put(("diagnostic", row))
 
@@ -412,29 +438,35 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             last_status = {
                 r["id"]: r["status"] for r in readers.read_delegations(run_dir)
             }
-            while True:
-                if await request.is_disconnected():
-                    break
-                if not run_status_seen:
-                    # Written once, so a plain existence poll here (not the
-                    # append-aware tail_jsonl, which is for growing files)
-                    # is enough — cheap, and stops once found.
-                    current = readers.read_run_status(run_dir)
-                    if current is not None:
-                        yield _sse("run_status", current)
-                        run_status_seen = True
-                try:
-                    kind, payload = q.get_nowait()
-                except queue.Empty:
-                    await asyncio.sleep(0.2)
-                    continue
-                if kind == "delegation_touched":
-                    for row in readers.read_delegations(run_dir):
-                        if last_status.get(row["id"]) != row["status"]:
-                            last_status[row["id"]] = row["status"]
-                            yield _sse("delegation", row)
-                elif kind == "diagnostic":
-                    yield _sse("diagnostic", payload)
+            # try/finally, not a bare loop: the generator is also closed when
+            # the client vanishes mid-yield, which raises GeneratorExit here
+            # rather than returning through the disconnect check below.
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    if not run_status_seen:
+                        # Written once, so a plain existence poll here (not
+                        # the append-aware tail_jsonl, which is for growing
+                        # files) is enough — cheap, and stops once found.
+                        current = readers.read_run_status(run_dir)
+                        if current is not None:
+                            yield _sse("run_status", current)
+                            run_status_seen = True
+                    try:
+                        kind, payload = q.get_nowait()
+                    except queue.Empty:
+                        await asyncio.sleep(0.2)
+                        continue
+                    if kind == "delegation_touched":
+                        for row in readers.read_delegations(run_dir):
+                            if last_status.get(row["id"]) != row["status"]:
+                                last_status[row["id"]] = row["status"]
+                                yield _sse("delegation", row)
+                    elif kind == "diagnostic":
+                        yield _sse("diagnostic", payload)
+            finally:
+                done.set()
 
         return StreamingResponse(event_gen(), media_type="text/event-stream")
 

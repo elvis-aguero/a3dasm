@@ -13,6 +13,7 @@ missing", not a special case bolted on afterward.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Iterator
 from functools import lru_cache
@@ -122,7 +123,7 @@ def _routing_tool_docs() -> dict[str, str]:
     for rel in ("tools/routing.py", "strategizer.py", "worker.py"):
         path = nodes_dir / rel
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except (OSError, SyntaxError):
             continue
         for node in ast.walk(tree):
@@ -156,7 +157,7 @@ def _load_study_config(study_dir: Path | None) -> dict[str, Any]:
         return {}
     import yaml
 
-    with cfg_path.open(encoding="utf-8") as f:
+    with cfg_path.open(encoding="utf-8", errors="replace") as f:
         return yaml.safe_load(f) or {}
 
 
@@ -317,7 +318,7 @@ def read_diagnostics_tail(run_dir: Path | str) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     out = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -345,7 +346,7 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -442,7 +443,7 @@ def read_vitals(run_dir: Path | str) -> dict[str, Any]:
     out_tokens = 0
     by_role: dict[str, dict[str, Any]] = {}
     for path in sorted(debug.glob("telemetry/calls*.jsonl")):
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -452,6 +453,12 @@ def read_vitals(run_dir: Path | str) -> dict[str, Any]:
                 continue
             c = row.get("total_cost_usd") or 0.0
             o = row.get("output_tokens") or 0
+            # A hand-patched or backend-changed row can carry a string here;
+            # one bad row must not take down the whole status bar.
+            if not isinstance(c, (int, float)) or isinstance(c, bool):
+                c = 0.0
+            if not isinstance(o, int) or isinstance(o, bool):
+                o = 0
             cost += c
             out_tokens += o
             calls += 1
@@ -485,6 +492,9 @@ def read_vitals(run_dir: Path | str) -> dict[str, Any]:
 
 # Text artifacts a read-only view can render. Anything else is listed but
 # not offered for reading.
+# Run directories are named <YYYYMMDD>T<HHMMSS>.
+_RUN_ID_RE = re.compile(r"^\d{8}T\d{6}")
+
 _READABLE_SUFFIXES = {".md", ".tex", ".py", ".json", ".txt", ".csv", ".yaml", ".yml"}
 
 
@@ -533,8 +543,15 @@ def read_artifacts(
     runs_root = run_dir.parent
     if runs_root.is_dir():
         for entry in sorted(runs_root.iterdir()):
-            # Skip run directories themselves; a workspace is any other dir.
-            if not entry.is_dir() or (entry / "debug").is_dir():
+            # Skip run directories; a workspace is any other dir. A run is
+            # identified by its name matching the run-id shape as well as by
+            # a debug/ dir, because a just-started run has not created
+            # debug/ yet and would otherwise have its files listed as
+            # "shared" — i.e. not attributable to any run, the opposite of
+            # the truth.
+            if not entry.is_dir():
+                continue
+            if (entry / "debug").is_dir() or _RUN_ID_RE.match(entry.name):
                 continue
             for f in sorted(entry.rglob("*")):
                 if f.is_file():
@@ -629,7 +646,16 @@ def read_notebook(
         except Exception:  # noqa: BLE001 — unreadable/unstamped: fall through
             pass
     if path is None:
-        archived = sorted(study_dir.glob(f"pipeline_{run_id}*.ipynb"))
+        # Anchored, not a bare prefix glob: "pipeline_{run_id}*" lets run
+        # "R1" match "pipeline_R10.ipynb" and show another run's deliverable
+        # as its own — the precise misattribution this function exists to
+        # prevent. The optional suffix is only the uuid the archiver appends
+        # when the same id is archived twice.
+        archived = sorted(
+            p for p in study_dir.glob(f"pipeline_{run_id}*.ipynb")
+            if p.stem == f"pipeline_{run_id}"
+            or p.stem.startswith(f"pipeline_{run_id}_")
+        )
         if archived:
             path = archived[0]
     if path is None:
@@ -669,7 +695,7 @@ def read_run_status(run_dir: Path | str) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except (OSError, json.JSONDecodeError):
         return None
 
@@ -690,11 +716,25 @@ def read_transcript(run_dir: Path | str, key: str) -> list[dict[str, Any]] | Non
     transcripts_dir = Path(run_dir) / "debug" / "transcripts"
     if not transcripts_dir.is_dir():
         return None
-    path = transcripts_dir / f"{key}.jsonl"
+    # *key* reaches here straight from a {key:path} URL segment, so it may
+    # contain "/" and "..". Without containment this reads ANY .jsonl on the
+    # host: confirmed against a live server, where
+    # ../../../../../secret returned 200 with the file's contents — and the
+    # viewer is routinely bound to a LAN/ZeroTier address, so that is
+    # remotely reachable. Resolve first, then require the result to be
+    # inside the run's own transcripts dir, exactly as read_artifact_text
+    # already does for its client-supplied path.
+    root = transcripts_dir.resolve()
+    try:
+        path = (transcripts_dir / f"{key}.jsonl").resolve()
+    except (OSError, ValueError):
+        return []
+    if not path.is_relative_to(root):
+        return []
     if not path.exists():
         return []
     out = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -714,7 +754,7 @@ def read_problem_statement(run_dir: Path | str) -> str | None:
     path = Path(run_dir) / "debug" / "PROBLEM_STATEMENT_snapshot.md"
     if not path.exists():
         return None
-    return path.read_text(encoding="utf-8")
+    return path.read_text(encoding="utf-8", errors="replace")
 
 
 def list_node_transcripts(
@@ -867,7 +907,7 @@ def load_graph_for_study(study_dir: Path | str):
 
 
 def tail_jsonl(
-    path: Path | str, poll_interval: float = 0.5,
+    path: Path | str, poll_interval: float = 0.5, should_stop=None,
 ) -> Iterator[dict[str, Any]]:
     """Yield parsed JSON objects appended to *path*, forever, starting from
     current end-of-file at call time.
@@ -910,16 +950,34 @@ def tail_jsonl(
     # file AND write its full content before we ever observe exists()==True,
     # so setting offset = size-at-creation-time would silently skip
     # whatever was written before we got around to checking).
+    # *should_stop* lets a caller end the tail. Without it this generator
+    # never returns, so the thread running it outlives the SSE connection it
+    # was started for: refreshing the dashboard twenty times left forty
+    # threads polling the disk for the life of the process, each feeding a
+    # queue nobody reads.
+    if should_stop is None:
+        def should_stop() -> bool:
+            return False
+
     if path.exists():
         content = path.read_bytes()
         offset = content.rfind(b"\n") + 1  # 0 if no newline is present at all
     else:
         offset = 0
         while not path.exists():
+            if should_stop():
+                return
             time.sleep(poll_interval)
     buffer = ""
-    while True:
-        size = path.stat().st_size
+    while not should_stop():
+        try:
+            size = path.stat().st_size
+        except OSError:
+            # The file was removed under us — run.py wipes runs/ before a new
+            # run, and a viewer left open across a relaunch hits exactly
+            # that. Ending the tail is right; dying with an unhandled
+            # FileNotFoundError in a daemon thread silently froze the stream.
+            return
         if size > offset:
             with path.open("r", encoding="utf-8") as f:
                 f.seek(offset)
