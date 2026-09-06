@@ -218,10 +218,18 @@ _NODE_H = 74
 _COL_GAP = 90
 _ROW_GAP = 150
 _MARGIN = 40
+# Must match the client's same-row edge routing in graph.html.
+_SAME_ROW_LANE = 60
+_SAME_ROW_STEP = 18
+# A layer wider than this wraps onto further rows. Every non-entry node
+# shares one layer, so a six-node graph put five boxes in a single row
+# 1550px wide — past the viewport, forcing a horizontal scroll to see the
+# agents at all.
+_MAX_ROW_W = 1180
 
 
 def _layout_nodes(
-    layers: dict[str, int],
+    layers: dict[str, int], same_row_edges: int = 0,
 ) -> tuple[dict[str, tuple[int, int]], int, int]:
     """Deterministic (x, y) per node, plus the canvas size that contains them.
 
@@ -246,20 +254,35 @@ def _layout_nodes(
     def row_width(n: int) -> int:
         return n * _NODE_W + max(0, n - 1) * _COL_GAP
 
-    widest = max((row_width(len(v)) for v in by_layer.values()), default=0)
+    per_row = max(1, (_MAX_ROW_W + _COL_GAP) // (_NODE_W + _COL_GAP))
+
+    # Each layer becomes one or more visual rows, so a wide layer wraps
+    # instead of running off the side of the screen.
+    visual_rows: list[list[str]] = []
+    for layer in sorted(by_layer):
+        names = by_layer[layer]
+        for i in range(0, len(names), per_row):
+            visual_rows.append(names[i:i + per_row])
+
+    widest = max((row_width(len(r)) for r in visual_rows), default=0)
     centre = _MARGIN + widest / 2
 
     pos: dict[str, tuple[int, int]] = {}
-    for layer in sorted(by_layer):
-        names = by_layer[layer]
+    for row_index, names in enumerate(visual_rows):
         left = centre - row_width(len(names)) / 2
-        y = _MARGIN + layer * (_NODE_H + _ROW_GAP)
+        y = _MARGIN + row_index * (_NODE_H + _ROW_GAP)
         for i, name in enumerate(names):
             pos[name] = (round(left + i * (_NODE_W + _COL_GAP)), y)
 
     canvas_w = widest + 2 * _MARGIN
-    depth = max(by_layer, default=0)
+    depth = max(0, len(visual_rows) - 1)
     canvas_h = _MARGIN * 2 + (depth + 1) * _NODE_H + depth * _ROW_GAP
+    # Same-row edges are routed BELOW the row they connect, one lane each.
+    # Without reserving that space the SVG ends above them and the edges are
+    # simply cut off mid-canvas — which is what a 6-node graph showed: the
+    # lanes fell at y=384 and 402 in a 378px canvas.
+    if same_row_edges:
+        canvas_h += _SAME_ROW_LANE + (same_row_edges - 1) * _SAME_ROW_STEP
     return pos, canvas_w, canvas_h
 
 
@@ -536,7 +559,17 @@ def read_oracle(run_dir: Path | str) -> dict[str, Any]:
             continue
         stores.append(_read_one_store(ns_store, name))
 
+    # "No oracle registered" and "an oracle is registered but was never
+    # called" are different facts about a run, and only the second one was
+    # true on run 20260906T202140 — where the datagenerator wrote an
+    # entrypoint into run_config.json, then did all its work in workspace/
+    # and ledgered nothing. Saying "not registered" there is false, and it
+    # hides the more interesting finding: the oracle went unused.
+    registered = bool(cfg.get("evaluator_entrypoint")
+                      or cfg.get("evaluator_lookup")
+                      or cfg.get("oracles"))
     return {
+        "registered": registered,
         "evaluator_name": cfg.get("evaluator_name") or "",
         "entrypoint": cfg.get("evaluator_entrypoint") or "",
         "eval_budget": cfg.get("eval_budget"),
@@ -978,7 +1011,12 @@ def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
     layers = _bfs_layers(graph)
     config = _load_study_config(study_dir)
     run_model = config.get("model")
-    pos, canvas_w, canvas_h = _layout_nodes(layers)
+    same_row = sum(
+        1 for e in graph.edges
+        if e.source in layers and e.target in layers
+        and layers[e.source] == layers[e.target]
+    )
+    pos, canvas_w, canvas_h = _layout_nodes(layers, same_row)
     identity = _identity_indices(layers, graph.entry)
     nodes = []
     # Precedence, weakest first: the hand-written map (which is the only

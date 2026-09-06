@@ -600,9 +600,25 @@
       cursor: pointer;
     }
     .node:hover { border-color: var(--surface2); background: var(--surface0); }
+    /* The whole card pulses, not a 7px dot. At a glance across a graph the
+       question is "which box is alive", and a dot that size does not carry
+       that far — the boundary of the shape does. */
+    .node.working {
+      border-color: var(--text);
+      animation: node-pulse 1.9s ease-in-out infinite;
+    }
+    @keyframes node-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(205,214,244,.40); }
+      70%  { box-shadow: 0 0 0 12px rgba(205,214,244,0); }
+      100% { box-shadow: 0 0 0 0 rgba(205,214,244,0); }
+    }
     .node.entry { border-color: var(--surface1); }
     .node.selected { border-color: var(--text); }
+    .node-head {
+      display: flex; align-items: center; gap: 9px;
+    }
     .node-name { font-size: 15.5px; font-weight: 600; }
+    .node-head .dot { margin-left: auto; }
     .node-sub { font-size: var(--fs-meta); color: var(--subtext0); }
 
     .hovercard {
@@ -1165,14 +1181,18 @@
 
             <template x-for="node in spec.nodes" :key="node.name">
               <button class="node"
-                      :class="{ entry: node.is_entry, selected: node.name === selectedNode }"
+                      :class="{ entry: node.is_entry, selected: node.name === selectedNode,
+                                working: dotFor(node) === 'running' }"
                       :data-node="node.name"
                       :style="`left:${node.x}px; top:${node.y}px; width:${spec.node_w}px; height:${spec.node_h}px`"
                       @click="openNode(node)"
                       @mouseenter="onNodeHover(node, $event)"
                       @mouseleave="onNodeLeave()">
-                <span class="node-name" :style="`color: ${identityColor(node)}`"
-                      x-text="node.name"></span>
+                <span class="node-head">
+                  <span class="node-name" :style="`color: ${identityColor(node)}`"
+                        x-text="node.name"></span>
+                  <span class="dot" :class="dotFor(node)"></span>
+                </span>
                 <span class="node-sub" x-text="nodeSubtitle(node)"></span>
               </button>
             </template>
@@ -1330,7 +1350,26 @@
       <div class="nb">
         <p class="empty" x-show="oracle === null">Loading…</p>
         <template x-if="oracle && !oracle.stores.length">
-          <p class="empty">No oracle registered for this run.</p>
+          <div style="display:flex; flex-direction:column; gap:14px">
+            <p class="empty" x-show="!oracle.registered">
+              No oracle registered for this run.
+            </p>
+            <template x-if="oracle.registered">
+              <div style="display:flex; flex-direction:column; gap:14px">
+                <p style="margin:0; font-size:16px">
+                  An oracle is registered, but nothing has been evaluated
+                  through it.
+                </p>
+                <div class="facts" style="grid-template-columns:100px minmax(0,1fr)">
+                  <span>evaluator</span><span x-text="oracle.evaluator_name || '—'"></span>
+                  <span>entrypoint</span><span class="m" style="font-size:12.5px"
+                        x-text="oracle.entrypoint || '—'"></span>
+                  <span>store</span><span class="m" style="font-size:12px; color:var(--subtext0)"
+                        x-text="oracle.store_dir"></span>
+                </div>
+              </div>
+            </template>
+          </div>
         </template>
 
         <template x-if="oracle && oracle.stores.length">
