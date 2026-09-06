@@ -467,6 +467,57 @@
       text-wrap: pretty;
     }
 
+    /* ---- oracle ---- */
+    .evals { display: flex; flex-direction: column; }
+    .eval-row {
+      display: grid;
+      grid-template-columns: 56px 74px minmax(0,1fr) 60px 74px;
+      align-items: baseline;
+      gap: 12px;
+      width: 100%;
+      padding: 8px 10px;
+      background: none;
+      border: none;
+      border-top: 1px solid var(--surface0);
+      font-family: inherit;
+      font-size: var(--fs-ui);
+      color: var(--subtext1);
+      text-align: left;
+      cursor: pointer;
+    }
+    .eval-row:hover { background: var(--mantle); }
+    .eval-row.open { background: var(--surface0); color: var(--text); }
+    .eval-i { color: var(--overlay0); font-size: 12px; }
+    .eval-d { font-size: 12px; }
+    .eval-st { font-size: var(--fs-meta); color: var(--overlay1); }
+    .eval-w, .eval-ts {
+      font-size: 11.5px; color: var(--overlay0); text-align: right;
+    }
+    .eval-detail {
+      display: flex; flex-direction: column; gap: 14px;
+      padding: 14px 10px 18px 66px;
+      background: var(--crust);
+      border-top: 1px solid var(--surface0);
+    }
+    .kv { display: flex; flex-direction: column; gap: 7px; }
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 5px 20px;
+    }
+    .kv-grid > div {
+      display: flex; align-items: baseline; gap: 8px; min-width: 0;
+      font-size: var(--fs-meta);
+    }
+    .kv-grid span {
+      color: var(--overlay1);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .kv-grid b {
+      margin-left: auto; font-weight: 400; color: var(--text);
+      font-size: 11.5px;
+    }
+
     /* ---- result (notebook) --------------------------------------------- */
     .nb { flex: 1; overflow-y: auto; padding: 28px 40px 56px; }
     .nb-inner { display: flex; flex-direction: column; gap: 22px; }
@@ -837,6 +888,8 @@
             @click="setTab('overview')">Overview</button>
     <button class="tab" :class="{ active: tab === 'graph' }"
             @click="setTab('graph')">Graph</button>
+    <button class="tab" :class="{ active: tab === 'oracle' }"
+            @click="setTab('oracle')">Oracle</button>
     <button class="tab" :class="{ active: tab === 'chat' }"
             @click="setTab('chat')">Chat</button>
     <button class="tab" :class="{ active: tab === 'result' }"
@@ -1232,6 +1285,92 @@
       </template>
     </div>
 
+    <!-- ================= oracle ================= -->
+    <div class="view" x-show="tab === 'oracle'" x-cloak>
+      <div class="nb">
+        <p class="empty" x-show="oracle === null">Loading…</p>
+        <template x-if="oracle && !oracle.stores.length">
+          <p class="empty">No oracle registered for this run.</p>
+        </template>
+
+        <template x-if="oracle && oracle.stores.length">
+          <div style="display:flex; flex-direction:column; gap:26px">
+            <div class="facts" style="grid-template-columns:100px minmax(0,1fr)">
+              <span>evaluator</span><span x-text="oracle.evaluator_name || '—'"></span>
+              <span>entrypoint</span><span class="m" style="font-size:12.5px"
+                    x-text="oracle.entrypoint || '—'"></span>
+              <span>evals</span><span class="m" x-text="evalsBudget()"></span>
+              <span>store</span><span class="m" style="font-size:12px; color:var(--subtext0)"
+                    x-text="oracle.store_dir"></span>
+            </div>
+
+            <template x-for="st in oracle.stores" :key="st.path">
+              <div style="display:flex; flex-direction:column; gap:12px">
+                <div style="display:flex; align-items:baseline; gap:10px">
+                  <span class="label" x-text="st.namespace || 'canonical store'"></span>
+                  <span class="m" style="font-size:11.5px; color:var(--overlay0)"
+                        x-text="`${st.n_evals} evals`"></span>
+                  <span class="m" style="font-size:11.5px; color:var(--peach)"
+                        x-show="st.truncated"
+                        x-text="`showing newest ${st.evals.length}`"></span>
+                </div>
+
+                <div style="display:flex; flex-wrap:wrap; gap:5px">
+                  <template x-for="v in st.input_space" :key="v">
+                    <span class="m" style="font-size:11.5px; color:var(--subtext0);
+                          border:1px solid var(--surface0); border-radius:5px;
+                          padding:3px 8px" x-text="v"></span>
+                  </template>
+                </div>
+
+                <p class="empty" x-show="!st.evals.length"
+                   style="font-size:var(--fs-ui)">Nothing evaluated yet.</p>
+
+                <div class="evals" x-show="st.evals.length">
+                  <template x-for="ev in st.evals" :key="st.path + ev.index">
+                    <div>
+                      <button class="eval-row"
+                              :class="{ open: evalOpen === st.path + ev.index }"
+                              @click="evalOpen = (evalOpen === st.path + ev.index)
+                                      ? null : st.path + ev.index">
+                        <span class="m eval-i" x-text="`#${ev.index}`"></span>
+                        <span class="m eval-d"
+                              :style="`color:${identityColorFor(nodeForDelegation(ev.delegation_id))}`"
+                              x-text="ev.delegation_id || '—'"></span>
+                        <span class="eval-st"
+                              :style="ev.status === 'FINISHED' ? 'color:var(--green)' : ''"
+                              x-text="(ev.status || '').toLowerCase()"></span>
+                        <span class="m eval-w" x-text="wallMs(ev.wall_ms)"></span>
+                        <span class="m eval-ts" x-text="(ev.ts || '').slice(11, 19)"></span>
+                      </button>
+                      <div class="eval-detail" x-show="evalOpen === st.path + ev.index">
+                        <div class="kv">
+                          <span class="label">in</span>
+                          <div class="kv-grid">
+                            <template x-for="[k, v] in Object.entries(ev.inputs)" :key="k">
+                              <div><span x-text="k"></span><b class="m" x-text="v"></b></div>
+                            </template>
+                          </div>
+                        </div>
+                        <div class="kv">
+                          <span class="label">out</span>
+                          <div class="kv-grid">
+                            <template x-for="[k, v] in Object.entries(ev.outputs)" :key="k">
+                              <div><span x-text="k"></span><b class="m" x-text="v"></b></div>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <!-- ================= result ================= -->
     <div class="view" x-show="tab === 'result'" x-cloak>
       <div class="nb">
@@ -1402,6 +1541,8 @@
 
         notebook: null,
         vitals: null,
+        oracle: null,
+        evalOpen: null,
         questions: [],
         answerDraft: {},
         answerError: {},
@@ -1519,6 +1660,35 @@
         // rows. The critic's gate row was written uncosted, so a
         // delegation-derived total silently omitted its whole budget —
         // $0.697 shown against a real $1.078 on run 20260905T162758.
+        loadOracle() {
+          fetch(`/api/runs/${this.runId}/oracle`)
+            .then(r => r.ok ? r.json() : null)
+            .then(o => { if (o) this.oracle = o; })
+            .catch(() => {});
+        },
+
+        // Which agent produced an eval — the ledger records the delegation
+        // id, and the delegation log is what maps that to a node.
+        nodeForDelegation(did) {
+          const row = this.delegations[did];
+          return row ? row.to_node : '';
+        },
+
+        wallMs(ms) {
+          const n = parseFloat(ms);
+          if (!isFinite(n)) return '';
+          return n >= 60000 ? `${Math.round(n / 60000)}m`
+               : n >= 1000  ? `${Math.round(n / 1000)}s`
+               : `${Math.round(n)}ms`;
+        },
+
+        evalsBudget() {
+          const o = this.oracle;
+          if (!o) return '';
+          return o.eval_budget ? `${o.total_evals} / ${o.eval_budget}`
+                               : String(o.total_evals);
+        },
+
         loadVitals() {
           fetch(`/api/runs/${this.runId}/vitals`)
             .then(r => r.ok ? r.json() : null)
@@ -1912,6 +2082,7 @@
           this.tab = t;
           if (t === 'brief' && this.briefText === null) this.loadBrief();
           if (t === 'result') { this.loadNotebook(); this.loadArtifacts(); }
+          if (t === 'oracle') this.loadOracle();
         },
 
         // Re-read on every visit rather than caching: the implementer

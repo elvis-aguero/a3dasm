@@ -460,6 +460,13 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             return JSONResponse({"error": "empty note"}, status_code=400)
         return JSONResponse({"ok": True})
 
+    async def get_oracle(request):
+        run_id = request.path_params["run_id"]
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
+            return _not_found(f"no such run {run_id!r}")
+        return JSONResponse(readers.read_oracle(run_dir))
+
     async def get_problem_statement(request):
         run_id = request.path_params["run_id"]
         run_dir = _run_dir(study_dir, run_id)
@@ -643,6 +650,7 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
         Route("/api/runs/{run_id}/answer", post_answer, methods=["POST"]),
         Route("/api/runs/{run_id}/note", post_note, methods=["POST"]),
         Route("/api/runs/{run_id}/vitals", get_vitals),
+        Route("/api/runs/{run_id}/oracle", get_oracle),
         Route("/api/runs/{run_id}/artifacts", get_artifacts),
         Route("/api/runs/{run_id}/artifact", get_artifact),
         Route("/api/runs/{run_id}/notebook", get_notebook),

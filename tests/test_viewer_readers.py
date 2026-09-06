@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import queue
+import time
 import threading
 from pathlib import Path
 
@@ -10,6 +11,8 @@ import pytest
 
 from a3dasm._src.viewer.readers import (
     read_artifacts,
+    read_oracle,
+    read_vitals,
     graph_spec_json,
     list_node_transcripts,
     load_graph_for_study,
@@ -871,3 +874,113 @@ def test_tail_jsonl_waiting_for_a_file_still_honours_the_stop_signal(tmp_path):
     it = tail_jsonl(tmp_path / "never.jsonl", poll_interval=0.01,
                     should_stop=lambda: True)
     assert list(it) == []
+
+
+# ---------------------------------------------------------------------------
+# read_oracle — the input space, the namespaces, and every ledgered eval
+# ---------------------------------------------------------------------------
+
+def _store(root: Path, rows: list[tuple[str, str, str]]) -> None:
+    """A minimal f3dasm store: domain + input/output/jobs ledgers."""
+    data = root / "experiment_data"
+    data.mkdir(parents=True, exist_ok=True)
+    (data / "domain.json").write_text(json.dumps(
+        {"input_space": {"x": {}, "y": {}}}), encoding="utf-8")
+    (data / "input.csv").write_text(
+        ",x,y\n" + "".join(f"{i},{r[0]},1.0\n" for i, r in enumerate(rows)),
+        encoding="utf-8")
+    (data / "output.csv").write_text(
+        ",score,_delegation_id,_ts,_wall_ms\n"
+        + "".join(f"{i},{r[1]},{r[2]},2026-09-06T12:00:0{i}+00:00,1500\n"
+                  for i, r in enumerate(rows)),
+        encoding="utf-8")
+    (data / "jobs.csv").write_text(
+        ",0\n" + "".join(f"{i},FINISHED\n" for i in range(len(rows))),
+        encoding="utf-8")
+
+
+def test_read_oracle_reports_the_input_space_and_every_eval(tmp_path):
+    run = tmp_path / "runs" / "R1"
+    (run / "debug").mkdir(parents=True)
+    store = run / "experiment_data"
+    _store(store, [("0.1", "9.5", "D001"), ("0.2", "8.5", "D002")])
+    (run / "debug" / "run_config.json").write_text(json.dumps({
+        "store_dir": str(store), "evaluator_name": "demo",
+        "evaluator_entrypoint": "w/gen.py:Gen", "eval_budget": 50,
+    }), encoding="utf-8")
+
+    o = read_oracle(run)
+    assert o["evaluator_name"] == "demo"
+    assert o["eval_budget"] == 50
+    assert o["total_evals"] == 2
+    (st,) = o["stores"]
+    assert st["namespace"] is None
+    assert st["input_space"] == ["x", "y"]
+    # Newest first: on a live run the interesting rows are the latest.
+    assert [e["index"] for e in st["evals"]] == [1, 0]
+    assert st["evals"][0]["delegation_id"] == "D002"
+    assert st["evals"][0]["outputs"] == {"score": "8.5"}
+
+
+def test_read_oracle_keeps_provenance_out_of_the_results(tmp_path):
+    """_delegation_id/_ts/_wall_ms answer "who ran this and when", not
+    "what did the oracle return" — mixing them makes a result table
+    unreadable and invites treating a timestamp as a measurement."""
+    run = tmp_path / "runs" / "R1"
+    (run / "debug").mkdir(parents=True)
+    store = run / "experiment_data"
+    _store(store, [("0.1", "9.5", "D001")])
+    (run / "debug" / "run_config.json").write_text(
+        json.dumps({"store_dir": str(store)}), encoding="utf-8")
+
+    (ev,) = read_oracle(run)["stores"][0]["evals"]
+    assert ev["outputs"] == {"score": "9.5"}
+    assert not any(k.startswith("_") for k in ev["outputs"])
+    assert ev["delegation_id"] == "D001" and ev["wall_ms"] == "1500"
+
+
+def test_read_oracle_finds_namespaces_on_disk_not_only_in_the_config(tmp_path):
+    """A namespace store exists the moment it is registered; run_config.json
+    is rewritten separately. Trusting the config alone undercounts evals —
+    the same defect the runtime's own accounting had to fix, where a run
+    reported 100 evals against 200 real ones.
+    """
+    run = tmp_path / "runs" / "R1"
+    (run / "debug").mkdir(parents=True)
+    store = run / "experiment_data"
+    _store(store, [("0.1", "1.0", "D001")])
+    _store(store / "design_b", [("0.5", "2.0", "D002"), ("0.6", "3.0", "D002")])
+    # Config mentions the canonical store only.
+    (run / "debug" / "run_config.json").write_text(
+        json.dumps({"store_dir": str(store)}), encoding="utf-8")
+
+    o = read_oracle(run)
+    assert [s["namespace"] for s in o["stores"]] == [None, "design_b"]
+    assert o["total_evals"] == 3
+
+
+def test_read_oracle_on_a_run_with_no_oracle(tmp_path):
+    run = tmp_path / "runs" / "R1"
+    (run / "debug").mkdir(parents=True)
+    o = read_oracle(run)
+    assert o["stores"] == [] and o["total_evals"] == 0
+
+
+def test_read_vitals_start_survives_a_rewritten_run_config(tmp_path):
+    """The wall clock anchors on the EARLIEST start-file mtime.
+
+    run_config.json is rewritten mid-run (oracle registration), so
+    anchoring on it alone made a run that had been going 1h58m report 67
+    seconds — the clock visibly reset to zero on a live run.
+    """
+    import os
+    run = tmp_path / "runs" / "R1"
+    debug = run / "debug"
+    debug.mkdir(parents=True)
+    old = time.time() - 7080
+    for name in ("thread_id", "PROBLEM_STATEMENT_snapshot.md"):
+        (debug / name).write_text("x", encoding="utf-8")
+        os.utime(debug / name, (old, old))
+    (debug / "run_config.json").write_text("{}", encoding="utf-8")  # mtime now
+
+    assert read_vitals(run)["elapsed_s"] > 7000
