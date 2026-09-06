@@ -28,6 +28,7 @@ import os
 import re
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,42 @@ class _ChannelUnavailable(Exception):
 # to look something up read as absent, the run gave up, and their answer
 # was then refused.
 WATCH_STALE_S = 180.0
+
+
+@contextmanager
+def _locked(run_dir: Path | str):
+    """Hold the channel's cross-process lock, or proceed without it.
+
+    The run and the viewer race on the same files from different
+    processes, so read-modify-write on a question needs more than an atomic
+    rename: the rename makes each WRITE indivisible, it does not stop two
+    writers from deciding what to write against the same stale read. The
+    concrete loss was an answer POSTed in the same instant the run gave up
+    being recorded as accepted, telling the operator their answer landed
+    while the agent had already moved on.
+
+    filelock is already a project dependency (literature_corpus uses it for
+    the same cross-process reason). If the lock cannot be taken at all —
+    read-only dir, an exotic filesystem — the body still runs: an
+    unsynchronised write is worse than a lost question, but only slightly,
+    and refusing to function is worse than both.
+    """
+    debug = Path(run_dir) / "debug"
+    try:
+        from filelock import FileLock, Timeout
+        lock = FileLock(str(debug / ".operator.lock"), timeout=5)
+    except Exception:  # noqa: BLE001 — filelock missing or unconstructable
+        yield
+        return
+    try:
+        with lock:
+            yield
+    except Timeout:
+        # Five seconds means the holder is wedged, not busy; the callers
+        # here all tolerate a lost update better than a stalled run.
+        yield
+    except OSError:
+        yield
 
 
 def _dir(run_dir: Path | str) -> Path:
@@ -195,16 +232,19 @@ def answer_question(run_dir: Path | str, qid: str, answer: str) -> bool:
     if not _QID_RE.match(qid or "") or not answer.strip():
         return False
     path = _q_dir(run_dir) / f"{qid}.json"
-    data = _read_json(path)
-    if not data or data.get("status") != "pending":
-        return False
-    data["answer"] = answer
-    data["status"] = "answered"
-    data["answered_at"] = time.time()
-    try:
-        _write_json(path, data)
-    except _ChannelUnavailable:
-        return False
+    with _locked(run_dir):
+        # Re-read INSIDE the lock: the status may have changed to timeout
+        # between the caller deciding to answer and this write.
+        data = _read_json(path)
+        if not data or data.get("status") != "pending":
+            return False
+        data["answer"] = answer
+        data["status"] = "answered"
+        data["answered_at"] = time.time()
+        try:
+            _write_json(path, data)
+        except _ChannelUnavailable:
+            return False
     return True
 
 
@@ -218,15 +258,18 @@ def close_question(run_dir: Path | str, qid: str, status: str) -> None:
     if not _QID_RE.match(qid or ""):
         return
     path = _q_dir(run_dir) / f"{qid}.json"
-    data = _read_json(path)
-    if not data or data.get("status") != "pending":
-        return
-    data["status"] = status
-    data["answered_at"] = time.time()
-    try:
-        _write_json(path, data)
-    except _ChannelUnavailable:
-        pass
+    with _locked(run_dir):
+        # Same lock as answer_question, so a timeout and an answer landing
+        # together resolve one way or the other rather than both "winning".
+        data = _read_json(path)
+        if not data or data.get("status") != "pending":
+            return
+        data["status"] = status
+        data["answered_at"] = time.time()
+        try:
+            _write_json(path, data)
+        except _ChannelUnavailable:
+            pass
 
 
 # --------------------------------------------------------------------------
@@ -249,17 +292,36 @@ def queue_note(run_dir: Path | str, text: str, to_node: str = "") -> bool:
 def drain_notes(run_dir: Path | str) -> list[str]:
     """Return undelivered note texts and mark them delivered.
 
-    Delivery is recorded by truncating the file rather than by a per-row
-    flag, so a note cannot be handed to the agent twice — being told the
-    same thing repeatedly is worse than not being told at all.
+    Delivery is recorded by CLAIMING the file — renaming it aside and
+    reading the claimed copy — not by reading and then truncating. Reading
+    first loses any note appended in between: the operator's POST returned
+    {"ok": true} for a note that was then deleted unread. Rename is the
+    atomic step, so a note either makes it into this batch or stays in a
+    fresh file for the next one.
+
+    A note is never handed over twice, because the file it came from no
+    longer exists by the time it is returned — being told the same thing on
+    every tool call is worse than not being told at all.
     """
     path = _dir(run_dir) / _NOTES
     if not path.is_file():
         return []
+    claimed = path.with_suffix(f".{os.getpid()}.{uuid.uuid4().hex[:8]}.claim")
     try:
-        raw = path.read_text(encoding="utf-8")
+        path.replace(claimed)
     except OSError:
         return []
+    try:
+        # errors="replace": a note appended concurrently can split a
+        # multibyte character, and this must not raise into a tool call.
+        raw = claimed.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    finally:
+        try:
+            claimed.unlink()
+        except OSError:
+            pass
     if not raw.strip():
         return []
     out = []
@@ -274,10 +336,6 @@ def drain_notes(run_dir: Path | str) -> list[str]:
         text = row.get("text")
         if isinstance(text, str) and text.strip():
             out.append(text)
-    try:
-        path.write_text("", encoding="utf-8")
-    except OSError:
-        pass
     return out
 
 

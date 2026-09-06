@@ -9,6 +9,7 @@ says what happened.
 from __future__ import annotations
 
 import json
+import threading
 import time
 
 from a3dasm._src import operator_channel as oc
@@ -179,3 +180,83 @@ def test_answered_question_records_when_it_was_answered(tmp_path):
         (run / "debug" / "followups" / f"{qid}.json").read_text())
     assert stored["answered_at"] >= before
     assert stored["asked_at"] <= stored["answered_at"]
+
+
+# ---------------------------------------------------------------------------
+# cross-process races — the run and the viewer write these files concurrently
+# ---------------------------------------------------------------------------
+
+def test_a_note_queued_while_draining_is_not_lost(tmp_path):
+    """Read-then-truncate deleted notes it had never read.
+
+    The operator's POST returned {"ok": true} and the note was then wiped
+    unread. Claiming the file by rename makes the handover atomic: a note
+    either joins this batch or waits in a fresh file for the next.
+    """
+    run = _run(tmp_path)
+    oc.queue_note(run, "first")
+
+    drained = []
+    t = threading.Thread(target=lambda: drained.extend(oc.drain_notes(run)))
+    t.start()
+    oc.queue_note(run, "second")
+    t.join()
+
+    assert sorted(drained + oc.drain_notes(run)) == ["first", "second"]
+
+
+def test_answering_and_timing_out_together_cannot_both_win(tmp_path):
+    """The window that mattered: the operator hits Send as the run gives up.
+
+    Without a lock these are two read-modify-writes against the same stale
+    read, so answer_question could report success — telling the operator
+    their answer landed — while close_question's write won and the agent
+    proceeded without it.
+    """
+    run = _run(tmp_path)
+    for _ in range(25):
+        qid = oc.ask_question(run, "strategizer", "race?")
+        result = {}
+
+        def _answer(_qid=qid, _result=result):
+            _result["ok"] = oc.answer_question(run, _qid, "yes")
+
+        def _close(_qid=qid):
+            oc.close_question(run, _qid, "timeout")
+
+        ta, tc = threading.Thread(target=_answer), threading.Thread(target=_close)
+        ta.start()
+        tc.start()
+        ta.join()
+        tc.join()
+
+        # Either outcome is acceptable; claiming one while recording the
+        # other is not.
+        if result.get("ok"):
+            assert oc.read_answer(run, qid) == "yes"
+        else:
+            assert oc.read_answer(run, qid) is None
+
+
+def test_two_questions_asked_at_once_get_distinct_ids(tmp_path):
+    """Counting existing files to pick the next id is a read-then-write
+    race: both asks compute the same number and the second overwrites the
+    first, so the first asker reads back somebody else's answer."""
+    run = _run(tmp_path)
+    ids = []
+    lock = threading.Lock()
+
+    def _ask(n):
+        qid = oc.ask_question(run, "strategizer", f"q{n}")
+        with lock:
+            ids.append(qid)
+
+    threads = [threading.Thread(target=_ask, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(ids) == 8
+    assert len(set(ids)) == 8, f"duplicate ids issued: {ids}"
+    assert len(oc.pending_questions(run)) == 8
