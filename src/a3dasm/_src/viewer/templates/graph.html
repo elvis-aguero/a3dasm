@@ -97,8 +97,14 @@
       height: 28px;
       padding-left: 20px;
       border-left: 1px solid var(--surface0);
-      overflow-x: auto;
+      /* Wraps rather than eliding. Overflowing silently dropped agents
+         from the roster with no affordance — at 820px a four-agent run
+         showed two, which is the header asserting a false agent list. */
+      flex-wrap: wrap;
+      overflow: visible;
+      min-width: 0;
     }
+    .statusbar { flex-wrap: wrap; row-gap: 4px; }
     .agent-chip {
       display: flex;
       align-items: center;
@@ -851,6 +857,8 @@
       <div class="outcome" :class="outcomeTone()">
         <b x-text="outcomeLabel()"></b>
         <span class="raw m" x-show="rawStatus()" x-text="rawStatus()"></span>
+        <span class="raw m" style="color:var(--peach)"
+              x-show="lastActivity()" x-text="lastActivity()"></span>
       </div>
       <div class="numbers">
         <div>
@@ -1370,9 +1378,16 @@
                         <span class="m eval-d"
                               :style="`color:${identityColorFor(nodeForDelegation(ev.delegation_id))}`"
                               x-text="ev.delegation_id || '—'"></span>
+                        <!-- Never green. FINISHED is the SUBPROCESS's
+                             status, not the science: on a real campaign 37
+                             rows read FINISHED while only 5 converged, so
+                             painting it with the token reserved for
+                             "state: done" made a 5-result campaign look
+                             like 37 successes. Shown only when it varies —
+                             a column with one value across every row costs
+                             space to say nothing. -->
                         <span class="eval-st"
-                              :style="ev.status === 'FINISHED' ? 'color:var(--green)' : ''"
-                              x-text="(ev.status || '').toLowerCase()"></span>
+                              x-text="statusVaries(st) ? (ev.status || '').toLowerCase() : ''"></span>
                         <span class="m eval-w" x-text="wallMs(ev.wall_ms)"></span>
                         <span class="m eval-ts" x-text="(ev.ts || '').slice(11, 19)"></span>
                       </button>
@@ -1673,6 +1688,7 @@
 
           this.loadLedger();
           this.loadVitals();
+          this.loadOracle();
           this.pollOperator();
           // Every poll refreshes the watch heartbeat server-side,
           // which is what tells a run somebody is here to answer.
@@ -1682,6 +1698,7 @@
           this._ledgerPoll = setInterval(() => {
             this.loadLedger();
             this.loadVitals();
+            this.loadOracle();
           }, 5000);
 
           this._clock = setInterval(() => {
@@ -1713,6 +1730,11 @@
           return n >= 60000 ? `${Math.round(n / 60000)}m`
                : n >= 1000  ? `${Math.round(n / 1000)}s`
                : `${Math.round(n)}ms`;
+        },
+
+        statusVaries(store) {
+          const seen = new Set((store.evals || []).map(e => e.status));
+          return seen.size > 1;
         },
 
         evalsBudget() {
@@ -1926,6 +1948,24 @@
         // "GATED" is internal vocabulary for "the critic's acceptance gate
         // passed". Nobody outside this codebase can know that, so the bar
         // says what happened and keeps the raw token as provenance.
+        // The log has no RUNNING state — run_status.json is written once, at
+        // the end — so "Running" is inferred from a MISSING file, and a run
+        // that died without writing one would claim it forever. The word
+        // stays, but staleness is shown beside it so the claim can be
+        // falsified on sight.
+        lastActivity() {
+          if (this.runStatus !== null || !this.vitals) return '';
+          const stamps = this.rows()
+            .map(d => Date.parse(d.completed_at || d.started_at))
+            .filter(t => !isNaN(t));
+          if (!stamps.length) return '';
+          const secs = (this.now - Math.max(...stamps)) / 1000;
+          if (secs < 90) return '';
+          const m = Math.floor(secs / 60);
+          return m >= 60 ? `quiet ${Math.floor(m / 60)}h ${m % 60}m`
+                         : `quiet ${m}m`;
+        },
+
         outcomeLabel() {
           if (this.runStatus === null) return 'Running';
           const s = (this.runStatus.status || '').toUpperCase();
@@ -1981,13 +2021,22 @@
             .join('\n');
         },
 
+        // The oracle's own ledger is authoritative, and it already sums
+        // across the canonical store and every namespace. Deriving this
+        // from delegation rows was wrong three ways: it read 0 for a run
+        // whose store held 37 evaluations, it took a MAX across
+        // delegations (right only if each row carries a run-global
+        // cumulative counter), and it took whichever budget appeared
+        // first rather than the run's.
         evalsLabel() {
+          if (this.oracle) {
+            const used = this.oracle.total_evals || 0;
+            return this.oracle.eval_budget
+              ? `${used}/${this.oracle.eval_budget}` : `${used}`;
+          }
           const used = Math.max(
             0, ...this.rows().map(d => (d.constraints || {}).evals_used || 0));
-          const budget = this.rows()
-            .map(d => (d.constraints || {}).eval_budget)
-            .find(b => b !== null && b !== undefined);
-          return budget ? `${used}/${budget}` : `${used}`;
+          return `${used}`;
         },
 
         // ---- timeline -----------------------------------------------------
