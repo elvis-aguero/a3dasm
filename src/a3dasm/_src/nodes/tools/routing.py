@@ -2388,7 +2388,10 @@ def build_routing_tools(node) -> dict:
                 f"FollowUp limit reached ({node._max_ask} per run). "
                 "Proceed autonomously with the information you have."
             )
-        node._ask_count += 1
+        # _ask_count is incremented only once the question can actually be
+        # put to someone (below). Counting it here spent the run's whole
+        # quota on questions that were closed unattended microseconds later
+        # and never displayed anywhere.
         # Two ways to reach a human, and the run takes whichever answers
         # first: a terminal (as before) and the viewer, which answers by
         # writing into the run's own debug/followups/ directory. The viewer
@@ -2409,10 +2412,16 @@ def build_routing_tools(node) -> dict:
             read_answer as _read_answer,
         )
 
-        _tty = (
-            interactive
-            and getattr(_sys.stdin, "isatty", lambda: False)()
-        )
+        def _stdin_is_tty() -> bool:
+            # .isatty() on a CLOSED stream raises ValueError rather than
+            # returning False — reachable under supervisors that close fd 0
+            # instead of reopening it on /dev/null.
+            try:
+                return bool(getattr(_sys.stdin, "isatty", lambda: False)())
+            except (ValueError, OSError):
+                return False
+
+        _tty = bool(interactive) and _stdin_is_tty()
         _run_dir = node._current_run_dir
         _unattended = (
             "No operator is present to answer. Proceed autonomously "
@@ -2422,18 +2431,27 @@ def build_routing_tools(node) -> dict:
         if _run_dir is None:
             # Nowhere to publish the question, so nowhere an answer could
             # come from except a terminal.
+            # No deadline is available on this path and there is no viewer
+            # to answer, so it must not block: an unattended terminal would
+            # otherwise hang the run forever, which is the exact failure the
+            # isatty() guard was introduced to prevent.
             if _tty:
-                print(f"\n[Node {node._name}] {question}\nAnswer: ",
-                      end="", flush=True)
                 try:
-                    typed = input()
-                except (EOFError, KeyboardInterrupt):
-                    typed = ""
-                if typed.strip():
-                    return typed
+                    if _select.select([_sys.stdin], [], [], 0)[0]:
+                        typed = _sys.stdin.readline()
+                        if typed.strip():
+                            node._ask_count += 1
+                            return typed.strip()
+                except (OSError, ValueError):
+                    pass
             return _unattended
 
         qid = ask_question(_run_dir, node._name, question)
+        if qid is None:
+            # The channel could not be written — a full or read-only debug
+            # dir. Degrade to the unattended answer rather than raising a
+            # disk error out of a clarifying question.
+            return _unattended
 
         # Waiting is only reasonable when somebody could actually answer.
         # With no terminal and nobody watching in the viewer, a wait is not
@@ -2443,6 +2461,8 @@ def build_routing_tools(node) -> dict:
         if not (_tty or is_watched(_run_dir)):
             close_question(_run_dir, qid, "unattended")
             return _unattended
+
+        node._ask_count += 1
 
         from ...settings import get_int as _get_int
         _deadline = time.monotonic() + _get_int("followup_wait_s", 600)
@@ -2461,20 +2481,35 @@ def build_routing_tools(node) -> dict:
                     typed_ready = bool(
                         _select.select([_sys.stdin], [], [], 0.5)[0])
                 except (OSError, ValueError):
+                    # A stdin that cannot be selected is not a stdin that can
+                    # answer; stop treating it as one, and keep pacing from
+                    # the sleep below rather than spinning.
+                    _tty = False
                     typed_ready = False
-            else:
+            if not _tty:
                 time.sleep(0.5)
 
             if typed_ready:
                 try:
                     typed = _sys.stdin.readline()
-                except (EOFError, KeyboardInterrupt):
+                except (EOFError, KeyboardInterrupt, ValueError):
                     typed = ""
-                if typed.strip():
-                    # Recorded so the run's own history shows what was
-                    # answered, regardless of which channel it arrived on.
-                    _answer_q(_run_dir, qid, typed.strip())
-                    return typed.strip()
+                if typed == "":
+                    # EOF. select() reports a closed tty readable forever and
+                    # readline() returns instantly, so continuing to poll it
+                    # spins a core flat out for the whole deadline — measured
+                    # at ~285k iterations/second. Nobody can type into a
+                    # closed stdin, so stop watching it.
+                    _tty = False
+                elif typed.strip():
+                    # Only return a typed answer if it was actually recorded.
+                    # Losing this race to the viewer means the record holds a
+                    # DIFFERENT answer from the one handed to the agent.
+                    if _answer_q(_run_dir, qid, typed.strip()):
+                        return typed.strip()
+                    from_typed_race = _read_answer(_run_dir, qid)
+                    if from_typed_race:
+                        return from_typed_race
 
             from_viewer = _read_answer(_run_dir, qid)
             if from_viewer:

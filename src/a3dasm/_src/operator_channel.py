@@ -24,7 +24,10 @@ debug dir was never created must behave exactly as one nobody is watching.
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -45,10 +48,21 @@ _QUESTIONS = "followups"
 _NOTES = "operator_notes.jsonl"
 _WATCH = "viewer_watching"
 
-# A heartbeat older than this means nobody is looking. Comfortably longer
-# than the viewer's own refresh interval so a slow poll never reads as an
-# absent operator.
-WATCH_STALE_S = 45.0
+# Question ids are used to build a path, and the id arrives from an
+# HTTP request body, so it is matched rather than trusted.
+_QID_RE = re.compile(r"^Q\d{1,9}$")
+
+
+class _ChannelUnavailable(Exception):
+    """The channel could not be written (disk full, read-only)."""
+
+# A heartbeat older than this means nobody is looking. It has to clear
+# browser background-tab throttling, not just the viewer's nominal poll
+# interval: Chrome clamps timers in a hidden tab to >=60s (and to once a
+# minute under intensive throttling). At 45s, an operator switching tabs
+# to look something up read as absent, the run gave up, and their answer
+# was then refused.
+WATCH_STALE_S = 180.0
 
 
 def _dir(run_dir: Path | str) -> Path:
@@ -76,22 +90,61 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     reader sees either the old file or the new one.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    # The temp name must be unique PER WRITER. Two processes sharing one
+    # "<name>.tmp" can interleave their writes into it and then rename
+    # the mixture into place — which defeats the very guarantee this
+    # function exists to provide.
+    tmp = path.with_suffix(f"{path.suffix}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        # A full or read-only disk must not turn a clarifying question
+        # into an exception escaping the tool.
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise _ChannelUnavailable from None
 
 
 # --------------------------------------------------------------------------
 # questions
 # --------------------------------------------------------------------------
 
-def ask_question(run_dir: Path | str, node: str, question: str) -> str:
-    """Record a pending question and return its id."""
+def ask_question(run_dir: Path | str, node: str, question: str) -> str | None:
+    """Record a pending question and return its id, or ``None`` if it could
+    not be recorded.
+
+    The id is claimed by exclusive create rather than by counting existing
+    files. Counting is a read-then-write race: two questions asked at once
+    both compute the same next number and the second overwrites the first,
+    so the first asker's read_answer() would return the answer to somebody
+    else's question — worse than returning nothing at all.
+    """
     qdir = _q_dir(run_dir)
-    qdir.mkdir(parents=True, exist_ok=True)
-    seq = len(list(qdir.glob("*.json"))) + 1
-    qid = f"Q{seq:03d}"
-    _write_json(qdir / f"{qid}.json", {
+    try:
+        qdir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    seq = len(list(qdir.glob("*.json")))
+    qid = None
+    for _ in range(200):
+        seq += 1
+        candidate = qdir / f"Q{seq:03d}.json"
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            continue
+        except OSError:
+            return None
+        os.close(fd)
+        qid = f"Q{seq:03d}"
+        break
+    if qid is None:
+        return None
+    try:
+        _write_json(qdir / f"{qid}.json", {
         "id": qid,
         "node": node,
         "question": question,
@@ -99,7 +152,9 @@ def ask_question(run_dir: Path | str, node: str, question: str) -> str:
         "status": "pending",
         "answer": None,
         "answered_at": None,
-    })
+        })
+    except _ChannelUnavailable:
+        return None
     return qid
 
 
@@ -109,15 +164,20 @@ def pending_questions(run_dir: Path | str) -> list[dict[str, Any]]:
     if not qdir.is_dir():
         return []
     out = []
-    for path in sorted(qdir.glob("*.json")):
+    for path in qdir.glob("*.json"):
         data = _read_json(path)
         if data and data.get("status") == "pending":
             out.append(data)
+    # By ask time, not filename: zero-padding stops sorting correctly once
+    # the sequence passes its width, and the caller wants oldest-first.
+    out.sort(key=lambda d: d.get("asked_at") or 0)
     return out
 
 
 def read_answer(run_dir: Path | str, qid: str) -> str | None:
     """The answer to *qid*, or ``None`` while it is still unanswered."""
+    if not _QID_RE.match(qid or ""):
+        return None
     data = _read_json(_q_dir(run_dir) / f"{qid}.json")
     if not data or data.get("status") != "answered":
         return None
@@ -132,16 +192,19 @@ def answer_question(run_dir: Path | str, qid: str, answer: str) -> bool:
     arrives after the run gave up must not look like one the agent acted
     on, or the record would claim an influence the run never had.
     """
+    if not _QID_RE.match(qid or "") or not answer.strip():
+        return False
     path = _q_dir(run_dir) / f"{qid}.json"
     data = _read_json(path)
     if not data or data.get("status") != "pending":
         return False
-    if not answer.strip():
-        return False
     data["answer"] = answer
     data["status"] = "answered"
     data["answered_at"] = time.time()
-    _write_json(path, data)
+    try:
+        _write_json(path, data)
+    except _ChannelUnavailable:
+        return False
     return True
 
 
@@ -152,13 +215,18 @@ def close_question(run_dir: Path | str, qid: str, status: str) -> None:
     the run waited before proceeding, is exactly the sort of thing a later
     reader of the run needs in order to judge the work.
     """
+    if not _QID_RE.match(qid or ""):
+        return
     path = _q_dir(run_dir) / f"{qid}.json"
     data = _read_json(path)
     if not data or data.get("status") != "pending":
         return
     data["status"] = status
     data["answered_at"] = time.time()
-    _write_json(path, data)
+    try:
+        _write_json(path, data)
+    except _ChannelUnavailable:
+        pass
 
 
 # --------------------------------------------------------------------------
