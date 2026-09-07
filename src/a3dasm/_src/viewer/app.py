@@ -115,28 +115,44 @@ def _result_text(content) -> str:
     return json.dumps(content, indent=2)
 
 
-_PREVIEW_LINES = 3
+# Measured against a real run rather than guessed. Across the 78 tool
+# results of one delegation (supercompressible-material 20260907T024929,
+# D018) the median result is 15 lines and the 90th percentile is 146, so a
+# 3-line budget left only 19% of results readable without a click — a
+# transcript of stubs. The share fully visible by budget: 3 -> 19%,
+# 6 -> 40%, 8 -> 46%, 12 -> 49%, 16 -> 53%, 30 -> 54%. The knee is at 8 and
+# the curve is flat past 16 (what remains are the 146+ line dumps, which
+# belong behind a disclosure whatever the budget). 12 sits past the knee,
+# keeps a long result from swamping the pane, and roughly halves the
+# clicking.
+_PREVIEW_LINES = 12
 
 
 def _preview_block(text: str, css: str) -> str:
-    """First few lines inline, the rest behind a "+N lines" disclosure.
+    """First lines inline, the REMAINDER behind a "+N lines" disclosure.
 
     Inline-with-expansion rather than collapsed-by-default: the point of a
     transcript is to be skimmable, and a reader should not have to open
     anything to see that a command printed three passing tests.
+
+    The disclosure holds only the lines the preview did not show. It used
+    to hold the entire text again, so expanding a result re-printed the
+    lines already on screen — the reader had to find their place in a
+    second copy — and the DOM carried the whole payload twice, which on
+    this run's largest result (834 lines) is not a rounding error.
     """
     text = (text or "").rstrip()
     if not text:
         return f"<div class='{css} empty-result'>(no output)</div>"
     lines = text.splitlines()
     head = "\n".join(lines[:_PREVIEW_LINES])
-    rest = len(lines) - _PREVIEW_LINES
+    rest = lines[_PREVIEW_LINES:]
     html = f"<pre class='{css}'>{_esc(head)}</pre>"
-    if rest > 0:
+    if rest:
         html += (
-            f"<details class='more'><summary>+{rest} more "
-            f"line{'s' if rest != 1 else ''}</summary>"
-            f"<pre class='{css}'>{_esc(text)}</pre></details>"
+            f"<details class='more'><summary>+{len(rest)} "
+            f"line{'s' if len(rest) != 1 else ''}</summary>"
+            f"<pre class='{css}'>{_esc(chr(10).join(rest))}</pre></details>"
         )
     return html
 
@@ -161,8 +177,18 @@ def _tool_input(tool: dict) -> dict:
     return {}
 
 
-def _bubble_html(event: dict) -> str:
+def _bubble_html(event: dict, call_index: int = 0,
+                 resolved_calls: int | None = None) -> str:
     """Render one ``assistant`` event as a chat-turn HTML fragment.
+
+    *call_index* is this event's first tool call's position in the
+    transcript's whole in-order call queue, and *resolved_calls* how many
+    of those calls already have a result on disk (``None`` when the
+    transcript's shape does not allow the comparison). A call at or past
+    that count has not come back yet, and is marked as still running —
+    the one thing a reader watching a live run cannot otherwise tell,
+    since a call awaiting its result and a call that returned nothing
+    render identically.
 
     Thinking, then text, then each tool call as a subordinate child of the
     SAME turn — the nested trace-tree convention agent-trace viewers use,
@@ -188,8 +214,12 @@ def _bubble_html(event: dict) -> str:
         f"<div class='thinking-text'>{_esc(thinking)}</div></details>"
     ) if thinking.strip() else ""
     tools_html = ""
-    for tool in event.get("tools") or []:
+    for offset, tool in enumerate(event.get("tools") or []):
         raw_name = tool.get("name", "tool")
+        pending = (
+            resolved_calls is not None
+            and (call_index + offset) >= resolved_calls
+        )
         inp = _tool_input(tool)
         headline = _tool_headline(inp)
         # The full arguments stay available, but behind a disclosure — the
@@ -205,8 +235,10 @@ def _bubble_html(event: dict) -> str:
             f"<pre>{_esc(json.dumps(inp, indent=2))}</pre></details>"
         ) if inp and not only_headline else ""
         tools_html += (
-            "<div class='tool-call'>"
+            f"<div class='tool-call{' pending' if pending else ''}'"
+            f"{' data-pending' if pending else ''}>"
             "<div class='tool-line'>"
+            "<span class='call-glyph'></span>"
             f"<span class='tool-name' title='{_esc(raw_name)}'>"
             f"{_esc(_display_tool_name(raw_name))}</span>"
             f"<span class='tool-arg'>{_esc(headline)}</span>"
@@ -244,22 +276,40 @@ def _tool_result_html(event: dict, names: list[str]) -> str:
     *names* is this event's ``results`` list positionally resolved against
     the transcript's full in-order tool-call queue by ``_render_fragment``
     (a tool_result event carries only ``tool_use_id``, never the name).
+    The name is kept as the glyph's tooltip rather than a visible line:
+    the row already sits under the named call it answers, so printing the
+    name again made the output read as a second call rather than the tail
+    of the first.
+
+    Wrapped in the same ``turn-cont`` as a tool call. It used to be
+    emitted as a bare top-level sibling, which put a result at the chat
+    body's own left edge while its call sat 42px in — so every output
+    rendered OUTDENTED from, and visually detached from, the command that
+    produced it. Claude Code, Codex and opencode all nest the result
+    under the call instead (``●`` then ``⎿``/``└``); this now does too,
+    and that containment is what marks where one call ends and the next
+    begins.
     """
     results = event.get("results") or []
     html = ""
     for i, r in enumerate(results):
         name = names[i] if i < len(names) else "tool"
         text = _result_text(r.get("content", ""))
-        # An error is the one thing a reader must not have to expand to see.
+        # An error is the one thing a reader must not have to expand to
+        # see. Deliberately only the explicit flag and a3dasm's own
+        # ERROR_RETURN convention: scanning output for "error"/"failed"
+        # was measured against this run and matched 3 of 78 results, all
+        # three of them false — SBATCH scripts whose #SBATCH --output
+        # lines carry the word — while catching no real failure at all.
         is_error = bool(r.get("is_error")) or text.lstrip().startswith("ERROR")
         html += (
-            "<div class='tool-result-row"
-            f"{' is-error' if is_error else ''}'>"
-            "<span class='tool-icon result'>&#8735;</span>"
+            "<div class='turn turn-cont turn-res'>"
+            f"<div class='tool-result{' is-error' if is_error else ''}'>"
+            "<span class='result-glyph' "
+            f"title='{_esc(_display_tool_name(name))}'>&#9151;</span>"
             "<div class='result-body'>"
-            f"<span class='result-name'>{_esc(_display_tool_name(name))}</span>"
             f"{_preview_block(text, 'result-pre')}"
-            "</div></div>"
+            "</div></div></div>"
         )
     return html
 
@@ -288,6 +338,27 @@ def _render_fragment(events: list[dict], after: int) -> str:
         len(e.get("results") or [])
         for e in events[:after] if e.get("type") == "tool_result"
     )
+    # How many calls have a result on disk, so a call still waiting can be
+    # marked as such. Only meaningful for the Claude shape, where results
+    # are their own `tool_result` events in strict call order. The
+    # OpenAI-compatible backend records a LangChain ToolMessage per
+    # result, paired by name rather than position, so the comparison does
+    # not hold there and the marking is switched off (None) instead of
+    # declaring every one of its calls unfinished forever.
+    langchain = any(
+        str(e.get("type") or "").lower() in _RESULT_TYPES
+        or str(e.get("type") or "").lower() in {"aimessage", "aimessagechunk"}
+        for e in events
+    )
+    resolved_calls = None if langchain else sum(
+        len(e.get("results") or [])
+        for e in events if e.get("type") == "tool_result"
+    )
+    call_index = sum(
+        len(e.get("tools") or [])
+        for e in events[:after]
+        if str(e.get("type") or "").lower() in _ASSISTANT_TYPES
+    )
     html_parts = []
     for e in events[after:]:
         if e.get("type") == "tool_result":
@@ -296,7 +367,9 @@ def _render_fragment(events: list[dict], after: int) -> str:
             consumed += len(results)
             html_parts.append(_tool_result_html(e, names))
         else:
-            html_parts.append(_bubble_html(e))
+            html_parts.append(_bubble_html(e, call_index, resolved_calls))
+            if str(e.get("type") or "").lower() in _ASSISTANT_TYPES:
+                call_index += len(e.get("tools") or [])
     return "".join(html_parts)
 
 

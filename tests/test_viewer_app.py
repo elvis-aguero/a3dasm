@@ -357,9 +357,13 @@ def test_transcript_fragment_resolves_tool_result_name_by_position(tmp_path):
     resp = client.get(
         "/api/runs/20260904T120000/transcript/D007/fragment?after=0")
     assert resp.status_code == 200
-    # The result is attributed to the tool it answers, with the mcp__ 
-    # registration prefix stripped for readability...
-    assert "<span class='result-name'>Delegate</span>" in resp.text
+    # The result is attributed to the tool it answers, with the mcp__
+    # registration prefix stripped for readability. The attribution rides
+    # on the turnstile glyph rather than a repeated visible name: the row
+    # is nested under the named call it answers, and printing the name a
+    # second time made the output read as another call instead of the
+    # tail of the first.
+    assert "<span class='result-glyph' title='Delegate'>" in resp.text
     # ...the raw registered name still preserved for precision on the call...
     assert "mcp__f3dasm_agent_tools__Delegate" in resp.text
     # ...and the output itself shown inline, not hidden behind a disclosure.
@@ -387,8 +391,118 @@ def test_transcript_fragment_resolution_correct_when_after_splits_events(
     resp = client.get(
         "/api/runs/20260904T120000/transcript/D007/fragment?after=1")
     assert resp.status_code == 200
-    assert "<span class='result-name'>Read</span>" in resp.text
+    assert "<span class='result-glyph' title='Read'>" in resp.text
     assert "file contents" in resp.text
+
+
+def test_a_result_is_nested_under_the_call_it_answers(tmp_path):
+    """The result must share the call's indent context, not sit outside it.
+
+    It used to be emitted as a bare top-level sibling while calls sat
+    inside ``turn-cont``'s 42px indent, so every tool's output rendered
+    OUTDENTED from — and visually detached from — the command that
+    produced it. With 58 Bash calls in one delegation that left no way to
+    see where one call ended and the next began, which is exactly the
+    complaint. Claude Code, Codex and opencode all nest the result under
+    the call; the shared wrapper is what encodes that.
+    """
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    _write_jsonl(run_dir / "debug" / "transcripts" / "D007.jsonl", [
+        {"ts": "t1", "type": "assistant", "text": "",
+         "tools": [{"name": "Bash", "input": {"command": "ls"}}]},
+        {"ts": "t2", "type": "tool_result",
+         "results": [{"tool_use_id": "x", "content": "out"}]},
+    ])
+    client = TestClient(create_app(study))
+    body = client.get(
+        "/api/runs/20260904T120000/transcript/D007/fragment?after=0").text
+    # Same indent wrapper as a tool call, flagged as the continuation row
+    # so it stays tucked against its call instead of opening a new unit.
+    assert "<div class='turn turn-cont turn-res'>" in body
+    assert "class='tool-result" in body
+    # And nothing renders at the old detached top level any more.
+    assert "tool-result-row" not in body
+
+
+def test_a_long_result_is_not_emitted_twice(tmp_path):
+    """The disclosure holds the REMAINDER, not a second full copy.
+
+    It used to hold the entire text again, so expanding a result
+    re-printed the lines already on screen and the DOM carried the whole
+    payload twice — on this run's largest result (834 lines) that is not
+    a rounding error.
+    """
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    body_lines = [f"line{i}" for i in range(20)]
+    _write_jsonl(run_dir / "debug" / "transcripts" / "D007.jsonl", [
+        {"ts": "t1", "type": "assistant", "text": "",
+         "tools": [{"name": "Bash", "input": {"command": "ls"}}]},
+        {"ts": "t2", "type": "tool_result",
+         "results": [{"tool_use_id": "x", "content": "\n".join(body_lines)}]},
+    ])
+    client = TestClient(create_app(study))
+    body = client.get(
+        "/api/runs/20260904T120000/transcript/D007/fragment?after=0").text
+    # The first line is in the preview and NOWHERE else; the last is only
+    # in the disclosure. A duplicating renderer shows line0 twice.
+    assert body.count("line0<") + body.count("line0\n") == 1
+    assert "+8 lines" in body
+    assert "line19" in body
+
+
+def test_a_call_still_waiting_on_its_result_is_marked(tmp_path):
+    """The live-run case: a call whose output has not been written yet.
+
+    Without this a call awaiting its result and a call that returned
+    nothing render identically, so a reader watching a run cannot tell
+    when a command is still going — the "hard to know when it ends"
+    complaint. The mark is the glyph's own animation; there is no label.
+    """
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    _write_jsonl(run_dir / "debug" / "transcripts" / "D007.jsonl", [
+        {"ts": "t1", "type": "assistant", "text": "",
+         "tools": [{"name": "Bash", "input": {"command": "first"}}]},
+        {"ts": "t2", "type": "tool_result",
+         "results": [{"tool_use_id": "x", "content": "done"}]},
+        {"ts": "t3", "type": "assistant", "text": "",
+         "tools": [{"name": "Bash", "input": {"command": "second"}}]},
+    ])
+    client = TestClient(create_app(study))
+    body = client.get(
+        "/api/runs/20260904T120000/transcript/D007/fragment?after=0").text
+    # Exactly one call is outstanding — the second. The first came back.
+    assert body.count("data-pending") == 1
+    assert body.index("first") < body.index("data-pending")
+    # data-pending is the handle the frontend uses to clear a stale mark
+    # once the result arrives in a later append-only fragment.
+    assert "class='tool-call pending' data-pending" in body
+
+
+def test_pending_marks_are_suppressed_for_langchain_transcripts(tmp_path):
+    """Pending is inferred by counting `tool_result` events against calls,
+    which only holds for the Claude backend's strictly-ordered shape. The
+    OpenAI-compatible backend records a LangChain ToolMessage per result,
+    paired by name rather than position, so the comparison is meaningless
+    there — and applying it anyway would brand every one of that
+    backend's calls as unfinished forever.
+    """
+    study = _make_study(tmp_path)
+    run_dir = _make_run(study, "20260904T120000")
+    _write_jsonl(run_dir / "debug" / "transcripts" / "D007.jsonl", [
+        {"ts": "t1", "type": "AIMessage", "text": "",
+         "tools": [{"name": "Bash", "args": {"command": "ls"}}]},
+        {"ts": "t2", "type": "ToolMessage", "name": "Bash", "text": "out"},
+    ])
+    client = TestClient(create_app(study))
+    body = client.get(
+        "/api/runs/20260904T120000/transcript/D007/fragment?after=0").text
+    assert "data-pending" not in body
+    # ...while still rendering, which is the whole reason that shape is
+    # handled at all.
+    assert "Bash" in body and "out" in body
 
 
 def test_transcript_fragment_404_when_debug_off(tmp_path):

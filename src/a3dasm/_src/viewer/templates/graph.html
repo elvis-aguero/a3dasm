@@ -703,6 +703,13 @@
        block of work rather than a column of badges. */
     .turn.turn-cont { padding: 0 0 0 42px; border-top: none; }
     .turn.turn-cont + .turn:not(.turn-cont) { margin-top: 14px; }
+    /* A tool-only turn STARTS a call unit, so it carries the gap that
+       separates one call from the previous one. A result turn continues
+       the unit above it and must stay tucked against its call — the
+       whole point of the nesting. */
+    .turn.turn-cont { margin-top: 18px; }
+    .turn.turn-cont.turn-res { margin-top: 0; }
+    .turn.turn-cont:first-child { margin-top: 0; }
     .avatar {
       flex: none;
       width: 27px; height: 27px;
@@ -743,18 +750,43 @@
     }
     /* A tool call reads on ONE line: name, then the argument that says
        what it did. Ported from the convention Claude Code / Codex /
-       opencode share — nothing important sits behind a disclosure. */
-    .tool-call { margin-top: 4px; }
+       opencode share — nothing important sits behind a disclosure.
+
+       The unit boundary is spacing, not a box: a call and the result
+       nested under it are one block, and the gap BETWEEN blocks is what
+       says where one ends. This gap has to beat .turn-body's own 11px
+       row gap or the two read as the same rhythm — which is exactly why
+       a column of 58 Bash calls was unparseable. */
+    .tool-call + .tool-call { margin-top: 18px; }
     .tool-line {
       display: flex; align-items: baseline; gap: 9px;
       font-family: ui-monospace, Menlo, monospace;
       font-size: 12.5px;
       line-height: 1.6;
     }
-    .tool-line::before {
-      content: '\2192';
-      color: var(--overlay0);
+    /* A filled dot heads the call, the same mark Claude Code and
+       opencode's grouped mode use. Drawn rather than typed so the
+       pending state below can animate it. */
+    .call-glyph {
       flex: none;
+      width: 7px; height: 7px;
+      margin-right: 1px;
+      border-radius: 50%;
+      background: var(--overlay1);
+      align-self: center;
+    }
+    /* A call whose result has not been written yet. No label: the mark
+       breathing IS the statement, and it stops when the output lands. */
+    .tool-call.pending > .tool-line > .call-glyph {
+      background: var(--text);
+      animation: call-wait 1.4s ease-in-out infinite;
+    }
+    @keyframes call-wait {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(205, 214, 244, .55); }
+      50%      { box-shadow: 0 0 0 4px rgba(205, 214, 244, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .tool-call.pending > .tool-line > .call-glyph { animation: none; }
     }
     .tool-name { color: var(--text); flex: none; }
     .tool-arg {
@@ -802,21 +834,33 @@
       word-break: break-word;
     }
 
-    .tool-result-row {
-      display: flex; gap: 9px;
-      margin: 2px 0 0 4px;
-      padding-left: 8px;
-      border-left: 1px solid var(--surface0);
+    /* The result is a CHILD of the call above it, indented past the call's
+       glyph and hung off a turnstile — the nesting every reference tool
+       uses. It previously rendered as a top-level sibling at the chat
+       body's own left edge, i.e. outdented from its own command. */
+    .tool-result {
+      display: flex; gap: 8px;
+      margin: 5px 0 0 16px;
     }
-    .tool-icon.result { color: var(--overlay0); flex: none; font-size: 12px; }
-    .result-body { min-width: 0; flex: 1; display: flex; flex-direction: column; }
-    .result-name {
+    .result-glyph {
+      flex: none;
       font-family: ui-monospace, Menlo, monospace;
-      font-size: 11.5px;
+      font-size: 12px;
+      line-height: 1.9;
       color: var(--overlay0);
     }
+    .result-body { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+    /* Output gets its own recessed surface, the same one the expanded
+       blocks already use. This is the one place a tint carries meaning:
+       the call is a line of prose-weight text, the output is a slab of
+       machine text, and the change of ground is what says which is
+       which without a word of labelling. */
     .result-pre {
-      margin: 2px 0 0;
+      margin: 0;
+      padding: 9px 12px;
+      background: var(--crust);
+      border: 1px solid var(--surface0);
+      border-radius: 6px;
       font-family: ui-monospace, Menlo, monospace;
       font-size: var(--fs-meta);
       line-height: 1.65;
@@ -825,10 +869,21 @@
       word-break: break-word;
       overflow-x: auto;
     }
-    .empty-result { font-size: var(--fs-meta); color: var(--overlay0); }
+    /* The disclosure's own slab continues the one above it rather than
+       restating it, so an expanded result reads as one block. */
+    .result-body .more { margin: 0; }
+    .result-body .more > summary { padding: 4px 0 0 2px; }
+    .result-body .more pre { margin: 4px 0 0; }
+    .empty-result {
+      font-size: var(--fs-meta); color: var(--overlay0);
+      background: none; border: none; padding: 0;
+    }
     /* An error is the one thing that must be legible without expanding. */
-    .tool-result-row.is-error { border-left-color: var(--red); }
-    .tool-result-row.is-error .result-pre { color: var(--red); }
+    .tool-result.is-error .result-glyph { color: var(--red); }
+    .tool-result.is-error .result-pre {
+      color: var(--red);
+      border-color: var(--red);
+    }
 
     .empty { color: var(--overlay0); font-size: var(--fs-body); padding: 8px 0; }
 
@@ -2555,6 +2610,21 @@
                 return;
               }
               if (html) {
+                // A call the server marked "still running" in an earlier
+                // fragment whose result has now arrived. Fragments only
+                // ever append, so nothing else would ever revisit that
+                // node and its glyph would pulse for the rest of the
+                // run. Only cleared when this batch actually carries a
+                // result — a batch of pure new calls means the earlier
+                // one is still genuinely waiting.
+                if (html.indexOf('turn-res') !== -1) {
+                  this.$refs.bubbles
+                    .querySelectorAll('[data-pending]')
+                    .forEach(el => {
+                      el.classList.remove('pending');
+                      el.removeAttribute('data-pending');
+                    });
+                }
                 this.$refs.bubbles.insertAdjacentHTML('beforeend', html);
                 if (this.stickToBottom) this.scrollToBottom();
                 else this.showJumpToNew = true;
