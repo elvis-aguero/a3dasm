@@ -40,6 +40,7 @@ __all__ = [
     "close_question",
     "queue_note",
     "drain_notes",
+    "drain_note_rows",
     "touch_watch",
     "is_watched",
     "WATCH_STALE_S",
@@ -289,8 +290,8 @@ def queue_note(run_dir: Path | str, text: str, to_node: str = "") -> bool:
     return True
 
 
-def drain_notes(run_dir: Path | str) -> list[str]:
-    """Return undelivered note texts and mark them delivered.
+def drain_note_rows(run_dir: Path | str) -> list[dict[str, str]]:
+    """Return undelivered notes (text + address) and mark them delivered.
 
     Delivery is recorded by CLAIMING the file — renaming it aside and
     reading the claimed copy — not by reading and then truncating. Reading
@@ -335,8 +336,23 @@ def drain_notes(run_dir: Path | str) -> list[str]:
             continue
         text = row.get("text")
         if isinstance(text, str) and text.strip():
-            out.append(text)
+            out.append({
+                "text": text,
+                # "" = for whoever drains (the entry node); otherwise the id
+                # of the delegation this note is aimed at.
+                "to_node": str(row.get("to_node") or ""),
+            })
     return out
+
+
+def drain_notes(run_dir: Path | str) -> list[str]:
+    """Undelivered note TEXTS, for callers that do not route by address.
+
+    Kept as the simple form over :func:`drain_note_rows`; both claim the
+    queue destructively, so a caller that needs the addressing must use the
+    rows form — draining twice loses the first batch.
+    """
+    return [r["text"] for r in drain_note_rows(run_dir)]
 
 
 # --------------------------------------------------------------------------

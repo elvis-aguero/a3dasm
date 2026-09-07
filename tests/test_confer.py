@@ -364,3 +364,73 @@ def test_confer_rejects_an_unknown_delegation_id():
         "status": "Working", "result": None, "target": "implementer"}
     out = n.adapter.closure_tools["Confer"]("D999", "ping")
     assert "ERROR" in out
+
+
+# ---------------------------------------------------------------------------
+# Operator notes addressed at a running delegation
+#
+# The human's nudge rides the same per-delegation queue as Confer and the
+# budget warnings. The orchestrator's note drain is the ONLY place that may
+# claim the queue (it is destructive), so routing has to happen there or an
+# addressed note is swallowed by the orchestrator's own delivery.
+# ---------------------------------------------------------------------------
+
+def _node_with_run(tmp_path):
+    """A node wired to a run dir on disk.
+
+    _current_notes_dir is assigned per-invocation from graph state, not by
+    the constructor, so a unit test has to set it — it is what
+    _current_run_dir (=notes.parent.parent) resolves the operator channel
+    against.
+    """
+    n = _node(tmp_path)
+    n._current_notes_dir = tmp_path / "debug" / "strategizer_notes"
+    return n
+
+
+def test_a_note_aimed_at_a_running_delegation_reaches_that_worker(tmp_path):
+    from a3dasm._src import operator_channel as oc
+
+    n = _node_with_run(tmp_path)
+    n._registry["D004"] = {
+        "status": "Working", "result": None, "target": "implementer"}
+    oc.queue_note(tmp_path, "use the coarse mesh", to_node="D004")
+
+    text = n._drain_notifications()
+
+    with n._pending_worker_msgs_lock:
+        queued = n._pending_worker_msgs.get("D004", [])
+    assert any("use the coarse mesh" in m for m in queued)
+    assert any("OPERATOR NOTE" in m for m in queued)
+    # ...and it did NOT also land in the orchestrator's own text.
+    assert "use the coarse mesh" not in text
+
+
+def test_an_unaddressed_note_still_goes_to_the_orchestrator(tmp_path):
+    from a3dasm._src import operator_channel as oc
+
+    n = _node_with_run(tmp_path)
+    oc.queue_note(tmp_path, "reconsider the floor")
+
+    text = n._drain_notifications()
+    assert "reconsider the floor" in text
+    assert "OPERATOR NOTE" in text
+
+
+def test_a_note_for_a_finished_delegation_is_not_dropped(tmp_path):
+    """The human still said it. Silently discarding it would be the worst
+    outcome — worse than delivering it late to the wrong reader — so it goes
+    to the orchestrator with the intended recipient named."""
+    from a3dasm._src import operator_channel as oc
+
+    n = _node_with_run(tmp_path)
+    n._registry["D004"] = {
+        "status": "Done", "result": "r", "target": "implementer"}
+    oc.queue_note(tmp_path, "too late now", to_node="D004")
+
+    text = n._drain_notifications()
+    assert "too late now" in text
+    assert "D004" in text
+    assert "not" in text.lower()
+    with n._pending_worker_msgs_lock:
+        assert not n._pending_worker_msgs.get("D004")

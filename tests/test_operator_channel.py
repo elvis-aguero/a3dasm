@@ -260,3 +260,39 @@ def test_two_questions_asked_at_once_get_distinct_ids(tmp_path):
     assert len(ids) == 8
     assert len(set(ids)) == 8, f"duplicate ids issued: {ids}"
     assert len(oc.pending_questions(run)) == 8
+
+
+# ---------------------------------------------------------------------------
+# Addressing a note at work already in flight
+#
+# The point of nudging is to correct a delegation BEFORE it returns a wrong
+# result. Until the Confer delivery fix there was no path to a busy worker at
+# all; this routes an operator's note down that same per-delegation queue.
+# ---------------------------------------------------------------------------
+
+def test_a_note_can_carry_the_delegation_it_is_aimed_at(tmp_path):
+    run = _run(tmp_path)
+    assert oc.queue_note(run, "use the coarse mesh", to_node="D004") is True
+
+    rows = oc.drain_note_rows(run)
+    assert rows == [{"text": "use the coarse mesh", "to_node": "D004"}]
+
+
+def test_an_unaddressed_note_carries_an_empty_address(tmp_path):
+    """The entry node's own notes must stay distinguishable from addressed
+    ones, or routing cannot tell them apart."""
+    run = _run(tmp_path)
+    oc.queue_note(run, "reconsider the floor")
+    assert oc.drain_note_rows(run) == [
+        {"text": "reconsider the floor", "to_node": ""}]
+
+
+def test_drain_notes_and_drain_note_rows_claim_the_same_queue(tmp_path):
+    """Both drains are destructive, so a caller that needs the addressing
+    must not also call the plain form — pinning it so the two cannot
+    silently diverge into a double-drain that loses the first batch."""
+    run = _run(tmp_path)
+    oc.queue_note(run, "one", to_node="D001")
+
+    assert oc.drain_notes(run) == ["one"]
+    assert oc.drain_note_rows(run) == []

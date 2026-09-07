@@ -491,13 +491,42 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   `FollowUp`/`Cancelled` are never persisted) — a delegation blocked on a
   human follow-up question is indistinguishable on disk from one simply
   still running. No build step: Tailwind CDN + htmx + Alpine.js, one static
-  HTML template. Read-only by design (binds to `127.0.0.1`, no auth, no
-  write path anywhere) — steering a running agent is a deliberately separate,
-  not-yet-built feature.
+  HTML template. Binds to `127.0.0.1`, no auth. No longer read-only: see
+  **Operator channel** below for the write path (answering a `FollowUp`,
+  queueing a note, nudging a running delegation).
 - **Where:** `src/a3dasm/_src/viewer/` (`readers.py` pure data functions,
   `app.py` the Starlette app, `templates/graph.html` the UI);
   `agent_runtime.py`'s `AgenticRun.serve_viewer`; `pyproject.toml`'s `viewer`
   optional-dependency group. **Status:** done (v1, read-only).
+
+---
+
+### Operator channel — answering, noting, and nudging a live run
+- **What:** a human can act on a run in flight, from the viewer or a
+  terminal. Three things move across it, all as small JSON in the run's own
+  `debug/` dir (the run and the viewer are separate processes, so the file
+  system is the channel; it also makes the whole exchange part of the run
+  record rather than terminal scrollback): **answers** to a `FollowUp`
+  question; **notes** queued for the entry node's next tool call; and a
+  **watch heartbeat**, which is what lets a run tell waiting-for-an-answer
+  apart from stalling on a question nobody can see.
+  A note may carry the **delegation id** it is aimed at. Addressed at a
+  RUNNING delegation it is routed onto that worker's per-delegation queue
+  and prefixed onto its next tool result — the same path `Confer` and the
+  budget warnings use — so the operator can correct work already in flight
+  instead of waiting for a wrong result. Addressed at a finished delegation
+  it goes to the entry node with the intended recipient named, never
+  silently dropped. Routing happens in the orchestrator's note drain because
+  that drain claims the queue destructively; anywhere else and an addressed
+  note would be swallowed before the router saw it. Delivery therefore
+  depends on the orchestrator taking a tool call (it drains on
+  `GetStatus`/`Wait`), so a strategizer blocked in a long synchronous
+  `Delegate(wait=True)` will not route a nudge until it returns.
+- **Where:** `src/a3dasm/_src/operator_channel.py` (`ask_question`,
+  `answer_question`, `queue_note`, `drain_note_rows`, `touch_watch`,
+  `is_watched`); routing in `nodes/strategizer.py`'s `_drain_notifications`;
+  HTTP surface in `viewer/app.py` (`/answer`, `/note`); composers in
+  `viewer/templates/graph.html`. **Status:** done.
 
 ---
 

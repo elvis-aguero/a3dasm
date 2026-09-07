@@ -313,18 +313,44 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         # it is the one voice in the run that is not itself an agent.
         run_dir = self._current_run_dir
         if run_dir is not None:
-            from ..operator_channel import drain_notes
-            notes = drain_notes(run_dir)
-            if notes:
-                text = (
-                    "\n\n".join(
-                        f"[OPERATOR NOTE — from the human running this study. "
-                        f"Weigh it as a briefing correction, not as another "
-                        f"agent's opinion: {n}]"
-                        for n in notes
-                    )
-                    + "\n\n" + text
+            from ..operator_channel import drain_note_rows
+            rows = drain_note_rows(run_dir)
+            mine: list[str] = []
+            for _row in rows:
+                _to = _row.get("to_node") or ""
+                _note = (
+                    "[OPERATOR NOTE — from the human running this study. "
+                    "Weigh it as a briefing correction, not as another "
+                    f"agent's opinion: {_row['text']}]"
                 )
+                # A note addressed to a RUNNING delegation goes to that
+                # worker, on the same per-delegation queue Confer and the
+                # budget warnings use — so a human can correct work already
+                # in flight instead of waiting for a wrong result. The queue
+                # is claimed destructively, so this is the only place that
+                # may drain it: routing here is what keeps an addressed note
+                # from being swallowed by the orchestrator's own delivery.
+                if _to:
+                    with self._registry_lock:
+                        _entry = self._registry.get(_to)
+                        _live = bool(_entry) and _entry.get("status") in (
+                            "Working", "FollowUp")
+                    if _live:
+                        with self._pending_worker_msgs_lock:
+                            self._pending_worker_msgs.setdefault(
+                                _to, []).append(_note)
+                        continue
+                    # Addressed to something not running: the human still
+                    # said it, so it must not vanish — hand it to the
+                    # orchestrator with the intended recipient named.
+                    _note = (
+                        f"[OPERATOR NOTE addressed to {_to}, which is not "
+                        f"running — delivered to you instead: "
+                        f"{_row['text']}]"
+                    )
+                mine.append(_note)
+            if mine:
+                text = "\n\n".join(mine) + "\n\n" + text
         if self._science_monitor is not None:
             offenders = self._science_monitor.escalation_due()
             _critic_name = self._find_critic_name()

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import re
 import threading
 from pathlib import Path
 
@@ -164,6 +165,11 @@ def _preview_block(text: str, css: str) -> str:
 # HumanMessage — with `tools` as LangChain tool_calls ({name, args}).
 # Rendering only "assistant" meant a qwen3.8-backed agent's transcript
 # displayed as completely empty even once it had finished.
+# Delegation ids as the runtime mints them (D001, GATE164710) — matched
+# rather than trusted, since one arrives from a request body and becomes a
+# routing key on the run side.
+_DELEGATION_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
+
 _ASSISTANT_TYPES = {"assistant", "aimessage", "aimessagechunk"}
 _RESULT_TYPES = {"toolmessage", "functionmessage"}
 
@@ -529,7 +535,16 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
             body = await request.json()
         except Exception:  # noqa: BLE001 — any malformed body
             return JSONResponse({"error": "malformed body"}, status_code=400)
-        if not operator_channel.queue_note(run_dir, body.get("text", "")):
+        # An optional delegation id addresses the note at work already in
+        # flight; without one it goes to the entry node on its next turn.
+        # Validated as an id rather than trusted: it arrives from a request
+        # body and is used as a routing key.
+        to_node = str(body.get("delegation_id") or "").strip()
+        if to_node and not _DELEGATION_ID_RE.match(to_node):
+            return JSONResponse(
+                {"error": "bad delegation id"}, status_code=400)
+        if not operator_channel.queue_note(
+                run_dir, body.get("text", ""), to_node=to_node):
             return JSONResponse({"error": "empty note"}, status_code=400)
         return JSONResponse({"ok": True})
 

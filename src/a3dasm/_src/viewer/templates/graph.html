@@ -1114,6 +1114,24 @@
                 </button>
               </div>
 
+              <!-- Only while THIS delegation is running: a note addressed to
+                   finished work would never be acted on, and offering the
+                   box would imply otherwise. -->
+              <div class="composer" x-show="canNudgeDelegation()">
+                <div style="display:flex; align-items:center; gap:10px">
+                  <input class="field" type="text"
+                         :placeholder="`Nudge ${currentDelegation().id}…`"
+                         x-model="nudgeDraft"
+                         @keydown.enter="sendDelegationNote()">
+                  <button class="send" @click="sendDelegationNote()"
+                          :disabled="!nudgeDraft.trim()"
+                          x-text="nudgeSent ? 'Sent' : 'Send'"></button>
+                </div>
+                <span style="font-size:var(--fs-meta); color:var(--overlay0)">
+                  Delivered at its next tool call.
+                </span>
+              </div>
+
               <div class="deleg-body">
                 <div style="display:flex; flex-direction:column; gap:8px">
                   <span class="label">Task</span>
@@ -1705,6 +1723,8 @@
         answerError: {},
         noteDraft: '',
         noteSent: false,
+        nudgeDraft: '',
+        nudgeSent: false,
         _operatorPoll: null,
         artifacts: [],
         artifactText: null,
@@ -1910,6 +1930,33 @@
           if (!this.spec || !this.selectedNode || this.runStatus !== null) return false;
           const n = this.spec.nodes.find(x => x.name === this.selectedNode);
           return !!(n && n.is_entry);
+        },
+
+        // A delegation can be nudged only while it is actually running —
+        // the run side delivers on the worker's next tool call, so a
+        // finished delegation has no next call to deliver on.
+        canNudgeDelegation() {
+          if (this.runStatus !== null) return false;
+          const d = this.currentDelegation();
+          return !!(d && this.stateOf(d) === 'running');
+        },
+
+        sendDelegationNote() {
+          const text = this.nudgeDraft.trim();
+          const d = this.currentDelegation();
+          if (!text || !d) return;
+          fetch(`/api/runs/${this.runId}/note`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, delegation_id: d.id }),
+          })
+            .then(r => {
+              if (!r.ok) return;
+              this.nudgeDraft = '';
+              this.nudgeSent = true;
+              setTimeout(() => { this.nudgeSent = false; }, 1600);
+            })
+            .catch(() => {});
         },
 
         sendNote() {
