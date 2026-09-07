@@ -124,6 +124,17 @@ For every claim or conclusion in the document, ask:
    finding. This is distinct from criteria 1-4 (which judge whether the
    SCIENCE is sound) — a conclusion can be evidentially sound and still
    fail the run's own charter for when a run is allowed to close.
+   Judge WHERE the budget went, not merely whether the clock was emptied.
+   Spending the remainder on a genuinely DIFFERENT candidate — a fresh
+   mechanism, a new oracle stood up and tested even thinly — satisfies a
+   "do not stop until X" clause; that is the run still searching. Do NOT
+   raise this finding against such a run merely because time was left on
+   the clock when the new lead ran out of runway. Conversely, additional
+   points inside a region the run has already mapped do not discharge the
+   clause just because they consumed the clock: work the run itself cannot
+   say what it might have learned from is padding, and padding is not
+   adequacy. Demanding it is the failure this criterion exists to prevent,
+   inverted.
 
 6. INTERNAL CONSISTENCY
    Do the numbers in the conclusions match the numbers in the workspace

@@ -393,6 +393,17 @@ PREMATURE CONVERGENCE
   DIFFERENT experiment could plausibly move an open criterion — a wider or
   re-centred sample, a fresh region, a re-scaled surrogate — the budget CAN
   still settle it; run that before closing (Charter §2).
+  WHERE the remaining budget goes matters as much as whether it is spent.
+  Once no hypothesis is SUPPORTED and the live lead's own region has been
+  mapped — several probes bracketing the same trade-off, each returning the
+  wall you already characterised — further points in THAT region are the
+  lowest-information use of what is left, and running them to demonstrate
+  the clock was used is not science.  The highest-information use is a
+  DIFFERENT candidate: a fresh mechanism, standing up a new oracle if that
+  is what it takes, even on a small fraction of the original budget.  A new
+  idea tested thinly is worth more than a mapped region re-probed
+  thoroughly, because only one of them can still surprise you.  Say in the
+  Done() summary which of the two you chose and why.
 
 MONOLITHIC DELEGATION
   One Delegate() call is ONE bounded experiment — a single sweep, fit,
