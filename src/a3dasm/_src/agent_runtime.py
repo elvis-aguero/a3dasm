@@ -1134,6 +1134,9 @@ class AgenticRun:
                         debug_dir, status="crashed",
                         reason=f"{type(_exc).__name__}: {_exc}"[:500],
                         resumable=True, thread_id=thread_id,
+                        # A crashed run's duration is exactly what the next
+                        # resume needs to charge, so record it here too.
+                        wall_s=round(time.time() - start_time, 1),
                     )
                     raise
         finally:
@@ -1280,6 +1283,10 @@ class AgenticRun:
             debug_dir, status=_gate_outcome, model=self._model,
             evals_used=evals, timestamp=now_ts, run=str(run_dir),
             thread_id=thread_id, stop_reason=_stop_reason,
+            # The §1 KPI table asks for wall clock and this file is what it
+            # reads first; without it every consumer re-derives the duration
+            # from file mtimes and gets a different answer.
+            wall_s=round(elapsed, 1),
         )
 
         # Append a KPI row to the longitudinal ledger automatically (best

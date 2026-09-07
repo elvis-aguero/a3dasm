@@ -984,3 +984,54 @@ def test_read_vitals_start_survives_a_rewritten_run_config(tmp_path):
     (debug / "run_config.json").write_text("{}", encoding="utf-8")  # mtime now
 
     assert read_vitals(run)["elapsed_s"] > 7000
+
+
+def test_vitals_prefer_the_runs_own_recorded_start(tmp_path):
+    """The run records its start explicitly; the viewer must use that rather
+    than infer one, so the operator's clock and the run's own wall budget
+    cannot disagree. Before the anchor existed this was a min() over three
+    file mtimes, and a mid-run rewrite of run_config.json made a run that had
+    been going 1h58m report 67 seconds."""
+    import time as _t
+
+    from a3dasm._src.viewer.readers import read_vitals
+
+    run = tmp_path / "20260101T000000"
+    debug = run / "debug"
+    debug.mkdir(parents=True)
+    (debug / "thread_id").write_text("t")          # a much NEWER mtime
+    anchor = _t.time() - 7200.0                     # run began two hours ago
+    (debug / "run_started_at").write_text(repr(anchor))
+
+    v = read_vitals(run)
+    assert abs(v["started_at"] - anchor) < 1.0
+    assert v["elapsed_s"] > 7000, (
+        "the recorded anchor must win over the mtime heuristic"
+    )
+
+
+def test_vitals_fall_back_when_there_is_no_anchor(tmp_path):
+    """Runs recorded before the anchor existed must still report a clock."""
+    from a3dasm._src.viewer.readers import read_vitals
+
+    run = tmp_path / "20260101T000000"
+    debug = run / "debug"
+    debug.mkdir(parents=True)
+    (debug / "thread_id").write_text("t")
+
+    v = read_vitals(run)
+    assert v["started_at"] is not None
+    assert v["elapsed_s"] is not None
+
+
+def test_vitals_ignore_a_corrupt_anchor(tmp_path):
+    from a3dasm._src.viewer.readers import read_vitals
+
+    run = tmp_path / "20260101T000000"
+    debug = run / "debug"
+    debug.mkdir(parents=True)
+    (debug / "thread_id").write_text("t")
+    (debug / "run_started_at").write_text("not-a-float")
+
+    v = read_vitals(run)          # must not raise
+    assert v["started_at"] is not None

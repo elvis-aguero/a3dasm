@@ -642,16 +642,26 @@ def read_vitals(run_dir: Path | str) -> dict[str, Any]:
     # visibly reset to zero while the operator watched. Taking the minimum
     # is robust to any one of these being rewritten.
     started = ended = None
-    stamps = []
-    for name in ("thread_id", "PROBLEM_STATEMENT_snapshot.md",
-                 "run_config.json"):
-        path = debug / name
-        try:
-            stamps.append(path.stat().st_mtime)
-        except OSError:
-            continue
-    if stamps:
-        started = min(stamps)
+    # The run now records its own start explicitly, and that is authoritative:
+    # it is the same anchor the run itself charges its wall budget against, so
+    # the viewer and the critic cannot disagree about how long a run has been
+    # going. The mtime heuristic below stays as a fallback for runs recorded
+    # before the anchor existed.
+    try:
+        started = float((debug / "run_started_at").read_text().strip())
+    except (OSError, ValueError):
+        started = None
+    if started is None:
+        stamps = []
+        for name in ("thread_id", "PROBLEM_STATEMENT_snapshot.md",
+                     "run_config.json"):
+            path = debug / name
+            try:
+                stamps.append(path.stat().st_mtime)
+            except OSError:
+                continue
+        if stamps:
+            started = min(stamps)
     status = debug / "run_status.json"
     if status.exists():
         ended = status.stat().st_mtime
