@@ -262,3 +262,105 @@ def test_post_delegation_confer_does_not_open_new_delegation():
     with n._confer_inbox_lock:
         msgs = n._confer_inbox.get("implementer", [])
     assert msgs, "Confer message was not deposited"
+
+
+# ---------------------------------------------------------------------------
+# Reaching a delegation that is actually RUNNING
+#
+# The bug these pin cost a real campaign. In run 20260902T003527 the
+# strategizer sent a mid-flight correction to a working datagenerator — the
+# rigid-spacer fix that decided the whole mechanism. Confer accepted it and
+# answered "Message queued"; the string never appeared in ANY of that run's
+# six worker transcripts, and the un-corrected oracle became the campaign's
+# substrate. The next run re-derived the same fix 3.2h in.
+#
+# Cause: Confer wrote only to _confer_inbox, keyed by node NAME and drained
+# "collect-on-send" — i.e. only when the recipient itself calls Confer. A
+# worker busy running a solve never calls Confer, so the message was
+# undeliverable by construction. _pending_worker_msgs, keyed by delegation
+# id and prefixed onto the worker's next tool result, is the path that does
+# work (budget/backstop warnings ride it).
+# ---------------------------------------------------------------------------
+
+def test_confer_reaches_a_running_delegation():
+    """The load-bearing case: steering work that is already in flight."""
+    n = _node()
+    n._registry["D002"] = {
+        "status": "Working", "result": None, "target": "implementer"}
+    out = n.adapter.closure_tools["Confer"]("implementer", "use a spacer")
+
+    with n._pending_worker_msgs_lock:
+        queued = n._pending_worker_msgs.get("D002", [])
+    assert any("use a spacer" in m for m in queued), (
+        "a message to a RUNNING delegation must land on the queue that is "
+        "prefixed onto its next tool result"
+    )
+    # ...and the sender is told it actually landed, naming the delegation.
+    assert "D002" in out
+    assert "Delivered" in out
+
+
+def test_confer_to_an_idle_node_says_it_only_queued():
+    """The honest other half: an idle target's message may never arrive, and
+    saying "delivered" would invite the sender to rely on it."""
+    n = _node()
+    n._registry["D001"] = {
+        "status": "Done", "result": "r", "target": "implementer"}
+    out = n.adapter.closure_tools["Confer"]("implementer", "ping")
+
+    with n._pending_worker_msgs_lock:
+        assert not n._pending_worker_msgs.get("D001")
+    assert "Queued" in out
+    assert "do not block" in out
+    # Still in the name-keyed inbox, for whenever that node next Confers.
+    with n._confer_inbox_lock:
+        assert any("ping" in m for m in n._confer_inbox.get("implementer", []))
+
+
+def test_confer_can_address_one_delegation_by_id():
+    """With two delegations of one role running, the role name cannot say
+    which is meant. The real run was reduced to broadcasting "IGNORE this
+    message entirely if you are the archwindow delegation (D003)"."""
+    n = _node()
+    n._registry["D002"] = {
+        "status": "Working", "result": None, "target": "implementer"}
+    n._registry["D003"] = {
+        "status": "Working", "result": None, "target": "implementer"}
+    out = n.adapter.closure_tools["Confer"]("D002", "only you")
+
+    with n._pending_worker_msgs_lock:
+        assert any("only you" in m for m in n._pending_worker_msgs.get("D002", []))
+        assert not n._pending_worker_msgs.get("D003"), (
+            "addressing D002 must not also deliver to its sibling D003"
+        )
+    assert "Delivered" in out
+
+
+def test_confer_to_a_role_reaches_every_running_delegation_of_it():
+    """Addressing the ROLE when several are running is a broadcast, and must
+    behave like one rather than picking an arbitrary recipient."""
+    n = _node()
+    n._registry["D002"] = {
+        "status": "Working", "result": None, "target": "implementer"}
+    n._registry["D003"] = {
+        "status": "FollowUp", "result": None, "target": "implementer"}
+    n._registry["D001"] = {
+        "status": "Done", "result": "r", "target": "implementer"}
+    n.adapter.closure_tools["Confer"]("implementer", "budget is tight")
+
+    with n._pending_worker_msgs_lock:
+        assert any("budget is tight" in m
+                   for m in n._pending_worker_msgs.get("D002", []))
+        assert any("budget is tight" in m
+                   for m in n._pending_worker_msgs.get("D003", []))
+        assert not n._pending_worker_msgs.get("D001"), (
+            "a finished delegation is not a recipient"
+        )
+
+
+def test_confer_rejects_an_unknown_delegation_id():
+    n = _node()
+    n._registry["D002"] = {
+        "status": "Working", "result": None, "target": "implementer"}
+    out = n.adapter.closure_tools["Confer"]("D999", "ping")
+    assert "ERROR" in out

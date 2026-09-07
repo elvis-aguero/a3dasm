@@ -2655,22 +2655,48 @@ def build_routing_tools(node) -> dict:
         def Confer(target: str, message: str) -> str:
             """Send an async message to another node in the run.
 
-            Returns immediately — neither side blocks. The message is delivered
-            to the target when it next drains its inbox (the orchestrator on its
-            next turn; a worker the next time it itself calls Confer). target
-            must be a node delegated to at least once this run (ever-woken
-            guard), or the orchestrating node itself. Reply by convention with
-            Confer(sender_name, "re #N: <answer>").
+            Returns immediately — neither side blocks. Use it to correct or
+            steer a delegation that is ALREADY RUNNING, rather than waiting
+            for a wrong result and re-delegating.
+
+            target is a node name, a delegation id (D004 — address a
+            specific delegation when two of one role are running), or the
+            orchestrating node. A running delegation gets the message
+            prefixed onto its next tool result; an idle node's message waits
+            until that node itself Confers. The reply tells you which
+            happened — read it, because "delivered" and "queued" are
+            different outcomes.
+
+            Reply by convention with Confer(sender_name, "re #N: <answer>").
             """
             with node._registry_lock:
-                ever_woken = (target == node._name) or any(
-                    e.get("target") == target
-                    for e in node._registry.values()
+                # A delegation id is a legitimate address: when two
+                # delegations of one role are running, the role name cannot
+                # say which is meant, and the sender is reduced to
+                # broadcasting "ignore this if you are D003".
+                by_id = node._registry.get(target)
+                live = [
+                    did for did, e in node._registry.items()
+                    if e.get("target") == target
+                    and e.get("status") in ("Working", "FollowUp")
+                ]
+                ever_woken = (
+                    target == node._name
+                    or by_id is not None
+                    or any(e.get("target") == target
+                           for e in node._registry.values())
+                )
+            if by_id is not None:
+                live = (
+                    [target]
+                    if by_id.get("status") in ("Working", "FollowUp")
+                    else []
                 )
             if not ever_woken:
                 return (
-                    f"ERROR: {target!r} has never been delegated to "
-                    "— cannot Confer with a node that was never woken."
+                    f"ERROR: {target!r} is neither a node that has been "
+                    "delegated to this run nor a delegation id — cannot "
+                    "Confer with something that was never woken."
                 )
             seq = node._next_confer_seq()
             envelope = (
@@ -2678,17 +2704,44 @@ def build_routing_tools(node) -> dict:
                 f"→ reply with Confer(\"{sender_name}\", \"re #{seq}: "
                 "<answer>\")"
             )
+            # Deliver on the path that actually reaches a BUSY worker: the
+            # per-delegation queue whose contents are prefixed onto that
+            # worker's next tool result (the same mechanism the budget and
+            # backstop warnings ride). The name-keyed _confer_inbox alone is
+            # drained only collect-on-send — i.e. only if the recipient
+            # happens to call Confer itself — so a mid-flight correction to a
+            # worker that never calls Confer was accepted, reported as
+            # queued, and silently never delivered.
+            if live:
+                with node._pending_worker_msgs_lock:
+                    for did in live:
+                        node._pending_worker_msgs.setdefault(
+                            did, []).append(envelope)
             with node._confer_inbox_lock:
-                node._confer_inbox.setdefault(target, []).append(envelope)
+                if by_id is None:
+                    node._confer_inbox.setdefault(target, []).append(envelope)
                 # Collect-on-send: drain any messages addressed to this sender
                 # so replies arrive alongside the send confirmation.
                 inbox = node._confer_inbox.pop(sender_name, [])
             inbox_text = ("\n\n".join(inbox) + "\n\n") if inbox else ""
-            return (
-                inbox_text
-                + f"Message queued for {target!r} (confer #{seq}); "
-                "delivered when they next drain their inbox."
-            )
+            # Say which it was. "Queued" for an idle target and "delivered"
+            # to a running one are different outcomes, and the sender's next
+            # move depends on which happened.
+            if live:
+                where = (
+                    f"Delivered to {len(live)} running delegation"
+                    f"{'s' if len(live) != 1 else ''} of {target!r} "
+                    f"({', '.join(sorted(live))}); it appears on their next "
+                    "tool result."
+                )
+            else:
+                where = (
+                    f"Queued for {target!r} (confer #{seq}) — no delegation "
+                    "of it is running right now, so it is delivered only if "
+                    "that node itself Confers later. Nothing is waiting on "
+                    "it; do not block."
+                )
+            return inbox_text + where
         return Confer
 
     def _orchestrator_confer(target: str, message: str) -> str:
