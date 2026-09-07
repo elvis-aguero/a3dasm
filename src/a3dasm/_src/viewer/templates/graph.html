@@ -2098,9 +2098,19 @@
             secs = Math.max(secs, (this.now / 1000) - v.started_at);
           }
           if (!secs) return '—';
-          const m = Math.floor(secs / 60);
-          const s = Math.floor(secs % 60);
-          return m ? `${m}m ${s}s` : `${s}s`;
+          return this.humanDur(secs * 1000);
+        },
+
+        // Rolls over into hours. It used to stop at minutes, so this
+        // run's 8.5h wall clock read "511m 16s" — a number nobody can
+        // compare against an "8h" budget at a glance.
+        humanDur(ms) {
+          const secs = Math.max(0, Math.floor(ms / 1000));
+          const h = Math.floor(secs / 3600);
+          const m = Math.floor((secs % 3600) / 60);
+          const s = secs % 60;
+          if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
+          return m ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`;
         },
 
         costLabel() {
