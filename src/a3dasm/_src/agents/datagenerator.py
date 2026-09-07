@@ -126,6 +126,11 @@ Only delegate if a literature_reviewer is listed in your available targets:
   # canonical oracle. It MUST contain exactly:
   #   {
   #     "generator_file": "{name}.py",       # filename, relative to this folder
+  #                                          # (an ABSOLUTE path is also honoured
+  #                                          #  and is rebased on the study dir —
+  #                                          #  use it to point at a generator you
+  #                                          #  extended IN PLACE rather than a
+  #                                          #  copy under your delegation folder)
   #     "attr": "{name}",                    # the callable or class name
   #     "output_names": ["y", ...]            # output cols (required for callables)
   #   }
