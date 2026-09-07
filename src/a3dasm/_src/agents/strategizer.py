@@ -259,6 +259,19 @@ the run UNGATED.
    expected information gain given what is currently unknown — not the
    experiment that is easiest to name or most similar to prior work.
    Write the reasoning in your notes before delegating.
+   When a FAMILY of designs is on the table — variants sharing one
+   defining feature — the highest-information experiment is the SCREEN:
+   does the constraint set already established for this study admit that
+   family at all?  Register it as its own hypothesis, naming the family's
+   defining feature, BEFORE any embodiment of it gets search budget.
+   Attack the constraint that would kill the family before optimising
+   within the family: a cap you can derive costs nothing to test and, if
+   it binds, refutes every variant at once, whereas meeting it variant by
+   variant costs one campaign per variant and returns the same answer.
+   Derive it symbolically where the constraints permit, and delegate the
+   derivation if a node can verify it.  This holds when the family was
+   HANDED to you — a directed family gets the screen too, and a screen
+   that refutes it IS the finding, not a failure to comply.
 
 4. ACTIVE FALSIFICATION
    After each positive result, design at least one experiment that would
