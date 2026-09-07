@@ -29,6 +29,15 @@ _CLOSURE_TOOL_NAMES = frozenset(
 )
 
 
+class UserlessPayloadError(ValueError):
+    """Raised when a request would carry no user turn at all.
+
+    Deliberately not classified transient (see backends.base
+    ``_TRANSIENT_SUBSTRINGS``): retrying an unanswerable payload five times
+    with backoff wastes wall budget and buries the cause deeper.
+    """
+
+
 def _to_lc_messages(messages: list[dict]) -> list:
     from langchain_core.messages import AIMessage, HumanMessage
 
@@ -764,6 +773,30 @@ class OpenAICompatibleAdapter:
             self._agent = self._build_agent()
 
         lc_msgs = _to_lc_messages(messages)
+        # A request with no user turn is malformed, and some providers answer
+        # it with an opaque 500 ("no user query found in messages") that names
+        # nothing and looks intermittent. It is reachable here: BOTH
+        # converters between graph state and this call — nodes.parsing's
+        # _to_adapter_messages and _to_lc_messages above — keep only
+        # Human/AI messages and silently discard every other role, so a
+        # history carrying only system/tool messages filters to an empty
+        # list. thread_id is fresh per invoke, so nothing server-side
+        # backfills the missing turn either.
+        #
+        # Fail here instead, naming what arrived and what survived. This is
+        # an instrument as much as a guard: whether a real run ever reaches
+        # this shape is still unestablished, and an attributable error is how
+        # that question gets answered rather than argued.
+        from langchain_core.messages import HumanMessage as _HumanMessage
+        if not any(isinstance(m, _HumanMessage) for m in lc_msgs):
+            roles = [str(m.get("role", "user")) for m in messages]
+            raise UserlessPayloadError(
+                f"refusing to send a request with no user turn: "
+                f"{len(messages)} message(s) in with role(s) {roles!r}, "
+                f"{len(lc_msgs)} survived conversion. Roles other than "
+                "user/human/ai/assistant are dropped by _to_adapter_messages "
+                "and _to_lc_messages."
+            )
         cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
         # DEBUG: capture reasoning + tool-calls (parity with Claude).

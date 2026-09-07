@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from a3dasm._src.backends.openrouter import OpenRouterAdapter
 from a3dasm._src.backends.vllm import VLLMAdapter
-
 
 # --------------------------------------------------------------------------
 # Endpoint + auth resolution: explicit > env > class default
@@ -108,3 +109,76 @@ def test_select_native_tools_excludes_closures():
     tools = ["Bash", "Read", "Done", "FollowUp", "WriteNote", "Write"]
     native = OpenRouterAdapter.select_native_tools(tools)
     assert native == ["Bash", "Read", "Write"]  # closures dropped
+
+
+# ---------------------------------------------------------------------------
+# A request with no user turn is refused here, not by the provider
+#
+# Ollama answers a user-less payload with an opaque 500 ("no user query found
+# in messages") that names nothing and reads as intermittent. It is reachable:
+# nodes.parsing._to_adapter_messages and _to_lc_messages BOTH keep only
+# Human/AI messages and silently discard every other role, so a history of
+# system/tool messages filters to an empty list, and thread_id is fresh per
+# invoke so nothing server-side backfills the turn.
+#
+# Whether a real run reaches that shape is still unestablished — these pin the
+# guard that will say so attributably when it next happens.
+# ---------------------------------------------------------------------------
+
+def test_a_userless_payload_is_refused_with_a_diagnosable_error():
+    from a3dasm._src.backends.openai_compatible import UserlessPayloadError
+
+    a = VLLMAdapter(model="m", system_prompt="s")
+
+    class _NeverCalled:
+        def invoke(self, *args, **kwargs):
+            raise AssertionError("must not reach the provider")
+
+    a._agent = _NeverCalled()
+    with pytest.raises(UserlessPayloadError) as exc:
+        a.invoke([{"role": "system", "content": "rules"},
+                  {"role": "tool", "content": "output"}])
+
+    msg = str(exc.value)
+    # The error must carry the evidence: what arrived, and what survived.
+    assert "system" in msg and "tool" in msg
+    assert "2 message(s) in" in msg
+    assert "0 survived" in msg
+
+
+def test_the_userless_guard_is_not_retried_as_transient():
+    """Retrying an unanswerable payload five times with backoff burns wall
+    budget and buries the cause deeper."""
+    from a3dasm._src.backends.base import is_transient_error
+    from a3dasm._src.backends.openai_compatible import UserlessPayloadError
+
+    assert is_transient_error(UserlessPayloadError("no user turn")) is False
+
+
+def test_a_normal_payload_still_passes_the_guard():
+    """The guard must not fire on the ordinary case."""
+    a = VLLMAdapter(model="m", system_prompt="s")
+
+    class _Fake:
+        def invoke(self, state, config=None):
+            from langchain_core.messages import AIMessage
+            return {"messages": [AIMessage(content="fine")]}
+
+    a._agent = _Fake()
+    assert a.invoke([{"role": "user", "content": "go"}]) == "fine"
+
+
+def test_both_converters_drop_unrecognised_roles():
+    """Pins the shape that makes the guard necessary, in both stages. This is
+    the defect the guard instruments; fixing it means preserving these roles,
+    which changes what EVERY backend sees and is a separate change."""
+    from langchain_core.messages import SystemMessage, ToolMessage
+
+    from a3dasm._src.backends.openai_compatible import _to_lc_messages
+    from a3dasm._src.nodes.parsing import _to_adapter_messages
+
+    state = [SystemMessage(content="rules"),
+             ToolMessage(content="out", tool_call_id="t1")]
+    assert _to_adapter_messages(state) == []
+    assert _to_lc_messages([{"role": "system", "content": "x"},
+                            {"role": "tool", "content": "y"}]) == []
