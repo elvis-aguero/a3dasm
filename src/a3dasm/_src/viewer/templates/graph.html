@@ -278,6 +278,7 @@
       gap: 15px;
     }
     .timeline-head { display: flex; align-items: baseline; gap: 12px; }
+    .lanes-scroll { overflow-x: auto; overflow-y: hidden; }
     .lanes { display: flex; flex-direction: column; gap: 4px; }
     .axis {
       position: relative;
@@ -298,12 +299,19 @@
       align-items: center;
       height: 34px;
     }
+    /* Sticky so the chart can scroll sideways without the reader losing
+       which agent's lane they are looking at — the gutter IS the y-axis
+       label, and a scrolled-away axis label is not an axis. */
     .lane-name {
       font-size: var(--fs-ui);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       padding-right: 12px;
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: var(--base);
     }
     .track { position: relative; height: 34px; }
     /* The base line is the lane itself — an agent with no delegations shows
@@ -328,7 +336,12 @@
       cursor: pointer;
       overflow: hidden;
       white-space: nowrap;
-      min-width: 4px;
+      /* A click target, not a hairline. At 4px the shortest delegation of
+         a long run was unhittable and unlabelled — 0.39% of an 8.5h span.
+         Width past this floor still reads as duration; a bar sitting ON
+         the floor is only saying "shorter than the chart can draw", which
+         is why the tooltip carries the real number. */
+      min-width: 26px;
     }
     .bar:hover { background: var(--surface1); }
     .bar.selected { background: var(--surface1); color: var(--text); }
@@ -1034,7 +1047,8 @@
             No delegations recorded for this run.
           </p>
 
-          <div class="lanes" x-show="rows().length > 0">
+          <div class="lanes-scroll" x-show="rows().length > 0">
+           <div class="lanes" :style="`min-width:${timelineWidth()}px`">
             <div class="axis">
               <template x-for="t in axisTicks()" :key="t.at">
                 <span :style="`left:${t.at}%`" class="m" x-text="t.label"></span>
@@ -1065,6 +1079,7 @@
                 </div>
               </div>
             </template>
+           </div>
           </div>
         </div>
 
@@ -2169,6 +2184,35 @@
             : `${fmt(s.t0)} → ${fmt(s.t1)}`;
         },
 
+        // Compression, not run length, is what makes a bar unclickable:
+        // every extra hour shrinks every bar already on the chart, so a
+        // long run ends in a row of 4px stubs. Past this width the chart
+        // stops compressing and starts scrolling instead.
+        //
+        // The scale keys off a TYPICAL delegation, not the shortest one.
+        // Measured on supercompressible-material 20260907T024929: 19
+        // delegations across 8.5h, the shortest 119s — 0.39% of the span,
+        // which at a 1100px pane is 4.3px. Scaling until THAT bar was
+        // legible would demand an 18,560px canvas, seventeen screens to
+        // reach the newest delegation. A 57x spread between shortest and
+        // longest cannot be made uniformly legible by zoom at all; the
+        // px floor on .bar is what keeps the short ones clickable.
+        timelineWidth() {
+          const s = this._span();
+          if (!s) return 0;
+          const durs = this.rows().map(d => {
+            const a = Date.parse(d.started_at);
+            const b = d.completed_at ? Date.parse(d.completed_at) : this.now;
+            return (isNaN(a) || isNaN(b)) ? null : b - a;
+          }).filter(v => v !== null && v > 0).sort((a, b) => a - b);
+          if (durs.length === 0) return 0;
+          const median = durs[Math.floor(durs.length / 2)];
+          // Cap it: an unbounded canvas trades microbuttons for a chart
+          // nobody can see the end of, which is the same defect wearing
+          // a different hat.
+          return Math.round(Math.min(4200, (s.dur / median) * 90));
+        },
+
         axisTicks() {
           const s = this._span();
           if (!s) return [];
@@ -2206,7 +2250,10 @@
                   outcome: this.gateOutcome(d),
                   outcomeColor: state === 'failed'
                     ? 'var(--red)' : 'var(--green)',
-                  title: `${d.id}: ${(d.task || '').slice(0, 160)}`,
+                  // The duration goes in the tooltip because a bar on the
+                  // px floor no longer encodes it in its width.
+                  title: `${d.id} · ${this.humanDur(end - start)}`
+                    + `\n${(d.task || '').slice(0, 160)}`,
                 };
               });
             return { name: node.name, node, bars };
