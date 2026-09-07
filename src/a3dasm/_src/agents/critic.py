@@ -104,6 +104,14 @@ For every claim or conclusion in the document, ask:
    headline depends on it: a stalled search is a severe test of "this strategy
    improves further", NOT of "a better design exists" (Charter §2 severity
    applied to an absence claim).
+   This applies equally to the run's own CLOSING SUMMARY, not only to the
+   headline number. A conclusion that characterises the run as a settled
+   negative — "a well-evidenced negative", "the space is bounded", "no family
+   can clear the floor" — while the hypotheses it rests on are recorded
+   INCONCLUSIVE is over-generalisation, even when the headline number itself
+   is sound and fully ledgered. The strength of a closing claim is bounded by
+   the weakest link in the chain it rests on; aggregating individually
+   inconclusive results does not license a conclusion none of them carries.
 
 5. RUN ADEQUACY — DOES THE CONCLUSION SATISFY WHAT WAS ASKED
    The <problem_statement> block in this task message states the run's own
