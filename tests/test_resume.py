@@ -369,3 +369,75 @@ def test_resume_from_missing_marker_raises(tmp_path):
         assert "resumable" in str(exc)
     else:
         raise AssertionError("expected resume to fail on missing thread_id")
+
+
+# ---------------------------------------------------------------------------
+# The wall-clock anchor must survive a resume
+#
+# execute() used to set `start_time = time.time()` unconditionally, so a
+# resumed run re-anchored to the moment of restart and forgot everything it
+# had already spent. Run 20260903T233207's counter read 8.30h against 24.3h
+# of real elapsed time, and all four of its critic reviews REJECTED it citing
+# that counter — so the run closed UNGATED on bookkeeping rather than on its
+# science. Every budget check, constraint snapshot and run-adequacy judgement
+# reads this number.
+#
+# It lives in its own file for the same reason thread_id does: run_config.json
+# is rewritten mid-run and cannot carry a start time.
+# ---------------------------------------------------------------------------
+
+def _stub_run(study, resume_from=None):
+    run = AgenticRun(study_dir=study, interactive=False,
+                     resume_from=resume_from)
+
+    class _StubGraph:
+        def invoke(self, state, config=None):
+            return {"last_report": "done", "evals_used": 0}
+
+    run._graph = _StubGraph()
+    run.execute()
+    return run
+
+
+def test_a_fresh_run_persists_its_wall_clock_anchor(tmp_path):
+    study = _make_study(tmp_path)
+    _stub_run(study)
+
+    run_dir = next((study / "runs").iterdir())
+    anchor = run_dir / "debug" / "run_started_at"
+    assert anchor.exists(), (
+        "without a persisted anchor a resume cannot know when the run began"
+    )
+    import time as _t
+    started = float(anchor.read_text().strip())
+    assert 0 <= _t.time() - started < 300
+
+
+def test_a_resume_keeps_the_original_anchor_instead_of_restarting_it(tmp_path):
+    """The regression itself: the resumed run must charge time already spent."""
+    study = _make_study(tmp_path)
+    _stub_run(study)
+    run_dir = next((study / "runs").iterdir())
+    anchor = run_dir / "debug" / "run_started_at"
+
+    # Pretend the run began three hours ago and then crashed.
+    backdated = float(anchor.read_text().strip()) - 3 * 3600.0
+    anchor.write_text(repr(backdated))
+
+    _stub_run(study, resume_from=run_dir)
+
+    assert float(anchor.read_text().strip()) == backdated, (
+        "a resume re-anchored the wall clock to now, discarding the elapsed "
+        "time the run had already spent"
+    )
+
+
+def test_a_resume_with_an_unreadable_anchor_still_runs(tmp_path):
+    """Best-effort: a corrupt anchor must not be fatal — it falls back to now
+    and loses accounting, which is strictly better than refusing to resume."""
+    study = _make_study(tmp_path)
+    _stub_run(study)
+    run_dir = next((study / "runs").iterdir())
+    (run_dir / "debug" / "run_started_at").write_text("not-a-float")
+
+    _stub_run(study, resume_from=run_dir)   # must not raise

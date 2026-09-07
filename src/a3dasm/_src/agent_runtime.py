@@ -899,7 +899,25 @@ class AgenticRun:
         elif _exc_msg is not None:
             log.warning(f"D000 pool ingest failed: {_exc_msg}")
 
-        start_time = time.time()
+        # Wall-clock anchor, persisted in its OWN file for exactly the reason
+        # thread_id is (run_config.json is rewritten mid-run, so it cannot
+        # carry a start time). A resume MUST charge the wall time the run has
+        # already spent: re-anchoring to now makes every budget check, every
+        # constraint snapshot and the critic's run-adequacy judgement restart
+        # from zero, so a run that has been going for a day reports hours.
+        _start_path = debug_dir / "run_started_at"
+        start_time = None
+        if _resume is not None:
+            try:
+                start_time = float(_start_path.read_text().strip())
+            except (OSError, ValueError):
+                start_time = None          # unreadable: fall back to now
+        if start_time is None:
+            start_time = time.time()
+            try:
+                _start_path.write_text(repr(start_time))
+            except OSError:
+                pass                        # anchor is best-effort, never fatal
 
         # Create graph-wide delegation log for episodic memory.
         delegation_log_path = debug_dir / "delegation_log.jsonl"
