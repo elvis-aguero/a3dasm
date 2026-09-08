@@ -127,15 +127,22 @@ Only delegate if a literature_reviewer is listed in your available targets:
   #   {
   #     "generator_file": "{name}.py",       # filename, relative to this folder
   #                                          # (an ABSOLUTE path is also honoured
-  #                                          #  and is rebased on the study dir —
-  #                                          #  use it to point at a generator you
-  #                                          #  extended IN PLACE rather than a
-  #                                          #  copy under your delegation folder)
+  #                                          #  and is rebased on the study dir)
   #     "attr": "{name}",                    # the callable or class name
   #     "output_names": ["y", ...]            # output cols (required for callables)
   #   }
   # Without this manifest the implementer cannot reach your generator through
   # get_evaluator(), so writing it is mandatory.
+  #
+  # EXTENDING THE ORACLE THAT IS ALREADY CANONICAL, rather than authoring a
+  # new one, is a first-class case — add ONE more key:
+  #     "extends_canonical": true
+  # It means "I edited the canonical file in place; do not repoint anything."
+  # The manifest stays mandatory (it is how the run records WHO touched the
+  # oracle), but the runtime skips the repoint instead of you having to make
+  # a repoint that lands where it already pointed. Use it whenever your task
+  # says the oracle is already registered and must not be re-registered:
+  # your delegation is still recorded as having extended it.
 </f3dasm_datagenerator_api>
 
 <operating_principles>

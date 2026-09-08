@@ -1535,17 +1535,43 @@ def build_routing_tools(node) -> dict:
                             # own isolated store); the manifest may also name one.
                             # The delegation's namespace is authoritative.
                             _ns = namespace or _m.get("namespace") or None
-                            _ep = register_evaluator_entrypoint(
-                                _run_dir / "debug" / "run_config.json",
-                                _gf_path,
-                                _m["attr"],
-                                output_names=_m.get("output_names"),
-                                namespace=_ns,
-                            )
+                            # "I extended the file that is already canonical;
+                            # do not repoint anything." Without a way to SAY
+                            # that, a delegation told to extend the existing
+                            # oracle faced three instructions it could not
+                            # jointly satisfy: its role contract makes the
+                            # manifest mandatory, dropping a manifest repoints
+                            # the canonical entrypoint, and its brief forbade
+                            # repointing. The only escape was to encode the
+                            # intent in a path — name the already-canonical
+                            # file by absolute path so the repoint lands where
+                            # it already pointed — which two delegations had to
+                            # invent independently. Stating the intent is
+                            # better than a path trick that happens to work.
+                            _in_place = bool(_m.get("extends_canonical"))
+                            if _in_place:
+                                _ep = _gf_path
+                            else:
+                                _ep = register_evaluator_entrypoint(
+                                    _run_dir / "debug" / "run_config.json",
+                                    _gf_path,
+                                    _m["attr"],
+                                    output_names=_m.get("output_names"),
+                                    namespace=_ns,
+                                )
+                            # Provenance is recorded either way: which
+                            # delegation touched the canonical source is part
+                            # of the run record, and skipping the REPOINT must
+                            # not also skip the RECORD.
                             with node._notifications_lock:
                                 _ns_tag = f" ns={_ns}" if _ns else ""
+                                _verb = (
+                                    "extended in place" if _in_place
+                                    else "registered"
+                                )
                                 node._notifications.append(
-                                    f"[Evaluator registered: {_ep}{_ns_tag}]"
+                                    f"[Evaluator {_verb} by {delegation_id}: "
+                                    f"{_ep}{_ns_tag}]"
                                 )
                 except Exception:  # noqa: BLE001
                     pass

@@ -125,3 +125,90 @@ def test_missing_manifest_no_crash(tmp_path):
     )
     assert "Done" in result  # delegation still completed
     assert cfg_path.read_text() == before  # config untouched
+
+
+# ---------------------------------------------------------------------------
+# Extending the oracle that is already canonical
+#
+# A delegation told to extend the existing oracle used to face three
+# instructions it could not jointly satisfy: the role contract makes the
+# manifest mandatory, dropping a manifest repoints the canonical entrypoint,
+# and the brief said not to repoint. Run 20260907T212358's D002 and D009 each
+# independently invented the same escape — name the already-canonical file by
+# ABSOLUTE path so the repoint lands where it already pointed. Stating the
+# intent replaces the path trick.
+# ---------------------------------------------------------------------------
+
+def _drop_in_place_manifest(run_dir, study_dir, delegation_id="D001"):
+    """A manifest that points at a canonical file OUTSIDE the delegation
+    folder and declares the extend-in-place intent."""
+    canonical = study_dir / "scripts" / "canonical_gen.py"
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    canonical.write_text("def canon(**kw):\n    return 1.0\n")
+    gens = run_dir / "debug" / "delegations" / delegation_id / "generators"
+    gens.mkdir(parents=True, exist_ok=True)
+    (gens / "registration.json").write_text(json.dumps({
+        "generator_file": str(canonical),
+        "attr": "canon",
+        "output_names": ["f"],
+        "extends_canonical": True,
+    }))
+    return canonical
+
+
+def test_extends_canonical_does_not_repoint_the_entrypoint(tmp_path):
+    node, closures, run_dir, cfg_path = _build(
+        tmp_path, "datagen", _DataGen()
+    )
+    _drop_in_place_manifest(run_dir, tmp_path / "study", "D001")
+    before = cfg_path.read_text()
+
+    closures["Delegate"](
+        target="datagen", intent="extend the canonical generator",
+        expected_report="", wait=True,
+    )
+
+    assert cfg_path.read_text() == before, (
+        "extends_canonical means the file is ALREADY canonical — repointing "
+        "is exactly what the delegation was told not to do"
+    )
+
+
+def test_extends_canonical_still_records_who_touched_the_oracle(tmp_path):
+    """Skipping the repoint must not skip the RECORD: which delegation
+    extended the canonical source is part of the run's provenance."""
+    node, closures, run_dir, cfg_path = _build(
+        tmp_path, "datagen", _DataGen()
+    )
+    _drop_in_place_manifest(run_dir, tmp_path / "study", "D001")
+
+    closures["Delegate"](
+        target="datagen", intent="extend the canonical generator",
+        expected_report="", wait=True,
+    )
+
+    with node._notifications_lock:
+        notes = "\n".join(node._notifications)
+    assert "extended in place" in notes
+    assert "D001" in notes
+    assert "canonical_gen.py" in notes
+
+
+def test_a_normal_manifest_still_repoints_and_names_its_author(tmp_path):
+    """The ordinary authoring path is unchanged, and now also records which
+    delegation did the authoring."""
+    node, closures, run_dir, cfg_path = _build(
+        tmp_path, "datagen", _DataGen()
+    )
+    _drop_manifest(run_dir, "D001")
+
+    closures["Delegate"](
+        target="datagen", intent="build oracle",
+        expected_report="", wait=True,
+    )
+
+    cfg = json.loads(cfg_path.read_text())
+    assert cfg["evaluator_entrypoint"].endswith("D001/generators/x.py:x_gen")
+    with node._notifications_lock:
+        notes = "\n".join(node._notifications)
+    assert "registered" in notes and "D001" in notes
