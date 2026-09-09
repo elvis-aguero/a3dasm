@@ -92,6 +92,22 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 - **Where:** `nodes/tools/routing.py`, `nodes/strategizer.py`.
 - **Tools:** `Delegate`*, `GetStatus`, `Wait`, `FollowUp`, `Confer`, `ReportEvals`.
   (*Delegate is injected dynamically, not in a static `tools` set.)
+- **Fan-out harvesting:** `Wait()` takes an OPTIONAL delegation id. Bare
+  `Wait()` blocks until whichever delegation finishes first and returns that
+  one's report (labelled with its ID), marking it read so N in flight are
+  drained by N calls; it refuses when nothing is in flight, and refuses rather
+  than hanging when every open delegation is parked on a `FollowUp` or has
+  already died without reporting (a blocking call ends no turn, so the run's
+  time backstop cannot fire while inside it). `Cancelled` is never harvested
+  (its result is excluded from the run). Naming an id keeps the original
+  single-target behaviour.
+  **Why:** dispatching a fan-out was already cheap (85% of real `Delegate`
+  calls use `wait=False`) but collecting one was not — a single-target `Wait`
+  left `GetStatus` polling as the only way to harvest several, and the
+  poll-count nudges discourage exactly that. Across 39 cluster runs, reliance
+  on `Wait` predicted serial execution (r=-0.54 vs mean concurrent
+  delegations, controlling for delegation duration) against a measured mean
+  concurrency of 1.21 on a median 15 delegations per run.
 - **Status:** core.
 
 ## B. The deliverable (pipeline.ipynb)

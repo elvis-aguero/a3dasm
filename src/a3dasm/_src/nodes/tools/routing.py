@@ -719,7 +719,8 @@ def build_routing_tools(node) -> dict:
         "    once — which is the ONLY way Confer (live worker-to-worker\n"
         "    messaging) can do anything, and the only way the run's wall-clock\n"
         "    is the longest single chain rather than the sum of every\n"
-        "    delegation. Costs you GetStatus(id) polling to collect results.\n"
+        "    delegation. Collect them with a bare Wait() per worker — it\n"
+        "    returns whichever finishes first, so a fan-out costs no polling.\n"
         "  wait=True (sync): blocks until the worker finishes and returns its\n"
         "    report directly, with zero polling. Simpler when this task must\n"
         "    fully finish before you can even decide the next one.\n"
@@ -1812,23 +1813,25 @@ def build_routing_tools(node) -> dict:
                     f"{firmness}Polled {poll_count}× ({elapsed}s) — but "
                     f"{delegation_id} IS progressing ({progress_desc}). Polling "
                     "won't speed it up. Best move: (a) do other work now; or "
-                    "(b) just wait and poll occasionally. Do NOT cancel a "
+                    "(b) call Wait() with NO argument — it blocks until "
+                    "whichever delegation finishes first and hands you its "
+                    "report, so several in flight need no polling at all. "
+                    "Do NOT cancel a "
                     "progressing delegation to save time — its ledgered evals "
-                    "persist regardless, so cancelling only discards its report. "
-                    "(If this task had nothing to overlap, wait=True would have "
-                    "blocked without any of this polling.)"
+                    "persist regardless, so cancelling only discards its report."
                 )
             else:
                 # Zero stamped (backlog #6 stuck signal): cancelling is now a
                 # defensible call, but only here.
                 hints.append(
                     f"{firmness}Polled {poll_count}× ({elapsed}s) and "
-                    f"{progress_desc}. Options: (a) do other work; (b) just "
-                    "wait — a worker may still be setting up before its first "
+                    f"{progress_desc}. Options: (a) do other work; (b) call "
+                    "Wait() with NO argument — it blocks until whichever "
+                    "delegation finishes first, with zero polling — a worker "
+                    "may still be setting up before its first "
                     "eval. A delegation that has stamped NOTHING for a long "
                     "time may be genuinely stuck; the run watchdog will reclaim "
-                    "it. (A task with nothing to overlap could have been "
-                    "wait=True — blocking with zero polling.)"
+                    "it."
                 )
 
         # Budget broadcast: check if a new 10%-overbudget threshold is reached.
@@ -1945,13 +1948,109 @@ def build_routing_tools(node) -> dict:
             "other work."
         )
 
-    def Wait(delegation_id: str) -> str:
-        """Block until delegation_id finishes (Done or Errored), then return
-        its result. Use instead of polling with GetStatus() — holds the current
+    def Wait(delegation_id: str | None = None) -> str:
+        """Block until a delegation finishes (Done or Errored), then return its
+        result. Use instead of polling with GetStatus() — holds the current
         turn open with no extra turns consumed.
+
+        OMIT delegation_id to wait for whichever delegation finishes FIRST.
+        That is how you collect a fan-out: dispatch several with
+        Delegate(wait=False), then call Wait() once per worker — each call
+        hands back one finished delegation's report (labelled with its ID) and
+        blocks only while nothing is ready. Naming an ID instead waits for that
+        specific worker, which leaves any others finishing unread, so prefer
+        the bare form whenever more than one delegation is in flight.
+
+        Refuses when there is nothing to wait for, and refuses rather than
+        hanging when waiting cannot make progress — every in-flight delegation
+        parked on a FollowUp (answer it with Reply), or already gone without
+        reporting (read it with GetStatus).
 
         Returns the same text as GetStatus() once the delegation completes."""
         prefix = node._drain_notifications()
+
+        if delegation_id is None:
+            # Wait-for-any. There is no join() across threads, so poll the
+            # registry: a short tick for responsiveness, draining
+            # notifications and monitor drift on the same ~10s cadence the
+            # single-ID branch below uses.
+            _tick, _n = 1.0, 0
+            while True:
+                with node._registry_lock:
+                    ready = [
+                        (i, e) for i, e in node._registry.items()
+                        # Cancelled is terminal but its result is explicitly
+                        # excluded from the run, so it is never harvestable.
+                        if e.get("status") in ("Done", "Errored")
+                        and not e.get("waited")
+                    ]
+                    if ready:
+                        did, entry = ready[0]
+                        entry["waited"] = True
+                        cp = entry.get("checkpoint", "")
+                        body = (f"[{did}] {entry['status']}\n\n"
+                                f"{entry.get('result', '')}")
+                        return prefix + body + (("\n\n" + cp) if cp else "")
+                    open_ids = sorted(
+                        i for i, e in node._registry.items()
+                        if e.get("status") in ("Working", "FollowUp")
+                    )
+                    # Classify what is actually still capable of finishing.
+                    # A blocking tool call ends no turn, so the run's time
+                    # backstop cannot fire while we are in here (same trap
+                    # ReadNote guards against) — this loop must therefore
+                    # never be able to wait on something that will never
+                    # arrive. A thread that has died without recording a
+                    # terminal status is exactly that: nothing else in the
+                    # runtime marks the registry on its behalf.
+                    waitable, blocked, dead = [], [], []
+                    for i in open_ids:
+                        t = node._threads.get(i)
+                        if t is not None and not t.is_alive():
+                            dead.append(i)
+                        elif node._registry[i].get("status") == "FollowUp":
+                            blocked.append(i)
+                        else:
+                            # No registered thread means we cannot prove it is
+                            # gone; assume it is still coming.
+                            waitable.append(i)
+                if not open_ids:
+                    return prefix + (
+                        "ERROR: nothing to wait for — no delegation is in "
+                        "flight and every finished one has already been read. "
+                        "Delegate(...) work first."
+                    )
+                if not waitable:
+                    bits = []
+                    if blocked:
+                        bits.append(
+                            "parked on a FollowUp question "
+                            f"({', '.join(blocked)}) — call GetStatus(id) to "
+                            "read it, then Reply(id, answer) to unblock it"
+                        )
+                    if dead:
+                        bits.append(
+                            f"no longer running but never reported "
+                            f"({', '.join(dead)}) — call GetStatus(id) for its "
+                            "state"
+                        )
+                    return prefix + (
+                        "ERROR: waiting cannot make progress; every in-flight "
+                        "delegation is " + "; and ".join(bits) + "."
+                    )
+                time.sleep(_tick)
+                _n += 1
+                if _n % 10 == 0:
+                    with node._notifications_lock:
+                        _notifs = list(node._notifications)
+                        node._notifications.clear()
+                    for _notif in _notifs:
+                        prefix += _notif + "\n\n"
+                    if node._science_monitor is not None:
+                        drift = node._science_monitor.drain()
+                        if drift:
+                            prefix += drift + "\n"
+
         with node._registry_lock:
             entry = node._registry.get(delegation_id)
             if entry is None:
@@ -1960,6 +2059,7 @@ def build_routing_tools(node) -> dict:
                     f"Known: {list(node._registry)}"
                 )
             if entry["status"] in ("Done", "Errored"):
+                entry["waited"] = True
                 cp = entry.get("checkpoint", "")
                 body = f"{entry['status']}\n\n{entry.get('result', '')}"
                 return prefix + body + (("\n\n" + cp) if cp else "")
@@ -1986,6 +2086,9 @@ def build_routing_tools(node) -> dict:
 
         with node._registry_lock:
             entry = node._registry.get(delegation_id, {})
+            # Read once: a bare Wait() must not hand this same report back.
+            if entry:
+                entry["waited"] = True
         cp = entry.get("checkpoint", "")
         body = f"{entry.get('status', 'Unknown')}\n\n{entry.get('result', '')}"
         return prefix + body + (("\n\n" + cp) if cp else "")

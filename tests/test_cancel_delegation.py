@@ -83,10 +83,18 @@ def test_cancel_delegation_tool_is_registered():
 
 
 def test_poll_escalation_offers_options():
-    """A repeatedly-polled delegation gets real options (do other work / just
-    wait), not a 'poll less' nag — so the agent never grinds out 30 status
-    checks. CancelDelegation was dropped from production, so the stuck remedy
-    is now the run watchdog, not agent-driven cancel."""
+    """A repeatedly-polled delegation gets real options (do other work / block
+    until something finishes), not a 'poll less' nag — so the agent never
+    grinds out 30 status checks. CancelDelegation was dropped from production,
+    so the stuck remedy is now the run watchdog, not agent-driven cancel.
+
+    The blocking option offered is a bare Wait(), NOT wait=True: this nudge
+    fires exactly when an agent is polling because it has a fan-out to
+    harvest, and pointing it at wait=True there is what makes runs serial
+    (reliance on single-target waiting predicted serial execution across 39
+    cluster runs, r=-0.54 vs mean concurrent delegations). A bare Wait()
+    returns whichever worker finishes first, so it ends the polling without
+    collapsing the fan-out."""
     import time as _t
     n = _node()
     n._registry["D001"] = {
@@ -97,9 +105,10 @@ def test_poll_escalation_offers_options():
         out = n.adapter.closure_tools["GetStatus"]("D001")
     assert out.lstrip().startswith("Working")
     assert "do other work" in out.lower()          # (a) do something else
-    assert "just wait" in out.lower()              # (b) wait it out
+    assert "wait()" in out.lower()                 # (b) block, don't poll
+    assert "no argument" in out.lower()            # ...for ANY worker, not one
     assert "watchdog" in out.lower()               # stuck remedy (cancel dropped)
-    assert "wait=True" in out                       # future-proofing tip
+    assert "wait=true" not in out.lower()          # never re-serialise a fan-out
     assert "CancelDelegation" not in out
 
 
