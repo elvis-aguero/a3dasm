@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ...tool_catalog import tool_examples
 from .._constants import backstop_enabled, run_backstop_multiple
+from ..notices import wrap_notice
 from ..parsing import (
     _classify_response,
     _parse_verdict,
@@ -1122,7 +1123,7 @@ def build_routing_tools(node) -> dict:
                 # Drain any queued budget warnings for this delegation.
                 with node._pending_worker_msgs_lock:
                     msgs = node._pending_worker_msgs.pop(delegation_id, [])
-                prefix = ("\n".join(msgs) + "\n\n") if msgs else ""
+                prefix = wrap_notice("\n".join(msgs))
                 return prefix + f"Recorded {count} evaluations."
 
             def FollowUp(question: str) -> str:
@@ -1156,7 +1157,7 @@ def build_routing_tools(node) -> dict:
                 # Drain any queued budget warnings alongside the answer.
                 with node._pending_worker_msgs_lock:
                     msgs = node._pending_worker_msgs.pop(delegation_id, [])
-                budget_prefix = ("\n".join(msgs) + "\n\n") if msgs else ""
+                budget_prefix = wrap_notice("\n".join(msgs))
                 base = answer or "No answer received. Proceed with best judgment."
                 return budget_prefix + base
 
@@ -1675,7 +1676,7 @@ def build_routing_tools(node) -> dict:
         with node._pending_worker_msgs_lock:
             worker_msgs = node._pending_worker_msgs.pop(delegation_id, [])
         if worker_msgs:
-            prefix += "\n".join(worker_msgs) + "\n\n"
+            prefix += wrap_notice("\n".join(worker_msgs))
 
         with node._registry_lock:
             entry = node._registry.get(delegation_id)
@@ -1878,7 +1879,7 @@ def build_routing_tools(node) -> dict:
         # Status token FIRST (documented contract: callers may
         # dispatch on the leading word); hints and queued
         # notifications follow.
-        hint_str = ("\n\n" + "\n".join(hints)) if hints else ""
+        hint_str = ("\n\n" + wrap_notice("\n".join(hints), trailing="")) if hints else ""
         tail = ("\n\n" + prefix.rstrip()) if prefix.strip() else ""
         return (
             f"Working (running for {elapsed}s, polled {poll_count}× · "
@@ -2049,7 +2050,7 @@ def build_routing_tools(node) -> dict:
                     if node._science_monitor is not None:
                         drift = node._science_monitor.drain()
                         if drift:
-                            prefix += drift + "\n"
+                            prefix += wrap_notice(drift)
 
         with node._registry_lock:
             entry = node._registry.get(delegation_id)
@@ -2082,7 +2083,7 @@ def build_routing_tools(node) -> dict:
                 if node._science_monitor is not None:
                     drift = node._science_monitor.drain()
                     if drift:
-                        prefix += drift + "\n"
+                        prefix += wrap_notice(drift)
 
         with node._registry_lock:
             entry = node._registry.get(delegation_id, {})

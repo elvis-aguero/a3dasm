@@ -19,6 +19,7 @@ from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
 from .. import operator_channel
+from ..nodes.notices import split_notices
 from . import readers
 
 __all__ = ["create_app", "run_viewer"]
@@ -307,14 +308,37 @@ def _tool_result_html(event: dict, names: list[str]) -> str:
         # was measured against this run and matched 3 of 78 results, all
         # three of them false — SBATCH scripts whose #SBATCH --output
         # lines carry the word — while catching no real failure at all.
+        # A notice is a3dasm speaking to the agent (a nudge, science-monitor
+        # drift, a budget warning, an operator note), prepended to whatever
+        # the tool actually returned. Lift it out and give it its own band:
+        # rendered inside the result block it read as the tool's own output,
+        # which is the wrong attribution for every one of them. Split on the
+        # marker the injection sites write (nodes/notices.py) rather than on
+        # a text heuristic — tools emit bracketed lines of their own.
+        notices, text = split_notices(text)
+        # ERROR_RETURN is a property of the TOOL's output, so test it after
+        # the notice is out of the way. Testing the raw text meant any
+        # result carrying a prefix — a budget warning, an operator note —
+        # failed the startswith() and lost its error styling, which is
+        # precisely the result a reader most needs to see flagged.
         is_error = bool(r.get("is_error")) or text.lstrip().startswith("ERROR")
+        notices_html = "".join(
+            f"<div class='notice'><span class='notice-glyph'>&#9432;</span>"
+            f"<div class='notice-body'>{_preview_block(n, 'notice-pre')}</div>"
+            "</div>"
+            for n in notices
+        )
+        body_html = (
+            f"{_preview_block(text, 'result-pre')}" if text.strip() else ""
+        )
         html += (
             "<div class='turn turn-cont turn-res'>"
+            f"{notices_html}"
             f"<div class='tool-result{' is-error' if is_error else ''}'>"
             "<span class='result-glyph' "
             f"title='{_esc(_display_tool_name(name))}'>&#9151;</span>"
             "<div class='result-body'>"
-            f"{_preview_block(text, 'result-pre')}"
+            f"{body_html}"
             "</div></div></div>"
         )
     return html

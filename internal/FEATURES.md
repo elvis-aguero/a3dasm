@@ -517,6 +517,33 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 
 ---
 
+### Notice provenance — telling a3dasm's voice from a tool's output
+- **What:** every piece of text a3dasm injects into an agent's context —
+  nudges, science-monitor drift, budget warnings, operator notes, Confer
+  messages, delegation notifications — is wrapped in an `<a3dasm-note>` marker
+  at the point of injection. The viewer lifts marked blocks out of the tool
+  result and renders them in their own band (`--surface0`, peach left rule)
+  above the tool's own output (`--crust`).
+- **Where:** `nodes/notices.py` (`wrap_notice` / `split_notices` and the
+  marker); seven injection sites in `nodes/strategizer.py`
+  (`_drain_notifications`) and `nodes/tools/routing.py` (worker-message
+  drains in `ReportEvals`/`FollowUp`/`GetStatus`, the `GetStatus` poll hints,
+  and the science-monitor drains in both `Wait` branches);
+  `viewer/app.py::_tool_result_html` renders them.
+- **Why marked at the source, not detected by the reader:** the pre-existing
+  `[TAG …]` convention is incomplete (the `GetStatus` poll hints are bare
+  prose), and brackets are not a safe signal because tools emit their own
+  (`[exited 1]`, `[output truncated to last …]`). A marker is a tag rather
+  than a control character because this text is part of the agent's prompt
+  and has to stay readable; it matches the `<role>`/`<tools>` idiom the
+  prompt corpus already uses.
+- **Side effect, deliberate:** `ERROR_RETURN` styling in the viewer is now
+  tested on the tool's output with the notice removed. It was tested on the
+  raw text, so any result carrying an injected prefix failed the
+  `startswith("ERROR")` check and silently lost its error styling.
+- **Status:** core. Note the marker is visible to the agent as well as the
+  reader — it labels the text truthfully, but it does change prompt content.
+
 ### Operator channel — answering, noting, and nudging a live run
 - **What:** a human can act on a run in flight, from the viewer or a
   terminal. Three things move across it, all as small JSON in the run's own

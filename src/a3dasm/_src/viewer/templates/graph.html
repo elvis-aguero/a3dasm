@@ -898,6 +898,38 @@
       border-color: var(--red);
     }
 
+    /* A notice is a3dasm speaking to the agent, not a tool's output: a
+       nudge, science-monitor drift, a budget warning, an operator note.
+       It sits above the result it was prepended to, on --surface0 rather
+       than the --crust the tool's own bytes use, so the two are never
+       confused. Peach reads as "the system is telling you something"
+       without claiming the --red an actual error owns. */
+    .notice {
+      display: flex;
+      gap: 7px;
+      margin: 5px 0 6px 16px;
+    }
+    .notice-glyph {
+      flex: 0 0 auto;
+      color: var(--peach);
+      font-size: var(--fs-meta);
+      line-height: 1.9;
+    }
+    .notice-body { min-width: 0; flex: 1 1 auto; }
+    .notice-pre {
+      margin: 0;
+      padding: 8px 11px;
+      background: var(--surface0);
+      border-left: 2px solid var(--peach);
+      border-radius: 4px;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: var(--fs-meta);
+      line-height: 1.65;
+      color: var(--subtext1);
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+
     .empty { color: var(--overlay0); font-size: var(--fs-body); padding: 8px 0; }
 
     .jump {

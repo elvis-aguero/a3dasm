@@ -21,6 +21,7 @@ from ._constants import run_backstop_multiple
 from .base import AgentNode
 from .critic_gate import CriticGateMixin
 from .lifecycle import LifecycleMixin
+from .notices import wrap_notice
 from .parsing import _to_adapter_messages
 from .recording import RecordingMixin
 
@@ -400,7 +401,10 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
                     if drift:
                         text += drift
                         self._science_injected_this_turn = True
-        return text
+        # Everything accumulated above is a3dasm speaking to the agent, not
+        # a tool's output — mark it so both the agent and the viewer can
+        # tell the difference (see nodes/notices.py).
+        return wrap_notice(text)
 
     def _next_confer_seq(self) -> int:
         """Monotonic per-run Confer message sequence number."""
