@@ -81,6 +81,38 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   `_check_duplicate_evaluations`); `instrumented.py` `unstamped_row_count`,
   `duplicate_eval_stats`; `routing.py` `Wait()`. **Status:** core (§4 user-owned).
 
+### Registered criterion reaches the worker (pre-registration the experimenter can read)
+- **What:** when `Delegate` carries `hypothesis_ids`, the worker's task message
+  gains a `<registered_hypothesis>` block built from the ledger: each
+  hypothesis's statement (capped at 700 chars — context) plus its
+  `falsification_criterion` and `prediction` **verbatim, never truncated**
+  (the contract). With `is_falsification_attempt=True` the framing states that
+  the evidence will be judged against those criteria exactly as written, and
+  explicitly licenses reporting a mismatch instead of substituting a
+  different test.
+- **Where:** `nodes/tools/routing.py` `_hypothesis_brief()`, injected in
+  `Delegate`'s task assembly beside the constraint snapshot.
+- **Why:** the criterion is immutable once registered and is the standard the
+  verdict is judged by, but the only party a3dasm showed it to was the
+  delegator, and only at reconciliation time — `_falsification_checkpoint()`
+  fires on a **Done** report, i.e. after the evidence exists. `Delegate`'s
+  contract put context packaging on the delegator, so the worker saw the
+  criterion only if the delegator remembered to paste it. Measured cost across
+  52 cluster runs: INCONCLUSIVE is the largest verdict class (100 of 295
+  hypotheses) and the most expensive (median lifetime 3.15h vs 1.49h
+  FALSIFIED, 0.91h SUPPORTED, 45% resolving within an hour of the run ending),
+  and its verdict comments name the mechanism — *"the registered H3
+  falsification criterion required a 50-iter constrained BO in the high-Ixx
+  region. This BO was never executed"*; *"Test is INADEQUATE relative to the
+  registered 30-point LHS criterion"*. Fixed in code rather than by another
+  prompt rule because the corpus already asks for this
+  (`agents/strategizer.py` tells the strategizer to pre-commit the sampling
+  plan and eval count **in** the criterion) and it did not take — §2's stated
+  fallback is a guard at the tool boundary.
+- **Note:** `Delegate` already refuses unknown `hypothesis_ids` outright, so
+  the brief is never built from a dangling reference.
+- **Status:** core.
+
 ### Process milestones
 - **What:** a small backlog (assess-literature, oracle-ready, …) that gates the
   implementer until the strategizer resolves each (complete or skip).

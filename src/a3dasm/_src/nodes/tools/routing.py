@@ -732,7 +732,11 @@ def build_routing_tools(node) -> dict:
         "CONTEXT PACKAGING: workers start each delegation with no memory of\n"
         "prior delegations. Include in the task message everything the worker\n"
         "needs: relevant paths, key findings from prior delegations, and the\n"
-        "precise question to answer.\n\n"
+        "precise question to answer. You do NOT need to restate the\n"
+        "hypotheses you name in hypothesis_ids — their statement, registered\n"
+        "falsification_criterion and prediction are attached to the worker's\n"
+        "task automatically, verbatim from the ledger. Spend the space on\n"
+        "what the ledger does not already hold.\n\n"
         "hypothesis_ids must be non-empty when the ledger is active.\n"
         "The worker writes exclusively to {id}/ (relative to their workspace\n"
         "in debug/delegations/).\n\n"
@@ -755,6 +759,82 @@ def build_routing_tools(node) -> dict:
         " many (or as few) as the science needs.\n\n"
         f"Available targets:\n  {_target_hints}"
     )
+
+    def _hypothesis_brief(
+        hypothesis_ids: list | None,
+        is_falsification_attempt: bool,
+    ) -> str:
+        """The registered hypotheses this delegation is meant to test, for
+        the WORKER's task message.
+
+        A hypothesis's falsification_criterion is immutable once registered
+        and is the standard its verdict will be judged against — but until
+        now the only party shown it was the delegator, and only at
+        reconciliation time (``_falsification_checkpoint`` below, which
+        fires on a Done report). The worker that actually produces the
+        evidence never saw it: Delegate's contract put context packaging on
+        the delegator ("Include in the task message everything the worker
+        needs"), so the criterion reached the worker only if the delegator
+        remembered to paste it.
+
+        The measured cost of that gap: INCONCLUSIVE is the largest verdict
+        class (100 of 295 hypotheses over 52 cluster runs) and the most
+        expensive (median lifetime 3.15h vs 1.49h FALSIFIED, 0.91h
+        SUPPORTED), and its verdict comments say why in so many words —
+        "the registered H3 falsification criterion required a 50-iter
+        constrained BO in the high-Ixx region. This BO was never executed";
+        "Test is INADEQUATE relative to the registered 30-point LHS
+        criterion". The work that ran was not the test that was registered,
+        and nothing could notice until it was time to render a verdict.
+
+        Injected in-band and automatically, on the same principle as the
+        constraint snapshot: pre-registration the experimenter cannot read
+        is not pre-registration.
+        """
+        if node._ledger is None or not hypothesis_ids:
+            return ""
+        blocks = []
+        for hid in hypothesis_ids:
+            entry = node._ledger.get(str(hid)) or {}
+            if not entry:
+                continue
+            stmt = (entry.get("statement") or "").strip()
+            crit = (entry.get("falsification_criterion") or "").strip()
+            pred = (entry.get("prediction") or "").strip()
+            if not (stmt or crit or pred):
+                continue
+            # The statement is context and is capped; the criterion and the
+            # prediction are the CONTRACT and go verbatim — truncating the
+            # test a result will be judged against would reintroduce exactly
+            # the mismatch this block exists to prevent.
+            if len(stmt) > 700:
+                stmt = stmt[:700].rstrip() + " […]"
+            part = [f"**{hid}** — {stmt}" if stmt else f"**{hid}**"]
+            if crit:
+                part.append(f"  · REGISTERED FALSIFICATION CRITERION: {crit}")
+            if pred:
+                part.append(f"  · REGISTERED PREDICTION: {pred}")
+            blocks.append("\n".join(part))
+        if not blocks:
+            return ""
+        head = (
+            "<registered_hypothesis>\n"
+            "This delegation is a FALSIFICATION ATTEMPT on the hypotheses "
+            "below. Their criteria were registered BEFORE this work and are "
+            "immutable: your evidence will be judged against them exactly as "
+            "written, so the test you run must be the test they specify "
+            "(sampling plan, eval count, region, thresholds). If you cannot "
+            "run that test, or find it cannot decide the criterion, say so in "
+            "your report — an honest mismatch is usable; a different test "
+            "reported as if it were this one is not."
+            if is_falsification_attempt else
+            "<registered_hypothesis>\n"
+            "Context — the registered hypotheses this task is filed against. "
+            "Their criteria are immutable and are what any verdict will be "
+            "judged against; treat them as the standard your numbers have to "
+            "speak to."
+        )
+        return head + "\n\n" + "\n\n".join(blocks) + "\n</registered_hypothesis>"
 
     def _falsification_checkpoint(delegation_id: str) -> str:
         """Read-time ritual text for a freshly-read Done report.
@@ -1058,6 +1138,15 @@ def build_routing_tools(node) -> dict:
                 f"\n\n**Required deliverables / acceptance"
                 f" criteria:**\n{expected_report}"
             )
+        # The registered hypothesis this work is filed against, from the
+        # ledger a3dasm already holds — so the worker that produces the
+        # evidence can see the criterion its evidence will be judged by,
+        # instead of that criterion first surfacing at reconciliation time
+        # when the work is already done. See _hypothesis_brief.
+        _hyp_brief = _hypothesis_brief(hypothesis_ids, is_falsification_attempt)
+        if _hyp_brief:
+            task_msg += "\n\n" + _hyp_brief
+
         if preamble:
             task_msg = preamble + "\n\n" + task_msg
 
