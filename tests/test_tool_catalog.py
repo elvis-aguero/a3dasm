@@ -6,7 +6,7 @@ guidance (docstring + optional @tool_examples).
 """
 from __future__ import annotations
 
-from a3dasm._src.tool_catalog import (
+from a3dasm._src.prompts.tool_catalog import (
     render_tool_catalog,
     system_prompt_with_catalog,
     tool_examples,

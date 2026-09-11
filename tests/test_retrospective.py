@@ -91,7 +91,7 @@ class TestPromptsCarryRetrospective:
         assert "CONSISTENCY: ok | flagged" in IMPLEMENTER_SYSTEM_PROMPT
 
     def test_implementer_ollama_prompt(self):
-        from a3dasm._src.agent_prompts import (
+        from a3dasm._src.prompts.agent_prompts import (
             IMPLEMENTER_SYSTEM_PROMPT_OLLAMA,
         )
         assert "### Retrospective" in IMPLEMENTER_SYSTEM_PROMPT_OLLAMA
@@ -122,7 +122,7 @@ class TestPromptsCarryRetrospective:
         datagenerator, critic, literature) had no channel to report 'a tool I
         needed and didn't have'. CLAUDE.md specifies four retrospective fields.
         """
-        from a3dasm._src.agent_prompts import (
+        from a3dasm._src.prompts.agent_prompts import (
             IMPLEMENTER_SYSTEM_PROMPT_OLLAMA,
         )
         from a3dasm._src.agents.critic import (

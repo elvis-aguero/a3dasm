@@ -7,10 +7,10 @@ pipeline.py deliverable exists.
 """
 from __future__ import annotations
 
-from a3dasm._src import settings
+from a3dasm._src.runtime import settings
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.delegation_log import DelegationLog
-from a3dasm._src.milestones import MilestoneLedger
+from a3dasm._src.epistemics.delegation_log import DelegationLog
+from a3dasm._src.epistemics.milestones import MilestoneLedger
 from a3dasm._src.nodes import StrategizerNode
 
 
@@ -39,7 +39,7 @@ def test_seed_includes_pipeline_only_when_requested(tmp_path):
 
 
 def test_pipeline_milestone_auto_satisfies_when_file_exists(tmp_path):
-    from a3dasm._src.milestones import _pipeline_drafted
+    from a3dasm._src.epistemics.milestones import _pipeline_drafted
 
     class _N:
         _study_dir = tmp_path

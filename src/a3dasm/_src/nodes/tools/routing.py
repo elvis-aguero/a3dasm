@@ -11,7 +11,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ...tool_catalog import tool_examples
+from ...prompts.tool_catalog import tool_examples
 from .._constants import backstop_enabled, run_backstop_multiple
 from ..notices import wrap_notice
 from ..parsing import (
@@ -275,7 +275,7 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
         rd = node._resolve_run_dir()
         if rd is None:
             return []
-        from ...instrumented import experiment_stores
+        from ...evaluation.instrumented import experiment_stores
         return experiment_stores(rd / "experiment_data")
 
     if "RecallStore" in agent_tools:
@@ -283,7 +283,7 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             """Summary of the run's canonical evaluation ledger: rows per
             delegation/source, output ranges. Call before deciding the next
             delegation."""
-            from ...instrumented import RunStateSummary
+            from ...evaluation.instrumented import RunStateSummary
             stores = _all_store_dirs()
             blocks: list[tuple[str, str]] = []
             for i, store in enumerate(stores):
@@ -409,7 +409,7 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
                 ReachMaximumTriesError,
             )
 
-            from ...instrumented import _PROVENANCE_COLS
+            from ...evaluation.instrumented import _PROVENANCE_COLS
 
             stores = _all_store_dirs()
             if not stores:
@@ -1008,7 +1008,7 @@ def build_routing_tools(node) -> dict:
         # Resolve the optional process-phase tag (DoE/DataGeneration/ML/…).
         # Unknown/None → None (soft; never refuses), stored as the canonical
         # value string for the log + critic flags + downstream grouping.
-        from ...phases import resolve_phase
+        from ...runtime.phases import resolve_phase
         _phase_obj = resolve_phase(phase)
         _phase = _phase_obj.value if _phase_obj is not None else None
 
@@ -1025,7 +1025,7 @@ def build_routing_tools(node) -> dict:
         _target_role = getattr(
             node._spec.nodes.get(target), "role", "") if node._spec else ""
         if _ms is not None and _target_role == "implementer":
-            from ...milestones import implementer_block
+            from ...epistemics.milestones import implementer_block
             _pend = implementer_block(_ms, node)
             if _pend:
                 _ns_key = namespace or "__default__"
@@ -1105,7 +1105,7 @@ def build_routing_tools(node) -> dict:
         # the banner prepended to the worker's own task message, so what gets
         # persisted and what the agent is shown can never drift apart the way
         # four independent, partial computations of this previously did.
-        from ...constraint_snapshot import snapshot_for_node
+        from ...epistemics.constraint_snapshot import snapshot_for_node
         _snapshot = snapshot_for_node(node)
 
         # Provenance: log a RUNNING entry NOW, at dispatch — before the worker
@@ -1275,7 +1275,6 @@ def build_routing_tools(node) -> dict:
             # ConsultHandbook is injected universally at adapter construction
             # (agent_runtime._make_adapter) — every node gets it equally there.
             try:
-                from ...agent_prompts import build_report_retry_prompt
                 from ...backends.base import (
                     debug_enabled as _dbg,
                 )
@@ -1294,6 +1293,7 @@ def build_routing_tools(node) -> dict:
                 from ...backends.base import (
                     set_transcript_sink as _set_sink,
                 )
+                from ...prompts.agent_prompts import build_report_retry_prompt
 
                 # Bind the delegation id for this worker thread so the
                 # backend can inject F3DASM_DELEGATION_ID into the session
@@ -1456,11 +1456,11 @@ def build_routing_tools(node) -> dict:
                 # which only makes sense when this delegation actually wrote
                 # ledger rows), so every delegation's report is budget-aware
                 # — not just the ones that happened to evaluate something.
-                from ...constraint_snapshot import snapshot_for_node
+                from ...epistemics.constraint_snapshot import snapshot_for_node
                 _snapshot = snapshot_for_node(node)
                 text = text + "\n\n" + _snapshot.as_text()
                 try:
-                    from ...instrumented import (
+                    from ...evaluation.instrumented import (
                         RunStateSummary,
                         experiment_stores,
                     )
@@ -1478,7 +1478,9 @@ def build_routing_tools(node) -> dict:
                             # the memory footprint like it learns the time cost.
                             # (Wall/eval budget is in the constraint snapshot
                             # above now, not recomputed here.)
-                            from ...watchdog_cleanup import delegation_peak_rss
+                            from ...infra.watchdog_cleanup import (
+                                delegation_peak_rss,
+                            )
                             _peak = delegation_peak_rss(delegation_id)
                             _cap = None
                             try:
@@ -1607,7 +1609,7 @@ def build_routing_tools(node) -> dict:
                         if _manifest.exists():
                             import json as _json
 
-                            from ...agent_runtime import (
+                            from ...runtime.agent_runtime import (
                                 register_evaluator_entrypoint,
                             )
                             _m = _json.loads(_manifest.read_text())
@@ -1691,7 +1693,9 @@ def build_routing_tools(node) -> dict:
                         f"[Delegation {delegation_id} Errored]"
                     )
                 if node._delegation_log is not None:
-                    from ...constraint_snapshot import snapshot_for_node
+                    from ...epistemics.constraint_snapshot import (
+                        snapshot_for_node,
+                    )
                     node._delegation_log.record(
                         id=delegation_id,
                         from_node=node._name,
@@ -1857,7 +1861,7 @@ def build_routing_tools(node) -> dict:
         # and Confer the implementer. Best-effort; appended only if known.
         if _run_exp is not None:
             try:
-                from ...watchdog_cleanup import (
+                from ...infra.watchdog_cleanup import (
                     delegation_peak_rss,
                     delegation_rss,
                 )
@@ -2474,7 +2478,7 @@ def build_routing_tools(node) -> dict:
             # actually spent so it judges the BEST HONEST conclusion reachable
             # within budget, rather than demanding falsification work the
             # budget no longer allows (which strands the close).
-            from ...constraint_snapshot import snapshot_for_node
+            from ...epistemics.constraint_snapshot import snapshot_for_node
             _snapshot = snapshot_for_node(node)
             # Milestones: show the critic each process milestone's resolution +
             # note/reason, so it can flag a hollow SKIP (a study that skipped a
@@ -2619,15 +2623,15 @@ def build_routing_tools(node) -> dict:
         import select as _select
         import sys as _sys
 
-        from ...operator_channel import (
+        from ...infra.operator_channel import (
             answer_question as _answer_q,
         )
-        from ...operator_channel import (
+        from ...infra.operator_channel import (
             ask_question,
             close_question,
             is_watched,
         )
-        from ...operator_channel import (
+        from ...infra.operator_channel import (
             read_answer as _read_answer,
         )
 
@@ -2683,7 +2687,7 @@ def build_routing_tools(node) -> dict:
 
         node._ask_count += 1
 
-        from ...settings import get_int as _get_int
+        from ...runtime.settings import get_int as _get_int
         _deadline = time.monotonic() + _get_int("followup_wait_s", 600)
         if _tty:
             print(f"\n[Node {node._name}] {question}\nAnswer: ",
@@ -2999,7 +3003,7 @@ def build_routing_tools(node) -> dict:
     # and using it despite a contrary instruction is exactly what was
     # observed in a real run. Done stays available (still needed to close a
     # run); this only removes the notebook-authoring surface.
-    from ...settings import get_bool as _get_bool
+    from ...runtime.settings import get_bool as _get_bool
     if not _get_bool("pipeline_deliverable", True):
         _agent_tools = _agent_tools - _NOTEBOOK_TOOL_NAMES
 
@@ -3061,7 +3065,7 @@ def build_routing_tools(node) -> dict:
             try:
                 import nbformat
 
-                from ...notebook_exec import repair_code_cells
+                from ...evaluation.notebook_exec import repair_code_cells
                 nb = nbformat.reads(content, as_version=4)
                 # nbformat.reads() accepts a code cell missing `outputs` with
                 # no validation error (confirmed empirically) — repair it here
@@ -3094,7 +3098,7 @@ def build_routing_tools(node) -> dict:
         the full error (stderr) to fix the exact problem; on success the Done()
         gate will pass. It runs ONLY pipeline.ipynb through the gate — not
         arbitrary code. Call it repeatedly until it passes, THEN call Done()."""
-        from ...notebook_exec import required_deliverable_name
+        from ...evaluation.notebook_exec import required_deliverable_name
         _dname = required_deliverable_name()
         prefix = node._drain_notifications()
         if not (Path(node._study_dir) / _dname).exists():
@@ -3115,7 +3119,10 @@ def build_routing_tools(node) -> dict:
         # the ledger was populated (backlog #21's sibling gap).
         _notes = getattr(node, "_current_notes_dir", None)
         if _notes is not None:
-            from ...instrumented import RunStateSummary, experiment_stores
+            from ...evaluation.instrumented import (
+                RunStateSummary,
+                experiment_stores,
+            )
             _run_dir = Path(_notes).parent.parent
             _store_root = _run_dir / "experiment_data"
             _has_rows = any(
@@ -3174,7 +3181,7 @@ def build_routing_tools(node) -> dict:
     def _load_or_new_notebook():
         import nbformat
 
-        from ...notebook_exec import repair_code_cells
+        from ...evaluation.notebook_exec import repair_code_cells
         nb_path = Path(node._study_dir) / "pipeline.ipynb"
         if nb_path.exists():
             try:
@@ -3555,7 +3562,7 @@ def build_routing_tools(node) -> dict:
         if notes is None:
             return prefix + "ERROR: no run context available."
         store_root = notes.parent.parent / "experiment_data"
-        from ...instrumented import ledger_breakdown
+        from ...evaluation.instrumented import ledger_breakdown
         rows = ledger_breakdown(store_root)
         if not rows:
             return (prefix + "No ledgered evaluations yet — the canonical store "
@@ -3627,12 +3634,12 @@ def build_routing_tools(node) -> dict:
             _cfg["store_dir"] = str(sb_store)
             sb_cfg = sandbox / "run_config.json"
             sb_cfg.write_text(_json.dumps(_cfg))
-            from ...notebook_exec import sandbox_env
+            from ...evaluation.notebook_exec import sandbox_env
             env = sandbox_env(sb_store, sb_cfg, study_root=node._study_dir)
             snippet = sandbox / "_scratch.py"
             snippet.write_text(code)
             try:
-                from ...notebook_exec import run_deliverable
+                from ...evaluation.notebook_exec import run_deliverable
                 proc = run_deliverable(
                     snippet, cwd=sandbox, env=env, timeout=120)
             except _sub.TimeoutExpired:
@@ -3687,10 +3694,10 @@ def build_routing_tools(node) -> dict:
             _cfg["store_dir"] = str(sb_store)
             sb_cfg = sandbox / "run_config.json"
             sb_cfg.write_text(_json.dumps(_cfg))
-            from ...notebook_exec import sandbox_env
+            from ...evaluation.notebook_exec import sandbox_env
             env = sandbox_env(sb_store, sb_cfg, study_root=node._study_dir)
             try:
-                from ...notebook_exec import diagnose_notebook
+                from ...evaluation.notebook_exec import diagnose_notebook
                 trace = diagnose_notebook(
                     nb_path, cwd=sandbox, env=env, timeout=180, upto_name=name)
             except _sub.TimeoutExpired:
@@ -3826,7 +3833,7 @@ def build_routing_tools(node) -> dict:
             # This is a delegation like any other (strategizer -> critic) —
             # same constraint snapshot, single source of truth, see
             # constraint_snapshot.py.
-            from ...constraint_snapshot import snapshot_for_node
+            from ...epistemics.constraint_snapshot import snapshot_for_node
             _snapshot = snapshot_for_node(_node)
             task_msg = _node._build_feedback_task_msg(
                 h_ids, constraints_text=_snapshot.as_text())

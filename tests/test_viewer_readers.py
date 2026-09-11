@@ -273,7 +273,7 @@ def test_list_node_transcripts_entry_empty_when_no_turn_files(tmp_path):
 
 def test_graph_spec_json_reuses_bfs_layers_and_node_tools():
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.run_diagram import _bfs_layers, _node_tools
+    from a3dasm._src.runtime.run_diagram import _bfs_layers, _node_tools
 
     class _Strategizer(Agent):
         role = "strategizer"

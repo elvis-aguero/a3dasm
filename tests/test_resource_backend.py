@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from a3dasm._src.resource_backend import (
+from a3dasm._src.infra.resource_backend import (
     PsutilBackend,
     ResourceBackend,
     StdlibBackend,

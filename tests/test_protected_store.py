@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from a3dasm._src._f3dasm_compat import PROTECTED_STORE_SENTINEL
+from a3dasm._src.evaluation._f3dasm_compat import PROTECTED_STORE_SENTINEL
 from f3dasm._src.design.domain import Domain
 from f3dasm._src.experimentdata import ExperimentData
 from f3dasm._src.experimentsample import ExperimentSample, JobStatus

@@ -1,7 +1,7 @@
 """Pure-logic tests for the #9 live verdict validator (no model, no node)."""
 from __future__ import annotations
 
-from a3dasm._src.verdict_validator import (
+from a3dasm._src.epistemics.verdict_validator import (
     CLOSING_STATUSES,
     build_judge_prompt,
     parse_judge_reply,

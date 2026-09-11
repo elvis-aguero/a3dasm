@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 
-from a3dasm._src.agent_runtime import register_evaluator_entrypoint
+from a3dasm._src.runtime.agent_runtime import register_evaluator_entrypoint
 
 
 def _write_config(tmp_path, entrypoint=None):

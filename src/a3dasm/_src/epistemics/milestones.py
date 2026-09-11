@@ -61,7 +61,7 @@ def _pipeline_drafted(node) -> bool:
     if sd is None:
         return False
     try:
-        from .notebook_exec import required_deliverable_name
+        from ..evaluation.notebook_exec import required_deliverable_name
         return (Path(sd) / required_deliverable_name()).exists()
     except Exception:  # noqa: BLE001
         return False

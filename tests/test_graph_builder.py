@@ -6,8 +6,8 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.graph_builder import build_graph
-from a3dasm._src.graph_state import AgenticState
+from a3dasm._src.runtime.graph_builder import build_graph
+from a3dasm._src.runtime.graph_state import AgenticState
 from a3dasm._src.nodes import ImplementerNode, StrategizerNode
 
 
@@ -88,7 +88,7 @@ def test_build_graph_strategizer_role_creates_strategizer_node():
         entry="s",
     )
 
-    import a3dasm._src.graph_builder as gb
+    import a3dasm._src.runtime.graph_builder as gb
     original_strat = gb.StrategizerNode
     original_impl = gb.ImplementerNode
     try:

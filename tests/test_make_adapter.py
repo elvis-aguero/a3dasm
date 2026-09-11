@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from a3dasm._src.agent_runtime import (
+from a3dasm._src.runtime.agent_runtime import (
     DEFAULT_MODEL,
     AgenticRun,
     _default_graph,
@@ -269,7 +269,7 @@ def _make_strategizer_agent() -> Agent:
 def test_notebook_deliverable_spec_injected_by_default(tmp_path):
     """Default (pipeline_deliverable unset -> True): the strategizer's prompt
     still carries the pipeline.ipynb contract, unchanged from before #27."""
-    from a3dasm._src import settings
+    from a3dasm._src.runtime import settings
     settings.configure(None)  # no pipeline_deliverable key -> default True
     run = _make_run(tmp_path)
     agent = _make_strategizer_agent()
@@ -295,7 +295,7 @@ def test_notebook_deliverable_spec_suppressed_when_pipeline_deliverable_false(tm
     unconditional imperative ("this SUPERSEDES every ... instruction above")
     that previously overrode a PROBLEM_STATEMENT.md saying there is no
     pipeline deliverable at all."""
-    from a3dasm._src import settings
+    from a3dasm._src.runtime import settings
     settings.configure({"pipeline_deliverable": False})
     try:
         run = _make_run(tmp_path)

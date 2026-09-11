@@ -9,7 +9,7 @@ whatever sections the parser actually validates.
 """
 from __future__ import annotations
 
-from a3dasm._src.agent_prompts import build_report_retry_prompt
+from a3dasm._src.prompts.agent_prompts import build_report_retry_prompt
 from a3dasm._src.agents import (
     AdversarialCritiqueAgent,
     F3dasmImplementerAgent,

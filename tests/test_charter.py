@@ -2,7 +2,7 @@
 both adjudicating nodes, with the substantive Popperian wording intact."""
 
 from a3dasm._src.knowledge.charter import FALSIFICATION_CHARTER
-from a3dasm._src.agent_prompts import (
+from a3dasm._src.prompts.agent_prompts import (
     STRATEGIZER_SYSTEM_PROMPT,
     ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT,
 )

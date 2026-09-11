@@ -493,7 +493,7 @@ class ClaudeAdapter:
         # _build_session_env for what is injected and why.
         _sess_env: dict = _build_session_env()
 
-        from ..settings import get_float
+        from ..runtime.settings import get_float
         _max_buf_mb = get_float("llm_max_buffer_mb", 30.0)
         _max_buf = int(_max_buf_mb * 1024 * 1024)
 
@@ -507,7 +507,7 @@ class ClaudeAdapter:
             except Exception:  # noqa: BLE001 — best-effort; spawn surfaces real errors
                 pass
 
-        from ..tool_catalog import system_prompt_with_catalog
+        from ..prompts.tool_catalog import system_prompt_with_catalog
         # Catalog shows the QUALIFIED names (same helper as allowed_tools above),
         # so the AUTHORITATIVE <tools> block matches what the model can call.
         options = ClaudeAgentOptions(
@@ -569,7 +569,7 @@ class ClaudeAdapter:
         # this window's. Knobs (config.yaml runtime block; env overrides):
         # llm_stream_idle_timeout (0 disables); llm_tool_idle_timeout caps tool
         # execution (0 = uncapped).
-        from ..settings import get_float as _get_float
+        from ..runtime.settings import get_float as _get_float
         _idle = (idle_timeout if idle_timeout is not None
                  else _get_float("llm_stream_idle_timeout", 600.0))
         _tool_idle = _get_float("llm_tool_idle_timeout", 0.0)

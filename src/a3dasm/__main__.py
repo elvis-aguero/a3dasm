@@ -24,7 +24,7 @@ __status__ = "Experimental"
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    from ._src.agent_runtime import DEFAULT_MODEL
+    from ._src.runtime.agent_runtime import DEFAULT_MODEL
 
     parser = argparse.ArgumentParser(
         prog="python -m a3dasm",
@@ -53,7 +53,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from ._src.agent_runtime import AgenticRun, AgenticRunError
+    from ._src.runtime.agent_runtime import AgenticRun, AgenticRunError
 
     parser = _build_parser()
     args = parser.parse_args(argv)

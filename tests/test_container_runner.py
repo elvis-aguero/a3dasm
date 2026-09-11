@@ -28,7 +28,7 @@ def _make_proc_mock(returncode: int = 0):
 
 def test_build_image_calls_docker_build(tmp_path):
     """build_image() must invoke 'docker build' with -t and the image name."""
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(tmp_path, image="myimg:test",
                              _docker_dir=tmp_path / "docker")
@@ -61,7 +61,7 @@ def test_run_claude_assembles_correct_docker_run_args(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "no_creds_here"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
 
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(tmp_path, backend="claude", image="f3dasm:test",
                              _docker_dir=tmp_path / "docker")
@@ -99,7 +99,7 @@ def test_run_ollama_host_sets_ollama_base_url(tmp_path, monkeypatch):
     """run() with backend='ollama' must set OLLAMA_BASE_URL to the default host URL."""
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
 
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(tmp_path, backend="ollama", ollama_sidecar=False,
                              image="f3dasm:test",
@@ -129,7 +129,7 @@ def test_run_ollama_respects_env_var_override(tmp_path, monkeypatch):
     """run() with backend='ollama' must honour a custom OLLAMA_BASE_URL."""
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://myhost:9999/v1")
 
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(tmp_path, backend="ollama", ollama_sidecar=False,
                              image="f3dasm:test",
@@ -155,7 +155,7 @@ def test_run_adds_host_gateway_on_linux(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
 
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(tmp_path, backend="ollama", ollama_sidecar=False,
                              image="f3dasm:test",
@@ -180,8 +180,8 @@ def test_latest_solution_reads_notebook_markdown(tmp_path):
     notebook — there is no solution.md."""
     import nbformat
 
-    from a3dasm._src.container_runner import ContainerRunner
-    from a3dasm._src.notebook_exec import build_notebook
+    from a3dasm._src.infra.container_runner import ContainerRunner
+    from a3dasm._src.evaluation.notebook_exec import build_notebook
 
     nb = build_notebook([
         {"type": "markdown", "source": "result"},
@@ -208,10 +208,10 @@ def test_agentic_run_container_flag_delegates_to_container_runner(tmp_path, monk
     mock_runner._latest_solution.return_value = "ok"
 
     with patch(
-        "a3dasm._src.agent_runtime.ContainerRunner",
+        "a3dasm._src.runtime.agent_runtime.ContainerRunner",
         return_value=mock_runner,
     ):
-        from a3dasm._src.agent_runtime import AgenticRun
+        from a3dasm._src.runtime.agent_runtime import AgenticRun
 
         result = AgenticRun(tmp_path, container=True).execute()
 

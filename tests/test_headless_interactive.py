@@ -8,7 +8,7 @@ or pytest) it is forced False even when requested, so no input() path can block.
 """
 from __future__ import annotations
 
-from a3dasm._src.agent_runtime import AgenticRun
+from a3dasm._src.runtime.agent_runtime import AgenticRun
 
 
 def test_headless_forces_noninteractive(tmp_path):

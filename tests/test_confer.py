@@ -47,7 +47,7 @@ def _node(tmp_path=None):
     if tmp_path is not None:
         notes = tmp_path / "debug" / "strategizer_notes"
         notes.mkdir(parents=True)
-        from a3dasm._src.delegation_log import DelegationLog
+        from a3dasm._src.epistemics.delegation_log import DelegationLog
         dlog = DelegationLog(tmp_path / "debug" / "delegation_log.jsonl")
         kwargs = {"notes_dir": notes, "delegation_log": dlog}
     return StrategizerNode(
@@ -135,7 +135,7 @@ def _run_with_worker(worker_adapter, strategizer_adapter=None):
         worker_adapters={"implementer": worker_adapter},
     )
 
-    from a3dasm._src.graph_state import AgenticState
+    from a3dasm._src.runtime.graph_state import AgenticState
     from langchain_core.messages import HumanMessage
     import tempfile, pathlib
     d = pathlib.Path(tempfile.mkdtemp())
@@ -389,7 +389,7 @@ def _node_with_run(tmp_path):
 
 
 def test_a_note_aimed_at_a_running_delegation_reaches_that_worker(tmp_path):
-    from a3dasm._src import operator_channel as oc
+    from a3dasm._src.infra import operator_channel as oc
 
     n = _node_with_run(tmp_path)
     n._registry["D004"] = {
@@ -407,7 +407,7 @@ def test_a_note_aimed_at_a_running_delegation_reaches_that_worker(tmp_path):
 
 
 def test_an_unaddressed_note_still_goes_to_the_orchestrator(tmp_path):
-    from a3dasm._src import operator_channel as oc
+    from a3dasm._src.infra import operator_channel as oc
 
     n = _node_with_run(tmp_path)
     oc.queue_note(tmp_path, "reconsider the floor")
@@ -421,7 +421,7 @@ def test_a_note_for_a_finished_delegation_is_not_dropped(tmp_path):
     """The human still said it. Silently discarding it would be the worst
     outcome — worse than delivering it late to the wrong reader — so it goes
     to the orchestrator with the intended recipient named."""
-    from a3dasm._src import operator_channel as oc
+    from a3dasm._src.infra import operator_channel as oc
 
     n = _node_with_run(tmp_path)
     n._registry["D004"] = {

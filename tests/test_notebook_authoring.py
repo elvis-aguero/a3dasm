@@ -173,7 +173,7 @@ def test_markdown_cells_are_per_cell_and_create_only(tmp_path):
 def test_authored_notebook_passes_the_gate(tmp_path):
     """A notebook authored purely through the closures runs through the
     reproduction gate (a real, executable deliverable)."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
     from f3dasm._src.core import DataGenerator
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 
@@ -210,7 +210,7 @@ def test_check_deliverable_sees_evals_in_a_design_namespace_only(tmp_path):
     design-namespace store (run_dir/experiment_data/<namespace>/) got a false
     'canonical store has no evaluations yet' block even though the ledger is
     populated — CheckDeliverable never even reached the reproduction gate."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
     from f3dasm._src.core import DataGenerator
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 

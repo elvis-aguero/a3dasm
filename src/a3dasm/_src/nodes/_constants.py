@@ -5,7 +5,7 @@ without an import cycle.
 Read at CALL time (not import) so they reflect config.yaml, which AgenticRun
 installs after these modules import. config.yaml's runtime block is the source
 of truth; F3DASM_RUN_BACKSTOP_MULTIPLE overrides."""
-from ..settings import get_float
+from ..runtime.settings import get_float
 
 
 def run_backstop_multiple() -> float:

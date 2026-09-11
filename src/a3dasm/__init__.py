@@ -14,15 +14,6 @@ The user's only required input is ``<study-dir>/PROBLEM_STATEMENT.md``.
 
 from __future__ import annotations
 
-from ._src.agent_runtime import (
-    DEFAULT_MODEL,
-    AgenticRun,
-    AgenticRunError,
-    Delegation,
-    Report,
-    StudyConfig,
-    Task,
-)
 from ._src.agents import (
     AdversarialCritiqueAgent,
     DataGeneratorAgent,
@@ -36,23 +27,32 @@ from ._src.agents import (
 from ._src.backends.base import Agent, Edge, Graph
 from ._src.backends.claude import ClaudeAdapter
 from ._src.backends.ollama import OllamaAdapter
-from ._src.graph_builder import build_graph
-from ._src.graph_state import AgenticState
 
 # Only get_evaluator() is agent-facing — the ONE door to the registered
 # oracle. InstrumentedDataGenerator stays internal (constructed solely inside
 # get_evaluator); it is deliberately not re-exported so agents cannot build a
 # store-redirected evaluator. See KB 0001.
-from ._src.instrumented import get_evaluator, load_experiments
-from ._src.lookup import LookupDataGenerator
-from ._src.math_dsl import Workspace
+from ._src.evaluation.instrumented import get_evaluator, load_experiments
+from ._src.evaluation.lookup import LookupDataGenerator
 from ._src.nodes import (
     AgentNode,
     ImplementerNode,
     StrategizerNode,
     WorkerNode,
 )
-from ._src.optimizer import AgenticOptimizerAdapter
+from ._src.prompts.math_dsl import Workspace
+from ._src.runtime.agent_runtime import (
+    DEFAULT_MODEL,
+    AgenticRun,
+    AgenticRunError,
+    Delegation,
+    Report,
+    StudyConfig,
+    Task,
+)
+from ._src.runtime.graph_builder import build_graph
+from ._src.runtime.graph_state import AgenticState
+from ._src.runtime.optimizer import AgenticOptimizerAdapter
 
 __author__ = "Elvis Aguero (elvis_alexander_aguero_vera@brown.edu)"
 __credits__ = ["Elvis Aguero"]

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 
-from a3dasm._src.telemetry import Telemetry
+from a3dasm._src.infra.telemetry import Telemetry
 
 
 def _usage(i, o, cost=None, cr=0, cc=0):

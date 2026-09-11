@@ -25,9 +25,9 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from a3dasm._src.agent_runtime import DEFAULT_MODEL, AgenticRun, _default_graph
+from a3dasm._src.runtime.agent_runtime import DEFAULT_MODEL, AgenticRun, _default_graph
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.run_diagram import (
+from a3dasm._src.runtime.run_diagram import (
     _bfs_layers,
     _CardContent,
     _node_tools,

@@ -348,7 +348,7 @@ class CriticGateMixin:
         if not verdict_validator_enabled():
             return ""  # kill switch (F3DASM_VERDICT_VALIDATOR=0) — fully bypassed
         try:
-            from ..verdict_validator import (
+            from ..epistemics.verdict_validator import (
                 build_judge_prompt,
                 parse_judge_reply,
             )

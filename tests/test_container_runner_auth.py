@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from a3dasm._src.container_runner import ContainerRunner
+from a3dasm._src.infra.container_runner import ContainerRunner
 
 
 def _runner(tmp_path):

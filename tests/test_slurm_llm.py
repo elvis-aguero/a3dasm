@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from a3dasm._src import settings
-from a3dasm._src import slurm_llm as S
+from a3dasm._src.runtime import settings
+from a3dasm._src.infra import slurm_llm as S
 
 # --- profiles / resolution ------------------------------------------------
 
@@ -289,7 +289,7 @@ def test_hub_fetch_used_when_cache_misses(monkeypatch):
 
 
 def test_hub_fetch_disabled_by_setting(monkeypatch):
-    from a3dasm._src import settings
+    from a3dasm._src.runtime import settings
     monkeypatch.setattr(S, "_read_local_metadata", lambda mid: None)
     monkeypatch.setattr(S, "_fetch_hub_metadata",
                         lambda mid, timeout: (_ for _ in ()).throw(

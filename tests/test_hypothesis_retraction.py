@@ -11,7 +11,7 @@ carries forward the evidence the verdict was based on, no new delegation needed.
 """
 from __future__ import annotations
 
-from a3dasm._src.hypothesis_ledger import HypothesisLedger
+from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
 
 
 def _ledger(tmp_path):

@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.instrumented import InstrumentedDataGenerator
+from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 from a3dasm._src.nodes import StrategizerNode
 from f3dasm._src.core import DataGenerator
 from f3dasm._src.experimentdata import ExperimentData
@@ -92,7 +92,7 @@ def test_gate_fails_when_pipeline_adds_evals(tmp_path):
     node, study_dir = _setup(tmp_path)
     (study_dir / "pipeline.py").write_text(
         "import os\n"
-        "from a3dasm._src.instrumented import InstrumentedDataGenerator\n"
+        "from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator\n"
         "from f3dasm._src.core import DataGenerator\n"
         "from f3dasm._src.experimentsample import ExperimentSample, JobStatus\n"
         "class G(DataGenerator):\n"
@@ -120,7 +120,7 @@ def test_gate_fails_when_pipeline_adds_evals_to_a_namespace_store(tmp_path):
     node, study_dir = _setup(tmp_path)
     (study_dir / "pipeline.py").write_text(
         "import os\n"
-        "from a3dasm._src.instrumented import InstrumentedDataGenerator\n"
+        "from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator\n"
         "from f3dasm._src.core import DataGenerator\n"
         "from f3dasm._src.experimentsample import ExperimentSample, JobStatus\n"
         "class G(DataGenerator):\n"
@@ -277,7 +277,7 @@ def test_gate_runs_in_sandbox_never_pollutes_real_ledger(tmp_path):
     # A non-lazy pipeline: it stamps a NEW eval into F3DASM_CANONICAL_STORE.
     (study_dir / "pipeline.py").write_text(
         "import os\n"
-        "from a3dasm._src.instrumented import InstrumentedDataGenerator\n"
+        "from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator\n"
         "from f3dasm._src.core import DataGenerator\n"
         "from f3dasm._src.experimentsample import ExperimentSample, JobStatus\n"
         "class G(DataGenerator):\n"
@@ -340,7 +340,7 @@ _LOAD_OR_CREATE_PIPELINE = (
     "if _n_finished(store) > 0:\n"
     "    data = ExperimentData.from_file(project_dir=store)   # LOAD: lazy, 0 new\n"
     "else:\n"
-    "    from a3dasm._src.instrumented import InstrumentedDataGenerator\n"
+    "    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator\n"
     "    from f3dasm._src.core import DataGenerator\n"
     "    from f3dasm._src.experimentsample import ExperimentSample, JobStatus\n"
     "    class _Sum(DataGenerator):\n"
@@ -394,8 +394,8 @@ def test_load_or_create_pipeline_regenerates_from_empty(tmp_path):
 
 # ── Spec-04: notebook deliverable (executor-agnostic gate) ────────────────────
 import nbformat  # noqa: E402
-from a3dasm._src import settings  # noqa: E402
-from a3dasm._src.notebook_exec import (  # noqa: E402
+from a3dasm._src.runtime import settings  # noqa: E402
+from a3dasm._src.evaluation.notebook_exec import (  # noqa: E402
     build_notebook, required_deliverable_name, run_deliverable,
 )
 
@@ -432,7 +432,7 @@ def test_repro_gate_fails_when_notebook_adds_evals(tmp_path):
     node, study_dir = _setup(tmp_path)
     _write_nb(study_dir, [{"type": "code", "name": "run", "source": (
         "import os\n"
-        "from a3dasm._src.instrumented import InstrumentedDataGenerator\n"
+        "from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator\n"
         "from f3dasm._src.core import DataGenerator\n"
         "from f3dasm._src.experimentsample import ExperimentSample, JobStatus\n"
         "class G(DataGenerator):\n"

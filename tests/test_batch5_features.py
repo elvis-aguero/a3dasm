@@ -33,7 +33,7 @@ def test_three_strikes_escape_not_coached_to_agent():
 # --- #6: extensible, oracle-stamped provenance -------------------------------
 
 def test_extra_provenance_stamped_and_persisted(tmp_path, monkeypatch):
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
 
     study = tmp_path / "study"
     study.mkdir()
@@ -78,7 +78,7 @@ def test_extra_provenance_stamped_and_persisted(tmp_path, monkeypatch):
 
 def test_no_provenance_block_means_no_extra_columns(tmp_path):
     """Open schema is opt-in: absent 'provenance' → only the fixed three."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
     from f3dasm._src.core import DataGenerator
 
     class _Const(DataGenerator):
@@ -99,9 +99,9 @@ def test_no_provenance_block_means_no_extra_columns(tmp_path):
 def test_recursion_limit_default_raised():
     # Now a config.yaml runtime knob (F3DASM_RECURSION_LIMIT overrides); the
     # default stays high (2000) so long multi-delegation runs don't crash.
-    from a3dasm._src import settings
+    from a3dasm._src.runtime import settings
     settings.configure({})
     assert settings.get_int("recursion_limit", 2000) == 2000
-    rt = (_SRC / "agent_runtime.py").read_text()
+    rt = (_SRC / "runtime" / "agent_runtime.py").read_text()
     assert 'settings.get_int("recursion_limit", 2000)' in rt
     assert '"500"' not in rt.split("recursion_limit")[1][:200]

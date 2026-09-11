@@ -52,7 +52,7 @@ class _SumGenerator(DataGenerator):
 
 
 def test_execute_stamps_provenance(tmp_path):
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen = InstrumentedDataGenerator(
         inner=_SumGenerator(),
@@ -87,7 +87,7 @@ def test_execute_marks_finished_in_canonical_store(tmp_path):
     finished rows persist as IN_PROGRESS (defeating is_all_finished(), the
     FINISHED-regression store guard, and resumption). The stub here deliberately
     leaves job_status untouched, mimicking the real oracle."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     class _NoMarkGenerator(DataGenerator):
         def execute(self, experiment_sample, **kwargs):
@@ -113,7 +113,7 @@ def test_execute_stamps_wall_ms(tmp_path):
     """Spec A: each eval carries its own wall-time (_wall_ms), generically."""
     import time as _time
 
-    from a3dasm._src.instrumented import (
+    from a3dasm._src.evaluation.instrumented import (
         _PROVENANCE_COLS,
         InstrumentedDataGenerator,
     )
@@ -143,7 +143,7 @@ def test_to_numpy_excludes_underscore_provenance(tmp_path):
     array instead of an object-dtype array contaminated by the metadata."""
     import numpy as np
 
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen = InstrumentedDataGenerator(
         inner=_SumGenerator(),
@@ -169,7 +169,7 @@ def test_to_numpy_excludes_underscore_provenance(tmp_path):
 
 def _worker(store_dir, delegation_id, n_samples, lock_path):
     """Run in a thread; each gets its own InstrumentedDataGenerator."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen = InstrumentedDataGenerator(
         inner=_SumGenerator(),
@@ -222,7 +222,7 @@ def test_concurrent_appends_no_loss(tmp_path):
 
 
 def test_provenance_survives_plus_reindex(tmp_path):
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     lock_path = tmp_path / "experiment_data" / ".lock"
 
@@ -267,7 +267,7 @@ def test_provenance_survives_plus_reindex(tmp_path):
 def test_get_evaluator_binds_delegation_id_from_cwd(
     tmp_path, monkeypatch
 ):
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
 
     # Build the workspace: .../runs/ts/debug/delegations/D007
     debug_dir = tmp_path / "runs" / "ts" / "debug"
@@ -313,7 +313,7 @@ def test_get_evaluator_reads_dedup_scope_from_env(tmp_path, monkeypatch):
     InstrumentedDataGenerator — this is the wiring half of the
     dedup_scope="all" fix; test_dedup_scope_all_matches_regardless_of_
     delegation_id above tests the dedup LOGIC itself in isolation."""
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
 
     debug_dir = tmp_path / "runs" / "ts" / "debug"
     delegation_dir = debug_dir / "delegations" / "D007"
@@ -358,7 +358,7 @@ def test_get_evaluator_reads_dedup_scope_from_env(tmp_path, monkeypatch):
 def test_get_evaluator_raises_outside_delegation(
     tmp_path, monkeypatch
 ):
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
 
     # cwd is not a D### directory
     bad_dir = tmp_path / "not_a_delegation"
@@ -376,7 +376,7 @@ def test_get_evaluator_raises_outside_delegation(
 
 
 def test_flush_every_batches(tmp_path):
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen = InstrumentedDataGenerator(
         inner=_SumGenerator(),
@@ -425,7 +425,7 @@ def test_public_api_importable():
     assert "InstrumentedDataGenerator" not in _agentic.__all__
     assert not hasattr(_agentic, "InstrumentedDataGenerator")
     # ...but it remains importable internally for the runtime and tests.
-    from a3dasm._src.instrumented import (  # noqa: F401
+    from a3dasm._src.evaluation.instrumented import (  # noqa: F401
         InstrumentedDataGenerator,
     )
 
@@ -437,7 +437,7 @@ def test_store_rows_accumulate_across_generator_instances(tmp_path):
     accumulated rows (600) correctly while a counter undercounted (300).
     The store is now the single source of truth for eval counts.
     """
-    from a3dasm._src.instrumented import (
+    from a3dasm._src.evaluation.instrumented import (
         InstrumentedDataGenerator,
         RunStateSummary,
     )
@@ -474,7 +474,7 @@ def test_wall_per_delegation_and_footer(tmp_path):
     Auto-appended to each delegation report so the strategizer plans its budget
     on measured sim cost (the 36.5x cost-prior miss in run 20260625T014520).
     """
-    from a3dasm._src.instrumented import (
+    from a3dasm._src.evaluation.instrumented import (
         InstrumentedDataGenerator,
         RunStateSummary,
     )
@@ -536,7 +536,7 @@ def test_flush_merges_into_typed_canonical_domain(tmp_path):
     'Cannot add non-continuous parameter to continuous!'."""
     import pandas as pd
 
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     # Pre-seed a canonical store with a TYPED domain (int + float).
     domain = Domain()
@@ -562,7 +562,7 @@ def test_dedup_on_write_skips_design_already_in_ledger(tmp_path):
     """(B) retry-duplication fix: a re-launched/retried campaign that
     re-evaluates a design already FINISHED in the canonical store must NOT
     append a duplicate row (keep-first); a genuinely new design still lands."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen = InstrumentedDataGenerator(
         inner=_SumGenerator(), store_dir=tmp_path,
@@ -580,7 +580,7 @@ def test_dedup_on_write_skips_design_already_in_ledger(tmp_path):
 def test_dedup_within_a_single_flush_batch(tmp_path):
     """Duplicates repeated WITHIN one buffered flush are deduped too (the
     example_study 76%-repeat incident, backlog #24)."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen = InstrumentedDataGenerator(
         inner=_SumGenerator(), store_dir=tmp_path,
@@ -600,7 +600,7 @@ def test_dedup_is_per_delegation_by_default(tmp_path):
     campaign may legitimately re-measure a design; collapsing across
     delegations would corrupt that), not the reproduction-gate bug this test
     file is distinguishing itself from below."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen1 = InstrumentedDataGenerator(
         inner=_SumGenerator(), store_dir=tmp_path,
@@ -629,7 +629,7 @@ def test_dedup_scope_all_matches_regardless_of_delegation_id(tmp_path):
     ledger regardless of which delegation wrote each row — the correct
     semantics for a validation replay of already-generated data, as opposed
     to a live campaign delegation genuinely exploring in parallel."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen1 = InstrumentedDataGenerator(
         inner=_SumGenerator(), store_dir=tmp_path,
@@ -659,14 +659,14 @@ def test_dedup_scope_all_matches_regardless_of_delegation_id(tmp_path):
 
 
 def test_resolve_delegation_id_prefers_env_when_cwd_not_ddir(tmp_path, monkeypatch):
-    from a3dasm._src.instrumented import _resolve_delegation_id
+    from a3dasm._src.evaluation.instrumented import _resolve_delegation_id
     monkeypatch.chdir(tmp_path)                       # cwd not named D###
     monkeypatch.setenv("F3DASM_DELEGATION_ID", "D007")
     assert _resolve_delegation_id() == "D007"         # no mkdir/cd needed
 
 
 def test_resolve_delegation_id_error_is_actionable(tmp_path, monkeypatch):
-    from a3dasm._src.instrumented import _resolve_delegation_id
+    from a3dasm._src.evaluation.instrumented import _resolve_delegation_id
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("F3DASM_DELEGATION_ID", raising=False)
     with pytest.raises(ValueError) as ei:
@@ -679,7 +679,7 @@ def test_resolve_delegation_id_error_is_actionable(tmp_path, monkeypatch):
 def test_get_evaluator_names_env_namespace_as_the_cause(tmp_path, monkeypatch):
     """A get_evaluator() that silently inherits an unregistered F3DASM_NAMESPACE
     must say SO in the error, so the fix (unset it) is obvious (D007 footgun)."""
-    import a3dasm._src.instrumented as _inst
+    import a3dasm._src.evaluation.instrumented as _inst
     monkeypatch.setattr(_inst, "_resolve_delegation_id", lambda: "D001")
     monkeypatch.setattr(_inst, "_load_run_config", lambda: {"oracles": {}})
     monkeypatch.setenv("F3DASM_NAMESPACE", "graded")   # not registered
@@ -715,7 +715,7 @@ def test_supersede_replaces_stale_row_net_count_preserving(tmp_path):
     """Option C: supersede() re-evaluates a design and REPLACES its stale row
     (the mcs=0.57-style drift), leaving row count and other rows intact — and
     passing the PROTECTED-store shrink/FINISHED guards."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     # Seed: design A(x0=0.5) with a STALE value 99.0; design B(x0=0.9) good 7.0.
     a_bad = InstrumentedDataGenerator(
@@ -760,7 +760,7 @@ def test_call_mode_parallel_is_refused_before_it_spawns_anything(tmp_path):
     subprocesses on the run's own shared, resource-constrained orchestration
     node (CPU oversubscription + OOM that kills the whole run). A
     documentation warning is not a control; refusing the call itself is."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen = InstrumentedDataGenerator(
         inner=_SumGenerator(), store_dir=tmp_path, delegation_id="D001")
@@ -772,7 +772,7 @@ def test_call_mode_parallel_is_refused_before_it_spawns_anything(tmp_path):
 def test_call_mode_sequential_still_delegates_normally(tmp_path):
     """The hard cap targets mode='parallel' specifically — sequential must be
     completely unaffected, still evaluating every sample via execute()."""
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
     gen = InstrumentedDataGenerator(
         inner=_SumGenerator(), store_dir=tmp_path, delegation_id="D001")

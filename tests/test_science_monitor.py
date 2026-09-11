@@ -12,10 +12,10 @@ from unittest.mock import patch
 
 import pytest
 
-from a3dasm._src.delegation_log import DelegationLog
-from a3dasm._src.hypothesis_ledger import HypothesisLedger
-from a3dasm._src.instrumented import RunStateSummary
-from a3dasm._src.science_monitor import ScienceMonitor
+from a3dasm._src.epistemics.delegation_log import DelegationLog
+from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
+from a3dasm._src.evaluation.instrumented import RunStateSummary
+from a3dasm._src.epistemics.science_monitor import ScienceMonitor
 
 
 def make_world(tmp_path):

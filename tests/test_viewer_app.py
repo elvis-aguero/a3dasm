@@ -616,7 +616,7 @@ def test_operator_endpoint_reports_pending_questions_and_beats_the_heartbeat(tmp
     poll that shows you the question must also be what tells the run you
     are there to answer it.
     """
-    from a3dasm._src import operator_channel as oc
+    from a3dasm._src.infra import operator_channel as oc
 
     study = _make_study(tmp_path)
     run = _make_run(study, "20260904T120000")
@@ -631,7 +631,7 @@ def test_operator_endpoint_reports_pending_questions_and_beats_the_heartbeat(tmp
 
 
 def test_answering_reaches_the_run(tmp_path):
-    from a3dasm._src import operator_channel as oc
+    from a3dasm._src.infra import operator_channel as oc
 
     study = _make_study(tmp_path)
     run = _make_run(study, "20260904T120000")
@@ -646,7 +646,7 @@ def test_answering_reaches_the_run(tmp_path):
 
 def test_answering_a_question_the_run_gave_up_on_is_a_conflict(tmp_path):
     """Must not report success for an answer the agent will never see."""
-    from a3dasm._src import operator_channel as oc
+    from a3dasm._src.infra import operator_channel as oc
 
     study = _make_study(tmp_path)
     run = _make_run(study, "20260904T120000")
@@ -660,7 +660,7 @@ def test_answering_a_question_the_run_gave_up_on_is_a_conflict(tmp_path):
 
 
 def test_queueing_a_note_puts_it_where_the_node_drains_it(tmp_path):
-    from a3dasm._src import operator_channel as oc
+    from a3dasm._src.infra import operator_channel as oc
 
     study = _make_study(tmp_path)
     run = _make_run(study, "20260904T120000")

@@ -10,7 +10,7 @@ already found the optimum) or as "unknown" (the "Known IDs: []" symptom).
 from __future__ import annotations
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.delegation_log import DelegationLog
+from a3dasm._src.epistemics.delegation_log import DelegationLog
 from a3dasm._src.nodes import StrategizerNode
 
 

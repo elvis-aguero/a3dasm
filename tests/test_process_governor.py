@@ -6,13 +6,13 @@ from __future__ import annotations
 import json
 import os
 
-import a3dasm._src.instrumented as inst
+import a3dasm._src.evaluation.instrumented as inst
 
 
 def _reset(monkeypatch, spy):
     monkeypatch.setattr(inst, "_GOVERNOR_PID_APPLIED", False)
     monkeypatch.setattr(
-        "a3dasm._src.resource_backend.get_resource_backend",
+        "a3dasm._src.infra.resource_backend.get_resource_backend",
         lambda: spy,
     )
 

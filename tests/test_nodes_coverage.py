@@ -33,7 +33,7 @@ class StubAdapter:
 
 
 def _make_state(study_dir=None, **kwargs):
-    from a3dasm._src.graph_state import AgenticState
+    from a3dasm._src.runtime.graph_state import AgenticState
     if study_dir is None:
         d = Path(tempfile.mkdtemp(prefix="f3dasm_nodes_cov_"))
         (d / "pipeline.py").write_text("# test\n")
@@ -213,7 +213,7 @@ def test_worker_node_sandboxed_write_rejects_escape(tmp_path):
 def test_worker_node_recall_history_with_delegation_log(tmp_path):
     """WorkerNode.RecallHistory returns prior delegations from the log."""
     from a3dasm._src.nodes import WorkerNode
-    from a3dasm._src.delegation_log import DelegationLog
+    from a3dasm._src.epistemics.delegation_log import DelegationLog
 
     log_path = tmp_path / "delegation_log.jsonl"
     log = DelegationLog(log_path)
@@ -252,7 +252,7 @@ def test_worker_node_recall_history_with_delegation_log(tmp_path):
 def test_worker_node_recall_history_empty(tmp_path):
     """WorkerNode.RecallHistory returns no-records message when log is empty."""
     from a3dasm._src.nodes import WorkerNode
-    from a3dasm._src.delegation_log import DelegationLog
+    from a3dasm._src.epistemics.delegation_log import DelegationLog
 
     log_path = tmp_path / "delegation_log.jsonl"
     log = DelegationLog(log_path)
@@ -287,7 +287,7 @@ def test_write_deliverable_creates_file(tmp_path):
     import nbformat
 
     from a3dasm._src.nodes import StrategizerNode
-    from a3dasm._src.notebook_exec import build_notebook
+    from a3dasm._src.evaluation.notebook_exec import build_notebook
 
     nb_json = nbformat.writes(build_notebook(
         [{"type": "code", "name": "analysis", "source": "x = 42"}]))
@@ -444,7 +444,7 @@ def test_strategizer_recall_history_with_log(tmp_path):
     test keeps its usual Done/FollowUp tool set while genuinely being able to
     receive delegations."""
     from a3dasm._src.nodes import StrategizerNode
-    from a3dasm._src.delegation_log import DelegationLog
+    from a3dasm._src.epistemics.delegation_log import DelegationLog
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     log_path = tmp_path / "delegation_log.jsonl"

@@ -14,16 +14,16 @@ from typing import Any
 import yaml  # available via hydra-core
 from langchain_core.messages import HumanMessage
 
-from . import settings
-from ._f3dasm_compat import PROTECTED_STORE_SENTINEL
-from .agent_prompts import (
+from ..agents import ImplementerAgent, StrategizerAgent, _default_graph
+from ..backends.base import Agent, Graph
+from ..epistemics.delegation_log import DelegationLog
+from ..evaluation._f3dasm_compat import PROTECTED_STORE_SENTINEL
+from ..infra.container_runner import ContainerRunner
+from ..prompts.agent_prompts import (
     RUN_PATHS_PREAMBLE_TEMPLATE,
     WORKSPACE_PREAMBLE_TEMPLATE,
 )
-from .agents import ImplementerAgent, StrategizerAgent, _default_graph
-from .backends.base import Agent, Graph
-from .container_runner import ContainerRunner
-from .delegation_log import DelegationLog
+from . import settings
 from .graph_builder import build_graph
 from .graph_state import AgenticState, Delegation, Report, StudyConfig, Task
 
@@ -677,7 +677,7 @@ class AgenticRun:
 
         from f3dasm import SlurmCluster
 
-        from . import slurm_llm
+        from ..infra import slurm_llm
 
         model = cfg.get("model") or self._model
         spec = slurm_llm.resolve_serve_spec(model, cfg)
@@ -764,7 +764,7 @@ class AgenticRun:
         recovering one from the study's own ``run.py``/``build_graph()`` (or
         the stock default graph) instead.
         """
-        from .viewer.app import run_viewer
+        from ..viewer.app import run_viewer
 
         run_viewer(
             self.study_dir, host=host, port=port, graph=self._graph_spec)
@@ -955,7 +955,9 @@ class AgenticRun:
         # the strategizer reads already states the budgets as facts instead
         # of leaving them latent in AgenticState (present to the node's
         # Python code, never rendered into words the model actually sees).
-        from .constraint_snapshot import compute_constraint_snapshot
+        from ..epistemics.constraint_snapshot import (
+            compute_constraint_snapshot,
+        )
         _initial_snapshot = compute_constraint_snapshot(
             eval_budget=getattr(self, "_eval_budget", None),
             budget_seconds=getattr(self, "_budget", None),
@@ -1141,7 +1143,7 @@ class AgenticRun:
                     raise
         finally:
             if _serve_jobid:
-                from .slurm_llm import cancel_job
+                from ..infra.slurm_llm import cancel_job
                 try:
                     cancel_job(_serve_jobid)
                     log.info("llm_slurm: scancel'd serve job %s", _serve_jobid)
@@ -1150,7 +1152,7 @@ class AgenticRun:
         # Merge per-call telemetry into an analysis-ready summary.json (additive,
         # off the decision path — a failure here must not fail the run).
         try:
-            from .telemetry import Telemetry
+            from ..infra.telemetry import Telemetry
             Telemetry.merge(debug_dir)
         except Exception:  # noqa: BLE001
             log.warning("telemetry merge failed", exc_info=True)
@@ -1193,7 +1195,7 @@ class AgenticRun:
             # Sum across the canonical store AND every design namespace (Axis 3a):
             # namespace evals live in sibling stores the canonical-only count
             # missed (run 20260627T013812 reported 100 while 200 real evals ran).
-            from .instrumented import total_ledgered_evals
+            from ..evaluation.instrumented import total_ledgered_evals
             _total = total_ledgered_evals(debug_dir.parent / "experiment_data")
             if _total:
                 evals = _total
@@ -1256,7 +1258,7 @@ class AgenticRun:
             try:
                 import nbformat
 
-                from .notebook_exec import (
+                from ..evaluation.notebook_exec import (
                     repair_code_cells,
                     stamp_run_provenance,
                 )
@@ -1337,7 +1339,7 @@ class AgenticRun:
         (possibly augmented) problem text.  NEVER blocks an autonomous run: any
         reviewer failure falls back to the original statement unchanged.
         """
-        from .reviewer import (
+        from ..epistemics.reviewer import (
             ProblemStatementReviewerAgent,
             format_review_markdown,
             parse_review,
@@ -1408,7 +1410,7 @@ class AgenticRun:
         guidance — resource-priming it nudges breadth over disciplined comparison
         (observed run 20260628T224159: a 3-arm, unequal-budget, INCONCLUSIVE run)."""
         try:
-            from .watchdog_cleanup import resource_envelope
+            from ..infra.watchdog_cleanup import resource_envelope
             env = resource_envelope(run_dir or self.study_dir, self._mem_cap_bytes)
             cores = env["cores"]
             ram = (f"{env['ram_cap_bytes'] / 1024 ** 3:.1f} GB"
@@ -1443,7 +1445,7 @@ class AgenticRun:
         if it already thought to call ConsultHandbook. Cached; empty on failure."""
         try:
             if getattr(self, "_kb", None) is None:
-                from .knowledge import KnowledgeBase
+                from ..knowledge import KnowledgeBase
                 self._kb = KnowledgeBase.load()
             return self._kb.menu(audience=role)
         except Exception:  # noqa: BLE001 — a missing menu must never break a run
@@ -1515,7 +1517,7 @@ class AgenticRun:
         # above") that previously overrode even a PROBLEM_STATEMENT.md saying
         # there is no pipeline deliverable (BACKLOG #27) — a study that
         # explicitly turns this off has no notebook contract to inject at all.
-        from .notebook_exec import notebook_deliverable_spec
+        from ..evaluation.notebook_exec import notebook_deliverable_spec
         _role = getattr(agent, "role", None)
         if _role in ("strategizer", "implementer", "critic") and settings.get_bool(
             "pipeline_deliverable", True
@@ -1547,7 +1549,7 @@ class AgenticRun:
         # change to this method. Backend-specific endpoint/auth (base_url,
         # api_key) is resolved inside each adapter from env/defaults, so the
         # construction kwargs are common to every backend.
-        from .backends.registry import get_adapter_class
+        from ..backends.registry import get_adapter_class
 
         adapter_cls = get_adapter_class(backend)
         native = adapter_cls.select_native_tools(agent.tools)
@@ -1571,7 +1573,7 @@ class AgenticRun:
         # point — do not duplicate it per path. The tool's description is owned
         # by _consult_handbook's docstring (the backend infers the schema from
         # the callable).
-        from .nodes.parsing import _consult_handbook
+        from ..nodes.parsing import _consult_handbook
         adapter.closure_tools["ConsultHandbook"] = _consult_handbook
 
         extra_closures = agent.build_closure_tools(

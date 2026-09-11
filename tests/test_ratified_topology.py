@@ -68,7 +68,7 @@ def test_default_graph_expected_edges():
 def test_default_graph_builds_via_build_graph():
     """build_graph compiles the 5-node default graph without error."""
     from a3dasm._src.agents._graphs import _default_graph
-    from a3dasm._src.graph_builder import build_graph
+    from a3dasm._src.runtime.graph_builder import build_graph
 
     graph = _default_graph()
 
@@ -156,7 +156,7 @@ def test_optimization_agent_not_in_default_graph():
 
 def _make_log():
     tmp = Path(tempfile.mkdtemp())
-    from a3dasm._src.delegation_log import DelegationLog
+    from a3dasm._src.epistemics.delegation_log import DelegationLog
     return DelegationLog(tmp / "dl.jsonl")
 
 

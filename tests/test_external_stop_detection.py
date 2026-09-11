@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from a3dasm._src.agent_runtime import AgenticRun
+from a3dasm._src.runtime.agent_runtime import AgenticRun
 
 
 def _make_study(tmp_path: Path) -> Path:

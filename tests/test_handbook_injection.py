@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from a3dasm._src.agent_runtime import AgenticRun
+from a3dasm._src.runtime.agent_runtime import AgenticRun
 from a3dasm._src.agents.critic import AdversarialCritiqueAgent
 from a3dasm._src.agents.implementer import ImplementerAgent
 
@@ -44,7 +44,7 @@ def test_make_adapter_injects_consult_handbook(tmp_path, name, agent):
 def test_notebook_spec_always_injected(tmp_path):
     """The pipeline.ipynb deliverable contract is ALWAYS injected into the
     strategizer prompt — the system is committed to the notebook deliverable."""
-    from a3dasm._src import settings
+    from a3dasm._src.runtime import settings
     from a3dasm._src.agents.strategizer import StrategizerAgent
 
     run = AgenticRun(study_dir=tmp_path)

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from a3dasm._src.agent_runtime import AgenticRun
+from a3dasm._src.runtime.agent_runtime import AgenticRun
 
 
 def _make_study(tmp_path: Path) -> Path:

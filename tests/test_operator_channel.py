@@ -12,7 +12,7 @@ import json
 import threading
 import time
 
-from a3dasm._src import operator_channel as oc
+from a3dasm._src.infra import operator_channel as oc
 
 
 def _run(tmp_path):

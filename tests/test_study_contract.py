@@ -66,7 +66,7 @@ def test_documented_config_keys_resolve_through_agenticrun():
 def test_example_evaluator_resolves_and_runs(tmp_path, monkeypatch):
     """The documented evaluator entrypoint resolves via get_evaluator() and
     evaluates one sample — the core oracle contract, end to end."""
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
 
     store_dir = tmp_path / "store"
     store_dir.mkdir()

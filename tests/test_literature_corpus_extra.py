@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from a3dasm._src.literature_corpus import (
+from a3dasm._src.literature.literature_corpus import (
     LiteratureCorpus,
     _robust_get,
     _robust_post,
@@ -101,7 +101,7 @@ def test_search_substring_finds_match(tmp_path):
     )
 
     # Force BM25 to be unavailable so _search_substring is called
-    import a3dasm._src.literature_corpus as lc_mod
+    import a3dasm._src.literature.literature_corpus as lc_mod
     import sys
 
     # Save original rank_bm25 if present
@@ -192,14 +192,14 @@ def test_search_substring_skips_missing_md_path(tmp_path):
 
 def test_robust_get_succeeds_on_first_try():
     """_robust_get returns the response when the first request succeeds."""
-    import a3dasm._src.literature_corpus as _lc
+    import a3dasm._src.literature.literature_corpus as _lc
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.raise_for_status.return_value = None
     mock_resp.headers = {}
     mock_resp.text = "{}"
 
-    with patch("a3dasm._src.literature_corpus._sleep"):
+    with patch("a3dasm._src.literature.literature_corpus._sleep"):
         with patch("requests.get", return_value=mock_resp) as mock_get:
             result = _robust_get("http://example.com/api")
 
@@ -232,7 +232,7 @@ def test_robust_post_succeeds_on_first_try():
     mock_resp.raise_for_status.return_value = None
     mock_resp.headers = {}
 
-    with patch("a3dasm._src.literature_corpus._sleep"):
+    with patch("a3dasm._src.literature.literature_corpus._sleep"):
         with patch("requests.post", return_value=mock_resp) as mock_post:
             result = _robust_post(
                 "http://example.com/api", json={"key": "val"}
@@ -278,7 +278,7 @@ def test_robust_get_succeeds_on_second_try():
         return mock_resp
 
     with patch("requests.get", side_effect=flaky_get):
-        with patch("a3dasm._src.literature_corpus._sleep"):
+        with patch("a3dasm._src.literature.literature_corpus._sleep"):
             result = _robust_get("http://example.com/api", retries=3)
 
     assert result is mock_resp

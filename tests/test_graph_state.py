@@ -1,5 +1,5 @@
 import pytest
-from a3dasm._src.graph_state import AgenticState, Task, Report, Delegation, StudyConfig
+from a3dasm._src.runtime.graph_state import AgenticState, Task, Report, Delegation, StudyConfig
 from a3dasm._src.backends.base import Agent, Edge, Graph
 
 

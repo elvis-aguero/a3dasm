@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ..graph_state import AgenticState
+    from ..runtime.graph_state import AgenticState
 
-from ..delegation_log import DelegationLog
+from ..epistemics.delegation_log import DelegationLog
 from .base import AgentNode
 from .parsing import _classify_response, _to_adapter_messages
 
@@ -148,7 +148,7 @@ class WorkerNode(AgentNode):
         from langchain_core.messages import AIMessage
         from langgraph.types import Command
 
-        from ..agent_prompts import build_report_retry_prompt
+        from ..prompts.agent_prompts import build_report_retry_prompt
 
         self._evals_reported.clear()
         messages = _to_adapter_messages(state["messages"])

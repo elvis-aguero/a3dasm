@@ -1,10 +1,10 @@
-"""Tests for a3dasm._src.constraint_snapshot — the single source of truth
+"""Tests for a3dasm._src.epistemics.constraint_snapshot — the single source of truth
 for a run's budget/time-remaining state, shared by every delegation
 boundary (human->strategizer, strategizer->worker, strategizer->critic in
 both GATE and FEEDBACK mode)."""
 from __future__ import annotations
 
-from a3dasm._src.constraint_snapshot import (
+from a3dasm._src.epistemics.constraint_snapshot import (
     ConstraintSnapshot,
     compute_constraint_snapshot,
 )

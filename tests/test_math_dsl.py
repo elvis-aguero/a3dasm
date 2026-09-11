@@ -10,7 +10,7 @@ import json
 
 import sympy as sp
 
-from a3dasm._src.math_dsl import Workspace
+from a3dasm._src.prompts.math_dsl import Workspace
 
 
 def test_workspace_records_steps_in_call_order():
@@ -96,7 +96,7 @@ def test_write_summary_is_plain_json_no_sympy_import_needed(tmp_path):
 def test_rerunning_the_same_script_reconstructs_identical_steps(tmp_path):
     script = tmp_path / "edition.py"
     script.write_text(
-        "from a3dasm._src.math_dsl import Workspace\n"
+        "from a3dasm._src.prompts.math_dsl import Workspace\n"
         "ws = Workspace('rerun')\n"
         "x = ws.symbols('x', real=True)[0]\n"
         "ws.assume('a1', 'a step', expr=x + 1)\n"
@@ -125,7 +125,7 @@ def test_check_equals_verdict_is_reproducible_across_process_runs(tmp_path):
     whole design depends on."""
     script = tmp_path / "borderline.py"
     script.write_text(
-        "from a3dasm._src.math_dsl import Workspace\n"
+        "from a3dasm._src.prompts.math_dsl import Workspace\n"
         "import sympy as sp\n"
         "ws = Workspace('borderline')\n"
         "u = sp.Symbol('u')\n"

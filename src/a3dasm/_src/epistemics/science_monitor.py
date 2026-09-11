@@ -106,7 +106,9 @@ class ScienceMonitor:
         if self.store_dir is None:
             return []
         try:
-            from .instrumented import unstamped_row_count as _unstamped
+            from ..evaluation.instrumented import (
+                unstamped_row_count as _unstamped,
+            )
             n = _unstamped(self.store_dir)
         except Exception:  # noqa: BLE001
             return []
@@ -143,7 +145,9 @@ class ScienceMonitor:
         if self.store_dir is None:
             return []
         try:
-            from .instrumented import duplicate_eval_stats as _dupstats
+            from ..evaluation.instrumented import (
+                duplicate_eval_stats as _dupstats,
+            )
             stats = _dupstats(self.store_dir)
         except Exception:  # noqa: BLE001
             return []
@@ -200,7 +204,7 @@ class ScienceMonitor:
         from pathlib import Path as _Path
         sd = _Path(self.store_dir)
         try:
-            from .instrumented import delegation_evals as _devals
+            from ..evaluation.instrumented import delegation_evals as _devals
         except Exception:  # noqa: BLE001
             return []
 

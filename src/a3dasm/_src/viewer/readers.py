@@ -20,7 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from ..delegation_log import DelegationLog
+from ..epistemics.delegation_log import DelegationLog
 
 __all__ = [
     "read_runs",
@@ -179,7 +179,10 @@ def _node_tools_and_docs(
     duplicates ~10 lines of topology-tool logic instead, at zero shared-code
     risk.
     """
-    from ..run_diagram import _TOPOLOGY_TOOLS_IF_OUTGOING, _topology_tools
+    from ..runtime.run_diagram import (
+        _TOPOLOGY_TOOLS_IF_OUTGOING,
+        _topology_tools,
+    )
 
     declared = sorted(set(agent.tools) - set(_TOPOLOGY_TOOLS_IF_OUTGOING))
     tools = _topology_tools(graph, name) + declared
@@ -1016,7 +1019,7 @@ def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
     ``model:`` (the actual, common case — a study normally sets the model
     once for the whole run, not per-agent), else "(backend default)".
     """
-    from ..run_diagram import _bfs_layers
+    from ..runtime.run_diagram import _bfs_layers
 
     layers = _bfs_layers(graph)
     config = _load_study_config(study_dir)

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import nbformat
 
-from a3dasm._src.notebook_exec import (
+from a3dasm._src.evaluation.notebook_exec import (
     RUN_PROVENANCE_CELL,
     stamp_run_provenance,
 )

@@ -10,7 +10,7 @@ import json
 import textwrap
 from pathlib import Path
 
-from a3dasm._src.agent_runtime import register_evaluator_entrypoint
+from a3dasm._src.runtime.agent_runtime import register_evaluator_entrypoint
 
 from tests.test_evaluator_resolution import (
     _make_delegation_dir,
@@ -50,7 +50,7 @@ def test_register_updates_run_config_atomically(tmp_path):
 
 def test_register_then_get_evaluator_resolves(tmp_path, monkeypatch):
     """register -> chdir into a D### dir -> get_evaluator() resolves and runs."""
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
     from f3dasm._src.experimentdata import ExperimentData
     from f3dasm._src.design.domain import Domain
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus
@@ -97,7 +97,7 @@ def test_register_then_get_evaluator_resolves(tmp_path, monkeypatch):
 def test_register_namespace_writes_oracles_block_not_default(tmp_path):
     """Registering for a namespace writes oracles[ns] and creates its own
     isolated store + sentinel — the canonical default oracle is untouched."""
-    from a3dasm._src._f3dasm_compat import PROTECTED_STORE_SENTINEL
+    from a3dasm._src.evaluation._f3dasm_compat import PROTECTED_STORE_SENTINEL
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -132,7 +132,7 @@ def test_register_namespace_writes_oracles_block_not_default(tmp_path):
 def test_register_namespace_then_get_evaluator_resolves(tmp_path, monkeypatch):
     """register(namespace) → F3DASM_NAMESPACE worker → get_evaluator() resolves
     the namespace oracle and writes its own ledger."""
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
     from f3dasm._src.experimentdata import ExperimentData
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 

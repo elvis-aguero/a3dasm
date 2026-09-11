@@ -749,7 +749,7 @@ def _apply_process_governor(run_config: dict, store_dir: Path,
         return
     _GOVERNOR_PID_APPLIED = True
     try:
-        from .resource_backend import get_resource_backend
+        from ..infra.resource_backend import get_resource_backend
         be = get_resource_backend()
         cap = run_config.get("mem_cap_bytes")
         if cap:

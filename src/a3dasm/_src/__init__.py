@@ -8,7 +8,7 @@ import.
 from __future__ import annotations
 
 try:
-    from ._f3dasm_compat import apply_f3dasm_compat
+    from .evaluation._f3dasm_compat import apply_f3dasm_compat
 
     apply_f3dasm_compat()
 except Exception:  # noqa: BLE001 — a compat hiccup must not break import

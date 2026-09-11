@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.delegation_log import DelegationLog
+from a3dasm._src.epistemics.delegation_log import DelegationLog
 from a3dasm._src.nodes import StrategizerNode
-from a3dasm._src.phases import Phase, resolve_phase
+from a3dasm._src.runtime.phases import Phase, resolve_phase
 
 
 class _Stub:

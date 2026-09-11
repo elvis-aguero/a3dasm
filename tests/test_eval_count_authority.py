@@ -5,7 +5,7 @@ from __future__ import annotations
 
 
 def test_recallstore_summary_labels_count_authoritative():
-    from a3dasm._src.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.instrumented import RunStateSummary
 
     s = RunStateSummary(
         n_rows=4313, n_per_delegation={"D001": 4313}, n_per_source={},

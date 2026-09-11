@@ -86,12 +86,12 @@ __all__ = [
 
 # Re-export agent system prompts from their canonical locations so that
 # existing code importing from agent_prompts continues to work.
-from .agents.critic import ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT  # noqa: E402
-from .agents.debugger import DEBUGGER_SYSTEM_PROMPT  # noqa: E402
-from .agents.implementer import IMPLEMENTER_SYSTEM_PROMPT  # noqa: E402
-from .agents.literature import LITERATURE_REVIEW_SYSTEM_PROMPT  # noqa: E402
-from .agents.strategizer import STRATEGIZER_SYSTEM_PROMPT  # noqa: E402
-from .knowledge.idioms import F3DASM_CORE_IDIOMS  # noqa: E402
+from ..agents.critic import ADVERSARIAL_CRITIQUE_SYSTEM_PROMPT  # noqa: E402
+from ..agents.debugger import DEBUGGER_SYSTEM_PROMPT  # noqa: E402
+from ..agents.implementer import IMPLEMENTER_SYSTEM_PROMPT  # noqa: E402
+from ..agents.literature import LITERATURE_REVIEW_SYSTEM_PROMPT  # noqa: E402
+from ..agents.strategizer import STRATEGIZER_SYSTEM_PROMPT  # noqa: E402
+from ..knowledge.idioms import F3DASM_CORE_IDIOMS  # noqa: E402
 
 # =============================================================================
 

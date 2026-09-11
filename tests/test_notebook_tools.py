@@ -395,6 +395,6 @@ def test_strategizer_has_no_jupyter_config():
 def test_agent_runtime_imports_without_notebook_server():
     import importlib
     import os
-    importlib.import_module("a3dasm._src.agent_runtime")
+    importlib.import_module("a3dasm._src.runtime.agent_runtime")
     import a3dasm._src as ag
     assert not os.path.exists(ag.__path__[0] + "/notebook_server.py")

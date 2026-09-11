@@ -69,7 +69,7 @@ def _make_delegation_dir(
 
 def test_bare_fn_file_path_entrypoint_resolves(tmp_path, monkeypatch):
     """A file-path:attr entrypoint wraps a bare fn; evaluates one point."""
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
 
     # Write a tiny study evaluator
     study_dir = tmp_path / "study"
@@ -128,7 +128,7 @@ def test_run_config_resolves_via_env_var_independent_of_cwd(
     lives DOWN at runs/<id>/debug/ — a walk-UP never reaches it, so the worker
     had to cd into debug/ first. The env var points straight at the file.
     """
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -166,7 +166,7 @@ def test_run_config_resolves_via_env_var_independent_of_cwd(
 
 def test_datagenerator_class_entrypoint_resolves(tmp_path, monkeypatch):
     """A file-path:ClassAttr entrypoint; class is no-args-instantiated."""
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -245,8 +245,8 @@ def test_lookup_config_resolves_to_lookup_data_generator(
     tmp_path, monkeypatch
 ):
     """evaluator_lookup config builds a LookupDataGenerator."""
-    from a3dasm._src.instrumented import get_evaluator
-    from a3dasm._src.lookup import LookupDataGenerator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.lookup import LookupDataGenerator
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -297,7 +297,7 @@ def test_no_evaluator_config_raises_clear_error(
 ):
     """get_evaluator() with no entrypoint raises ValueError mentioning
     ReportEvals fallback."""
-    from a3dasm._src.instrumented import get_evaluator
+    from a3dasm._src.evaluation.instrumented import get_evaluator
 
     store_dir = tmp_path / "store"
     store_dir.mkdir()
@@ -434,7 +434,7 @@ def test_delegation_ids_distinct_across_loopback_turns(tmp_path):
 def test_init_canonical_store_writes_evaluator_keys(tmp_path):
     """_init_canonical_store with evaluator config writes all Phase 2 keys."""
     import json
-    from a3dasm._src.agent_runtime import _init_canonical_store
+    from a3dasm._src.runtime.agent_runtime import _init_canonical_store
 
     run_dir = tmp_path / "runs" / "ts"
     (run_dir / "debug").mkdir(parents=True, exist_ok=True)
@@ -465,7 +465,7 @@ def test_init_canonical_store_writes_evaluator_keys(tmp_path):
 def test_init_canonical_store_lookup_cfg_writes_keys(tmp_path):
     """_init_canonical_store with lookup config writes evaluator_lookup."""
     import json
-    from a3dasm._src.agent_runtime import _init_canonical_store
+    from a3dasm._src.runtime.agent_runtime import _init_canonical_store
 
     run_dir = tmp_path / "runs" / "ts"
     (run_dir / "debug").mkdir(parents=True, exist_ok=True)
@@ -494,7 +494,7 @@ def test_init_canonical_store_lookup_cfg_writes_keys(tmp_path):
 def test_init_canonical_store_no_eval_cfg_backward_compat(tmp_path):
     """_init_canonical_store with no evaluator_config: existing tests pass."""
     import json
-    from a3dasm._src.agent_runtime import _init_canonical_store
+    from a3dasm._src.runtime.agent_runtime import _init_canonical_store
 
     run_dir = tmp_path / "runs" / "ts"
     (run_dir / "debug").mkdir(parents=True, exist_ok=True)
@@ -528,7 +528,7 @@ def test_init_canonical_store_no_eval_cfg_backward_compat(tmp_path):
 
 
 def test_init_canonical_store_preserves_namespace_oracles_across_calls(tmp_path):
-    from a3dasm._src.agent_runtime import (
+    from a3dasm._src.runtime.agent_runtime import (
         _init_canonical_store,
         register_evaluator_entrypoint,
     )
@@ -565,7 +565,7 @@ def test_init_canonical_store_preserves_canonical_entrypoint_across_calls(tmp_pa
     declares no entrypoint at all (the "an agent authors + registers its own
     evaluator" pattern) — a canonical registration made mid-run must also
     survive a resume's second _init_canonical_store call."""
-    from a3dasm._src.agent_runtime import (
+    from a3dasm._src.runtime.agent_runtime import (
         _init_canonical_store,
         register_evaluator_entrypoint,
     )
@@ -597,7 +597,7 @@ def test_init_canonical_store_still_refreshes_eval_budget_across_calls(tmp_path)
     must still pick up a NEW value on the second call — the existing,
     deliberate "user raises the budget, resume can progress" feature must
     keep working alongside the oracle-preservation fix."""
-    from a3dasm._src.agent_runtime import _init_canonical_store
+    from a3dasm._src.runtime.agent_runtime import _init_canonical_store
 
     run_dir = tmp_path / "runs" / "ts"
     (run_dir / "debug").mkdir(parents=True, exist_ok=True)
@@ -618,7 +618,7 @@ def test_init_canonical_store_still_refreshes_eval_budget_across_calls(tmp_path)
 # ---------------------------------------------------------------------------
 
 def test_sync_config_output_names_surgical_preserves_comments(tmp_path):
-    from a3dasm._src.agent_runtime import _sync_config_output_names
+    from a3dasm._src.runtime.agent_runtime import _sync_config_output_names
     cfg = tmp_path / "config.yaml"
     cfg.write_text(
         "model: claude-haiku-4-5\n"
@@ -639,7 +639,7 @@ def test_sync_config_output_names_surgical_preserves_comments(tmp_path):
 
 
 def test_sync_config_output_names_noop_when_key_absent(tmp_path):
-    from a3dasm._src.agent_runtime import _sync_config_output_names
+    from a3dasm._src.runtime.agent_runtime import _sync_config_output_names
     cfg = tmp_path / "config.yaml"
     cfg.write_text("model: claude-haiku-4-5\nbudget: \"00:15:00\"\n")
     assert _sync_config_output_names(cfg, ["y"]) is False
@@ -649,7 +649,7 @@ def test_sync_config_output_names_noop_when_key_absent(tmp_path):
 def test_register_writes_back_to_config_yaml(tmp_path):
     """register_evaluator_entrypoint syncs config.yaml's output_names to what
     was actually registered — the end-to-end guardrail."""
-    from a3dasm._src.agent_runtime import register_evaluator_entrypoint
+    from a3dasm._src.runtime.agent_runtime import register_evaluator_entrypoint
     study = tmp_path / "study"
     (study / "debug").mkdir(parents=True)
     (study / "config.yaml").write_text(

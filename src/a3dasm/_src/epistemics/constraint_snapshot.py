@@ -117,7 +117,7 @@ def _evals_used(experiment_data_dir: Path | None, delegation_log: Any) -> int:
     """
     if experiment_data_dir is not None:
         try:
-            from .instrumented import total_ledgered_evals
+            from ..evaluation.instrumented import total_ledgered_evals
             n = int(total_ledgered_evals(experiment_data_dir))
             if n:
                 return n

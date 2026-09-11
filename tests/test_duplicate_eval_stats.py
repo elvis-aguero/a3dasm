@@ -13,7 +13,7 @@ from f3dasm._src.design.domain import Domain
 from f3dasm._src.experimentdata import ExperimentData
 from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 
-from a3dasm._src.instrumented import duplicate_eval_stats
+from a3dasm._src.evaluation.instrumented import duplicate_eval_stats
 
 
 def _build_store(store_dir: Path, rows) -> None:

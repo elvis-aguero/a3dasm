@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from a3dasm._src.delegation_log import DelegationLog
+from a3dasm._src.epistemics.delegation_log import DelegationLog
 
 
 def _make_log(tmp_path: Path) -> DelegationLog:
@@ -83,7 +83,7 @@ def test_load_all_skips_corrupt_json_lines(tmp_path):
 
 def test_now_iso_returns_iso_string():
     """_now_iso() returns a valid ISO 8601 timestamp string."""
-    from a3dasm._src.delegation_log import _now_iso
+    from a3dasm._src.epistemics.delegation_log import _now_iso
     result = _now_iso()
     assert isinstance(result, str)
     # Should contain 'T' as the date/time separator

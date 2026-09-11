@@ -56,7 +56,7 @@ def _minimal_spec(name: str = "strategizer", target: str = "implementer") -> Gra
 
 
 def _make_state(study_dir=None, messages=None, **kwargs):
-    from a3dasm._src.graph_state import AgenticState
+    from a3dasm._src.runtime.graph_state import AgenticState
 
     if study_dir is None:
         d = Path(tempfile.mkdtemp(prefix="f3dasm_rat_"))
@@ -446,7 +446,7 @@ def test_running_delegation_does_not_burn_finish_attempts():
 
 def test_propose_rejects_duplicate_statement(tmp_path):
     """Proposing an identical statement twice returns ERROR citing the first H-id."""
-    from a3dasm._src.hypothesis_ledger import HypothesisLedger
+    from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
 
     ledger = HypothesisLedger(tmp_path)
 
@@ -475,7 +475,7 @@ def test_propose_rejects_duplicate_statement(tmp_path):
 
 def test_propose_rejects_duplicate_case_whitespace(tmp_path):
     """Duplicate detection is case- and whitespace-insensitive."""
-    from a3dasm._src.hypothesis_ledger import HypothesisLedger
+    from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
 
     ledger = HypothesisLedger(tmp_path)
 

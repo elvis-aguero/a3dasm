@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from a3dasm._src.agent_runtime import AgenticRun
+from a3dasm._src.runtime.agent_runtime import AgenticRun
 
 
 def test_write_run_status_persists_gate_outcome(tmp_path):

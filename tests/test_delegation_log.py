@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from a3dasm._src.delegation_log import DelegationLog
+from a3dasm._src.epistemics.delegation_log import DelegationLog
 
 
 def _make_log(tmp_path: Path) -> DelegationLog:

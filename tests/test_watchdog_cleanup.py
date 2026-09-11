@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 
-from a3dasm._src.watchdog_cleanup import (
+from a3dasm._src.infra.watchdog_cleanup import (
     check_memory_and_kill,
     delegation_rss,
     read_governor_pids,
@@ -224,7 +224,7 @@ def test_write_watchdog_retrospective_never_raises_on_missing_dir(tmp_path):
 def test_peak_rss_high_water_rides_the_existing_poll(tmp_path):
     """check_memory_and_kill records each delegation's peak tree-RSS as a free
     byproduct of its enforcement read — max across ticks, never decreasing."""
-    from a3dasm._src import watchdog_cleanup as wc
+    from a3dasm._src.infra import watchdog_cleanup as wc
     wc._PEAK_RSS.clear()
     _write_pids(tmp_path, {"D001": [10]})
     cap = 8 * 1024 ** 3  # 8 GB cap — under it, so nothing is killed
@@ -244,7 +244,7 @@ def test_resource_envelope_is_O1_no_directory_walk(tmp_path, monkeypatch):
     """resource_envelope must be a single statvfs (shutil.disk_usage) + cpu_count,
     NEVER a recursive walk — this is the explicit footprint requirement."""
     import shutil as _sh
-    from a3dasm._src import watchdog_cleanup as wc
+    from a3dasm._src.infra import watchdog_cleanup as wc
 
     calls = {"disk_usage": 0}
     real = _sh.disk_usage
@@ -262,7 +262,7 @@ def test_resource_envelope_is_O1_no_directory_walk(tmp_path, monkeypatch):
 
 
 def test_resource_envelope_never_raises_on_bad_path():
-    from a3dasm._src.watchdog_cleanup import resource_envelope
+    from a3dasm._src.infra.watchdog_cleanup import resource_envelope
     env = resource_envelope("/nonexistent/path/xyz", None)
     assert env["ram_cap_bytes"] is None  # cap unset → None, no crash
     assert "cores" in env
@@ -272,7 +272,7 @@ def test_usable_cores_respects_cpu_affinity(monkeypatch):
     """The cores fact given to agents must be what THIS process may use (a
     SLURM/cgroup cpuset), not the host total — os.sched_getaffinity, not the
     old os.cpu_count() that reported 48 while the job was pinned to 1."""
-    import a3dasm._src.watchdog_cleanup as wc
+    import a3dasm._src.infra.watchdog_cleanup as wc
     monkeypatch.setattr(wc.os, "sched_getaffinity", lambda pid: {0, 1, 2},
                         raising=False)
     assert wc._usable_cores() == 3          # cpuset size, not the host's total
@@ -280,7 +280,7 @@ def test_usable_cores_respects_cpu_affinity(monkeypatch):
 
 def test_usable_cores_falls_back_without_affinity(monkeypatch):
     """Off-Linux (no sched_getaffinity) falls back to os.cpu_count()."""
-    import a3dasm._src.watchdog_cleanup as wc
+    import a3dasm._src.infra.watchdog_cleanup as wc
     monkeypatch.delattr(wc.os, "sched_getaffinity", raising=False)
     monkeypatch.setattr(wc.os, "cpu_count", lambda: 8)
     assert wc._usable_cores() == 8

@@ -8,7 +8,7 @@ import pytest
 nbformat = pytest.importorskip("nbformat")
 pytest.importorskip("nbclient")
 
-from a3dasm._src.notebook_exec import diagnose_notebook
+from a3dasm._src.evaluation.notebook_exec import diagnose_notebook
 
 
 def _nb(tmp_path, cells):
@@ -83,7 +83,7 @@ def test_runpipelinecell_upto_name_accepts_a_custom_phase_cell(tmp_path):
     actually does.
     """
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
     from a3dasm._src.nodes import StrategizerNode
     from f3dasm._src.core import DataGenerator
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus

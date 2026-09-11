@@ -12,11 +12,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ..graph_state import AgenticState
+    from ..runtime.graph_state import AgenticState
 
-from ..delegation_log import DelegationLog
-from ..hypothesis_ledger import HypothesisLedger
-from ..science_monitor import ScienceMonitor
+from ..epistemics.delegation_log import DelegationLog
+from ..epistemics.hypothesis_ledger import HypothesisLedger
+from ..epistemics.science_monitor import ScienceMonitor
 from ._constants import run_backstop_multiple
 from .base import AgentNode
 from .critic_gate import CriticGateMixin
@@ -128,8 +128,8 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         # Milestone ledger (process policy) — persists milestones.json. Seeded
         # with the config default gates unless disabled. DISTINCT from the
         # hypothesis ledger (epistemics): process vs what's-true.
-        from ..milestones import MilestoneLedger
-        from ..settings import get_bool
+        from ..epistemics.milestones import MilestoneLedger
+        from ..runtime.settings import get_bool
         self._milestones: MilestoneLedger | None = None
         if notes_dir is not None and get_bool("milestones_enabled", True):
             self._milestones = MilestoneLedger(Path(notes_dir))
@@ -193,7 +193,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         self._error_counts: dict[str, int] = {}
         # Separable per-call telemetry — additive, off the decision path. Lives
         # under debug/telemetry/ (notes_dir is debug/strategizer_notes).
-        from ..telemetry import Telemetry
+        from ..infra.telemetry import Telemetry
         self._telemetry: Telemetry | None = (
             Telemetry(Path(notes_dir).parent) if notes_dir is not None else None
         )
@@ -314,7 +314,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         # it is the one voice in the run that is not itself an agent.
         run_dir = self._current_run_dir
         if run_dir is not None:
-            from ..operator_channel import drain_note_rows
+            from ..infra.operator_channel import drain_note_rows
             rows = drain_note_rows(run_dir)
             mine: list[str] = []
             for _row in rows:
@@ -502,7 +502,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         """Build HypothesisPropose/Update/List/Get closures."""
         node = self
 
-        from ..tool_catalog import tool_examples
+        from ..prompts.tool_catalog import tool_examples
 
         @tool_examples(
             "HypothesisPropose('Optimal t/L is near 0.08 — thin walls maximise "
@@ -687,7 +687,9 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
             # and only when a NEW entry was actually appended ("Updated …"); not
             # on ERROR/SETTLED no-ops. Non-blocking: it appends a charter critique
             # to what the agent sees this turn, but never changes the update.
-            from ..verdict_validator import CLOSING_STATUSES as _CLOSING
+            from ..epistemics.verdict_validator import (
+                CLOSING_STATUSES as _CLOSING,
+            )
             if status in _CLOSING and result.startswith("Updated "):
                 advisory = node._run_verdict_validator(
                     hypothesis_id, status, comment, evidence,
@@ -832,8 +834,8 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         paths can still be declared in state['required_deliverables']
         regardless of this flag.
         """
-        from .. import settings
-        from ..notebook_exec import required_deliverable_name
+        from ..evaluation.notebook_exec import required_deliverable_name
+        from ..runtime import settings
         study_dir = Path(state.get("study_dir", "."))
         # WriteDeliverable writes BARE names to study_dir/ (it rejects path
         # separators). Normalise any configured path to its basename so a stray
@@ -917,7 +919,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
             """
             import hashlib
 
-            from ..instrumented import experiment_stores
+            from ..evaluation.instrumented import experiment_stores
 
             total_rows = 0
             all_rows: list[tuple] = []
@@ -981,7 +983,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
             _cfg["lock_path"] = str(sb_store / "experiment_data" / ".lock")
             sb_run_config.write_text(_json.dumps(_cfg))
 
-            from ..notebook_exec import sandbox_env
+            from ..evaluation.notebook_exec import sandbox_env
             env = sandbox_env(
                 sb_store, sb_run_config, study_root=self._study_dir)
             _timeout = (
@@ -992,7 +994,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
                 # Executor-agnostic: a .ipynb runs via nbclient (in-env kernel),
                 # a .py via subprocess — both return a CompletedProcess and raise
                 # TimeoutExpired on timeout, so the asserts below are unchanged.
-                from ..notebook_exec import run_deliverable
+                from ..evaluation.notebook_exec import run_deliverable
                 proc = run_deliverable(
                     deliverable, cwd=sandbox, env=env, timeout=_timeout)
             except subprocess.TimeoutExpired:
@@ -1146,7 +1148,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         # ledger count (max() keeps the accumulator for lookup-direct studies
         # with no instrumented store).
         try:
-            from ..instrumented import total_ledgered_evals
+            from ..evaluation.instrumented import total_ledgered_evals
             _nd = getattr(self, "_current_notes_dir", None)
             if _nd is not None:
                 # Sum across the canonical store AND every design namespace —
@@ -1230,7 +1232,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         backlog_announce: list = []
         if (self._milestones is not None
                 and not getattr(self, "_backlog_announced", False)):
-            from ..milestones import render_backlog
+            from ..epistemics.milestones import render_backlog
             _bl = render_backlog(self._milestones)
             if _bl:
                 backlog_announce = [{"role": "user", "content": _bl}]
@@ -1431,7 +1433,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         # ledger across all namespaces is the authoritative count → run_status.
         _evals_persist = state.get("evals_used", 0) + evals_new
         try:
-            from ..instrumented import total_ledgered_evals
+            from ..evaluation.instrumented import total_ledgered_evals
             _nd = getattr(self, "_current_notes_dir", None)
             if _nd is not None:
                 _evals_persist = max(

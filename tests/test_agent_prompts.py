@@ -1,4 +1,4 @@
-"""Tests for ``a3dasm._src.agent_prompts``.
+"""Tests for ``a3dasm._src.prompts.agent_prompts``.
 
 Validates that the four prompt constants shipped with the agentic-f3dasm
 v2 runtime satisfy structural, content, and integration requirements.
@@ -87,7 +87,7 @@ def test_constants_exist_and_are_non_empty_strings():
     ``IMPLEMENTER_RESET_PROMPT_TEMPLATE`` has a lower threshold (300 chars)
     because it is a short wrapper template, not a full system prompt.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         CHECKPOINT_STRATEGIZER_PROMPT,
         IMPLEMENTER_RESET_PROMPT_TEMPLATE,
         IMPLEMENTER_SYSTEM_PROMPT,
@@ -124,7 +124,7 @@ def test_strategizer_xml_sections_appear_exactly_once():
     The runtime relies on these sections to give structure to the prompt;
     duplicate tags would confuse any downstream XML parser.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         STRATEGIZER_SYSTEM_PROMPT,
     )
 
@@ -154,7 +154,7 @@ def test_strategizer_names_all_failure_modes():
     The names are matched case-insensitively to allow stylistic variation
     (e.g. ``ANCHORING BIAS`` vs ``anchoring``).
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         STRATEGIZER_SYSTEM_PROMPT,
     )
 
@@ -185,7 +185,7 @@ def test_strategizer_mentions_all_five_tools():
     The tool names are checked as literal substrings; the prompt must
     spell them exactly so the model sees the correct function names.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         STRATEGIZER_SYSTEM_PROMPT,
     )
 
@@ -202,7 +202,7 @@ def test_strategizer_mentions_all_five_tools():
 
 def test_strategizer_briefing_clarification_ritual():
     """Prompt encodes the FollowUp-before-hypothesis briefing ritual."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         STRATEGIZER_SYSTEM_PROMPT,
     )
 
@@ -239,7 +239,7 @@ def test_implementer_xml_sections_appear_exactly_once():
     Includes the f3dasm-specific ``<f3dasm_api>`` tag that teaches the
     Implementer how to use the framework.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_SYSTEM_PROMPT,
     )
 
@@ -271,7 +271,7 @@ def test_implementer_f3dasm_primer_references_key_classes():
     through the public ``create_sampler`` factory with string keys
     (e.g. ``"latin_sampler"``), not the private sampler classes.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_SYSTEM_PROMPT,
     )
 
@@ -301,7 +301,7 @@ def test_implementer_report_format_headings():
     The runtime greps for ``## Report`` to extract the Implementer's
     response; the other headings are checked here as a structural contract.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_SYSTEM_PROMPT,
     )
 
@@ -333,7 +333,7 @@ def test_implementer_scope_boundary_is_execute_not_adjudicate():
     (The previous keyword test passed only incidentally — "hypothesis" survived
     elsewhere in the prompt — so it never actually guarded the behaviour.)
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_SYSTEM_PROMPT,
     )
 
@@ -357,7 +357,7 @@ def test_no_supercompressible_leakage():
     supercompressible metamaterial study would bias the agent toward that
     domain.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         CHECKPOINT_STRATEGIZER_PROMPT,
         IMPLEMENTER_RESET_PROMPT_TEMPLATE,
         IMPLEMENTER_SYSTEM_PROMPT,
@@ -401,7 +401,7 @@ def test_checkpoint_prompt_section_headings():
     These headings are case-sensitive because the Strategizer model is
     instructed to reproduce them verbatim in its checkpoint report.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         CHECKPOINT_STRATEGIZER_PROMPT,
     )
 
@@ -429,7 +429,7 @@ def test_checkpoint_prompt_forbids_new_hypotheses():
     -----
     Either of two acceptable phrasings is checked case-insensitively.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         CHECKPOINT_STRATEGIZER_PROMPT,
     )
 
@@ -457,7 +457,7 @@ def test_reset_template_has_exactly_one_placeholder():
     A ``KeyError`` from ``.format()`` would indicate a stray placeholder
     that the runtime does not supply.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_RESET_PROMPT_TEMPLATE,
     )
 
@@ -492,7 +492,7 @@ def test_reset_template_structure_after_formatting():
     ``Strategizer`` and ``Task`` are checked as loose anchors that orient
     the fresh Implementer session to its role and workflow.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_RESET_PROMPT_TEMPLATE,
     )
 
@@ -516,7 +516,7 @@ def test_reset_template_structure_after_formatting():
 
 def test_strategizer_hypothesis_log_tag_appears_once():
     """STRATEGIZER_SYSTEM_PROMPT has exactly one <hypothesis_ledger> pair."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         STRATEGIZER_SYSTEM_PROMPT,
     )
 
@@ -529,7 +529,7 @@ def test_strategizer_hypothesis_log_tag_appears_once():
 
 def test_strategizer_hypothesis_log_content():
     """hypothesis_ledger section mentions all required concepts."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         STRATEGIZER_SYSTEM_PROMPT,
     )
 
@@ -554,7 +554,7 @@ def test_strategizer_hypothesis_log_content():
 
 def test_strategizer_on_error_tag_appears_once():
     """STRATEGIZER_SYSTEM_PROMPT has exactly one <on_error> pair."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         STRATEGIZER_SYSTEM_PROMPT,
     )
 
@@ -567,7 +567,7 @@ def test_strategizer_on_error_tag_appears_once():
 
 def test_strategizer_on_error_content():
     """on_error covers the async Errored: path and forbids verbatim re-delegation."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         STRATEGIZER_SYSTEM_PROMPT,
     )
 
@@ -588,7 +588,7 @@ def test_strategizer_on_error_content():
 
 def test_checkpoint_prompt_contains_ledger_digest():
     """CHECKPOINT_STRATEGIZER_PROMPT contains the ### Hypothesis ledger digest section."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         CHECKPOINT_STRATEGIZER_PROMPT,
     )
 
@@ -603,7 +603,7 @@ def test_checkpoint_prompt_contains_ledger_digest():
 
 def test_implementer_reasoning_protocol_tag_appears_once():
     """IMPLEMENTER_SYSTEM_PROMPT has exactly one <reasoning_protocol> pair."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_SYSTEM_PROMPT,
     )
 
@@ -616,7 +616,7 @@ def test_implementer_reasoning_protocol_tag_appears_once():
 
 def test_implementer_reasoning_protocol_content():
     """reasoning_protocol mentions Stages 1-3 and their headings."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_SYSTEM_PROMPT,
     )
 
@@ -653,7 +653,7 @@ def test_no_domain_specific_leakage_extended():
     prompt AND every tool docstring a real audit found leaking, not just
     the ones a past incident happened to touch.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         CHECKPOINT_STRATEGIZER_PROMPT,
         IMPLEMENTER_RESET_PROMPT_TEMPLATE,
     )
@@ -751,7 +751,7 @@ def test_shared_tool_docstrings_have_no_domain_specific_leakage():
 
 def test_run_paths_preamble_template_exists_and_is_string():
     """RUN_PATHS_PREAMBLE_TEMPLATE is a non-empty string."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         RUN_PATHS_PREAMBLE_TEMPLATE,
     )
 
@@ -776,7 +776,7 @@ def test_run_paths_preamble_template_placeholders():
     ``strategizer_notes_dir`` as literal labels in its body so that
     the Strategizer understands the semantics of each path.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         RUN_PATHS_PREAMBLE_TEMPLATE,
     )
 
@@ -815,7 +815,7 @@ def test_run_paths_preamble_template_placeholders():
 
 def test_workspace_preamble_template_exists_and_is_string():
     """WORKSPACE_PREAMBLE_TEMPLATE is a non-empty string."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         WORKSPACE_PREAMBLE_TEMPLATE,
     )
 
@@ -840,7 +840,7 @@ def test_workspace_preamble_template_placeholder_and_no_tmp():
     the Implementer understands that scratch files outside the workspace
     will be lost.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         WORKSPACE_PREAMBLE_TEMPLATE,
     )
 
@@ -872,7 +872,7 @@ def test_workspace_preamble_template_placeholder_and_no_tmp():
 
 def test_implementer_report_retry_prompt_exists_and_is_string():
     """IMPLEMENTER_REPORT_RETRY_PROMPT is a non-empty string."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_REPORT_RETRY_PROMPT,
     )
 
@@ -896,7 +896,7 @@ def test_implementer_report_retry_prompt_required_headings():
     The runtime greps for ``## Report``; the four ``###`` subsections
     are structural requirements checked by ``_classify_failed_*``.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_REPORT_RETRY_PROMPT,
     )
 
@@ -921,7 +921,7 @@ def test_implementer_report_retry_prompt_required_headings():
 def test_reflect_diagnosis_short_exists_and_keyword():
     """REFLECT_DIAGNOSIS_SHORT is a non-empty string mentioning 'unusually
     short'."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         REFLECT_DIAGNOSIS_SHORT,
     )
 
@@ -943,7 +943,7 @@ def test_reflect_diagnosis_short_exists_and_keyword():
 def test_reflect_diagnosis_capability_limit_exists_and_keyword():
     """REFLECT_DIAGNOSIS_CAPABILITY_LIMIT is a non-empty string mentioning
     'capability'."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         REFLECT_DIAGNOSIS_CAPABILITY_LIMIT,
     )
 
@@ -971,7 +971,7 @@ def test_reflect_diagnosis_missing_subsections_template():
     The literal substring ``{missing_subsections}`` must exist in the
     raw template text so the contract is visible to code readers.
     """
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         REFLECT_DIAGNOSIS_MISSING_SUBSECTIONS_TEMPLATE,
     )
 
@@ -1006,7 +1006,7 @@ def test_reflect_diagnosis_missing_subsections_template():
 # ---------------------------------------------------------------------------
 
 def test_ollama_implementer_prompt_exists():
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_SYSTEM_PROMPT_OLLAMA,
     )
     assert "bash" in IMPLEMENTER_SYSTEM_PROMPT_OLLAMA.lower()
@@ -1019,7 +1019,7 @@ def test_ollama_implementer_prompt_exists():
 
 def test_reflect_diagnosis_no_report_heading_exists_and_keyword():
     """REFLECT_DIAGNOSIS_NO_REPORT_HEADING is a non-empty string."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         REFLECT_DIAGNOSIS_NO_REPORT_HEADING,
     )
 
@@ -1040,7 +1040,7 @@ def test_reflect_diagnosis_no_report_heading_exists_and_keyword():
 
 def test_reflect_diagnosis_default_exists_and_keyword():
     """REFLECT_DIAGNOSIS_DEFAULT is a non-empty string."""
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         REFLECT_DIAGNOSIS_DEFAULT,
     )
 
@@ -1060,7 +1060,7 @@ def test_reflect_diagnosis_default_exists_and_keyword():
 # ---------------------------------------------------------------------------
 
 def _impl_prompts():
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.prompts.agent_prompts import (
         IMPLEMENTER_SYSTEM_PROMPT,
         IMPLEMENTER_SYSTEM_PROMPT_OLLAMA,
     )
@@ -1203,8 +1203,8 @@ def test_resource_envelope_stanza_primes_ram_and_parallelism(tmp_path):
     cap, and free disk, and primes safe parallelism — and both preambles carry the
     {resources} placeholder so the stanza actually lands."""
     from types import SimpleNamespace
-    from a3dasm._src.agent_runtime import AgenticRun
-    from a3dasm._src.agent_prompts import (
+    from a3dasm._src.runtime.agent_runtime import AgenticRun
+    from a3dasm._src.prompts.agent_prompts import (
         RUN_PATHS_PREAMBLE_TEMPLATE,
         WORKSPACE_PREAMBLE_TEMPLATE,
     )

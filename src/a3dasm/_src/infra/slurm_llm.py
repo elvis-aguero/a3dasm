@@ -34,7 +34,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-from . import settings
+from ..runtime import settings
 
 log = logging.getLogger("a3dasm.slurm_llm")
 

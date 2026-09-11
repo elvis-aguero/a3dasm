@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 
-from a3dasm._src.instrumented import InstrumentedDataGenerator
+from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
 
 
 def _gen(tmp_path, budget):

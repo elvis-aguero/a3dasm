@@ -16,7 +16,7 @@ from f3dasm._src.experimentdata import ExperimentData
 from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.delegation_log import DelegationLog
+from a3dasm._src.epistemics.delegation_log import DelegationLog
 from a3dasm._src.nodes import StrategizerNode
 
 

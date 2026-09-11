@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from a3dasm._src.hypothesis_ledger import (
+from a3dasm._src.epistemics.hypothesis_ledger import (
     HypothesisEntry,
     HypothesisLedger,
 )

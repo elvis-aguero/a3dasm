@@ -251,7 +251,7 @@ def test_search_openalex_returns_results_on_success(tmp_path):
     mock_resp.json.return_value = oa_result
 
     with patch("requests.get", return_value=mock_resp):
-        with patch("a3dasm._src.literature_corpus._sleep"):
+        with patch("a3dasm._src.literature.literature_corpus._sleep"):
             result = tools["search_openalex"]("neural networks", n_results=5)
 
     import json
@@ -275,7 +275,7 @@ def test_search_openalex_returns_error_on_failure(tmp_path):
 
     import requests as _requests
     with patch("requests.get", side_effect=_requests.RequestException("Connection failed")):
-        with patch("a3dasm._src.literature_corpus._sleep"):
+        with patch("a3dasm._src.literature.literature_corpus._sleep"):
             result = tools["search_openalex"]("neural networks")
 
     assert "ERROR" in result
@@ -317,7 +317,7 @@ def test_get_ss_recommendations_returns_json(tmp_path):
     }
 
     with patch("requests.post", return_value=mock_resp):
-        with patch("a3dasm._src.literature_corpus._sleep"):
+        with patch("a3dasm._src.literature.literature_corpus._sleep"):
             result = tools["get_semantic_scholar_recommendations"](
                 "1706.03762", n_results=5
             )
@@ -343,7 +343,7 @@ def test_get_ss_recommendations_returns_error_on_failure(tmp_path):
 
     import requests as _requests
     with patch("requests.post", side_effect=_requests.RequestException("Network error")):
-        with patch("a3dasm._src.literature_corpus._sleep"):
+        with patch("a3dasm._src.literature.literature_corpus._sleep"):
             result = tools["get_semantic_scholar_recommendations"]("1706.03762")
 
     assert "ERROR" in result

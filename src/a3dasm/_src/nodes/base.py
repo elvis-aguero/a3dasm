@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ..graph_state import AgenticState
-    from ..hypothesis_ledger import HypothesisLedger
+    from ..epistemics.hypothesis_ledger import HypothesisLedger
+    from ..runtime.graph_state import AgenticState
 
 
 class AgentNode:
@@ -61,6 +61,6 @@ class AgentNode:
             return None
         notes = rd / "debug" / "strategizer_notes"
         if (notes / "hypotheses.json").exists():
-            from ..hypothesis_ledger import HypothesisLedger
+            from ..epistemics.hypothesis_ledger import HypothesisLedger
             return HypothesisLedger(notes)
         return None

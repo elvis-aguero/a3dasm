@@ -27,8 +27,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-import a3dasm._src.literature_corpus as lc_mod
-from a3dasm._src.literature_corpus import (
+import a3dasm._src.literature.literature_corpus as lc_mod
+from a3dasm._src.literature.literature_corpus import (
     LiteratureCorpus,
     _SubprocessEmbedder,
 )
@@ -39,7 +39,7 @@ from a3dasm._src.literature_corpus import (
 
 _WORKER_PATH = (
     Path(__file__).parent.parent
-    / "src" / "a3dasm" / "_src" / "_embed_worker.py"
+    / "src" / "a3dasm" / "_src" / "literature" / "_embed_worker.py"
 )
 
 
@@ -182,7 +182,7 @@ class TestGetEmbeddingModelFallbackChain:
             return real_import(name, *args, **kwargs)
 
         with caplog.at_level(logging.INFO,
-                             logger="a3dasm._src.literature_corpus"):
+                             logger="a3dasm._src.literature.literature_corpus"):
             with patch("builtins.__import__", side_effect=mock_import):
                 with patch("shutil.which", return_value="/usr/local/bin/uv"):
                     model = corpus._get_embedding_model()
@@ -228,7 +228,7 @@ class TestGetEmbeddingModelFallbackChain:
             return real_import(name, *args, **kwargs)
 
         with caplog.at_level(logging.WARNING,
-                             logger="a3dasm._src.literature_corpus"):
+                             logger="a3dasm._src.literature.literature_corpus"):
             with patch("builtins.__import__", side_effect=mock_import):
                 with patch("shutil.which", return_value="/usr/local/bin/uv"):
                     result = corpus._get_embedding_model()
@@ -310,7 +310,7 @@ class TestGetEmbeddingModelFallbackChain:
             return real_import(name, *args, **kwargs)
 
         with caplog.at_level(logging.WARNING,
-                             logger="a3dasm._src.literature_corpus"):
+                             logger="a3dasm._src.literature.literature_corpus"):
             with patch("builtins.__import__", side_effect=mock_import):
                 with patch("shutil.which", return_value=None):
                     result = corpus._get_embedding_model()

@@ -81,7 +81,7 @@ def test_literature_corpus_degrades_to_bm25_without_heavy_deps(
 ):
     """Lean-image path: with docling AND fastembed unimportable, LiteratureCorpus
     still constructs and retrieval falls back to BM25 (dense embedder is None)."""
-    import a3dasm._src.literature_corpus as lc
+    import a3dasm._src.literature.literature_corpus as lc
 
     monkeypatch.setitem(sys.modules, "fastembed", None)
     monkeypatch.setitem(sys.modules, "docling", None)

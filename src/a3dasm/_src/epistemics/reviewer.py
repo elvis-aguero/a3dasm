@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import re
 
-from .backends.base import Agent
+from ..backends.base import Agent
 
 # The FIVE universal elements of a well-posed problem statement.  Deliberately
 # domain-agnostic — these generalise across optimisation, inverse-design,

@@ -20,8 +20,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import a3dasm._src.literature_corpus as lc_mod
-from a3dasm._src.literature_corpus import (
+import a3dasm._src.literature.literature_corpus as lc_mod
+from a3dasm._src.literature.literature_corpus import (
     LiteratureCorpus,
     SourceCooldownError,
     _cache_get,
@@ -443,7 +443,7 @@ class TestHttpCache:
             cache_dir, url, params, 200, '{"old": true}', "application/json"
         )
         # Backdate the ts by 2 days
-        from a3dasm._src.literature_corpus import _cache_key
+        from a3dasm._src.literature.literature_corpus import _cache_key
         key = _cache_key(url, params)
         cache_file = cache_dir / (key + ".json")
         data = json.loads(cache_file.read_text())
@@ -790,7 +790,7 @@ class TestPreflightWarnings:
                 raise ImportError("No module named 'fastembed'")
             return real_import(name, *args, **kwargs)
 
-        with caplog.at_level(logging.WARNING, logger="a3dasm._src.literature_corpus"):
+        with caplog.at_level(logging.WARNING, logger="a3dasm._src.literature.literature_corpus"):
             with patch("builtins.__import__", side_effect=mock_import):
                 with patch("shutil.which", return_value=None):
                     result = corpus._get_embedding_model()
@@ -814,7 +814,7 @@ class TestPreflightWarnings:
                 raise ImportError("No module named 'fastembed'")
             return real_import(name, *args, **kwargs)
 
-        with caplog.at_level(logging.WARNING, logger="a3dasm._src.literature_corpus"):
+        with caplog.at_level(logging.WARNING, logger="a3dasm._src.literature.literature_corpus"):
             with patch("builtins.__import__", side_effect=mock_import):
                 with patch("shutil.which", return_value=None):
                     corpus._get_embedding_model()

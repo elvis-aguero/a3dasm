@@ -34,7 +34,7 @@ def debug_enabled() -> bool:
     """Master debug switch. Off unless the `debug` knob is truthy.
 
     Source of truth is config.yaml's runtime block; F3DASM_DEBUG overrides it."""
-    from ..settings import get_bool
+    from ..runtime.settings import get_bool
     return get_bool("debug", False)
 
 
@@ -236,7 +236,7 @@ class Agent:
         from pathlib import Path as _Path
 
         try:
-            from ..literature_corpus import LiteratureCorpus
+            from ..literature.literature_corpus import LiteratureCorpus
         except ImportError:
             return {}
 
@@ -496,7 +496,7 @@ def retry_on_transient(
     ``llm_retry_max`` (5) and ``llm_retry_base`` (2.0s) knobs (config.yaml
     runtime block; F3DASM_LLM_RETRY_MAX / F3DASM_LLM_RETRY_BASE override).
     """
-    from ..settings import get_float, get_int
+    from ..runtime.settings import get_float, get_int
     if max_attempts is None:
         max_attempts = get_int("llm_retry_max", 5)
     if base_delay is None:

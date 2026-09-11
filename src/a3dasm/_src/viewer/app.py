@@ -18,7 +18,7 @@ from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from .. import operator_channel
+from ..infra import operator_channel
 from ..nodes.notices import split_notices
 from . import readers
 

@@ -144,7 +144,7 @@ class ScriptedStrategistAdapter:
         # verifiable 'REPRODUCED: <value>' sentinel.
         if "WriteDeliverable" in tools:
             import nbformat
-            from a3dasm._src.notebook_exec import build_notebook
+            from a3dasm._src.evaluation.notebook_exec import build_notebook
             nb = build_notebook([
                 {"type": "markdown", "source": "# Problem\nminimise f."},
                 {"type": "code", "name": "analysis",
@@ -157,7 +157,7 @@ class ScriptedStrategistAdapter:
             _run_dir = getattr(_run, "_run_dir", None) if _run else None
             if _run_dir is not None:
                 from pathlib import Path as _Path
-                from a3dasm._src.instrumented import InstrumentedDataGenerator
+                from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
                 from f3dasm._src.core import DataGenerator
                 from f3dasm._src.experimentsample import ExperimentSample, JobStatus
                 class _Stub(DataGenerator):

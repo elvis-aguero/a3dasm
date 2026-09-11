@@ -65,7 +65,7 @@ def test_session_env_omits_namespace_when_unset(tmp_path):
 
 
 def test_delegation_dataclass_has_namespace_default_none():
-    from a3dasm._src.graph_state import Delegation
+    from a3dasm._src.runtime.graph_state import Delegation
 
     d = Delegation(target="implementer", task="optimize")
     assert d.namespace is None

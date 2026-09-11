@@ -140,7 +140,7 @@ class LifecycleMixin:
         # verdicts and slow delegations, none of which count here — only hard
         # consecutive crashes do. Knob: max_consecutive_errors (config.yaml
         # runtime block; F3DASM_MAX_CONSECUTIVE_ERRORS overrides); 0 disables.
-        from ..settings import get_int
+        from ..runtime.settings import get_int
         _max_err = get_int("max_consecutive_errors", 12)
         if _max_err > 0:
             with self._registry_lock:

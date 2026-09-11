@@ -113,7 +113,7 @@ def test_poll_escalation_offers_options():
 
 
 def _seed_store(store_dir, delegation_id):
-    from a3dasm._src.instrumented import InstrumentedDataGenerator
+    from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
     from f3dasm._src.core import DataGenerator
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 
@@ -248,7 +248,7 @@ def _write_nb(study_dir, source):
     """Write study_dir/pipeline.ipynb with a single code cell running `source`."""
     import nbformat
 
-    from a3dasm._src.notebook_exec import build_notebook
+    from a3dasm._src.evaluation.notebook_exec import build_notebook
     nb = build_notebook([{"type": "code", "name": "analysis", "source": source}])
     nbformat.write(nb, str(study_dir / "pipeline.ipynb"))
 
@@ -377,7 +377,7 @@ def test_ghost_delegation_flushed_interrupted_at_run_close(tmp_path):
     import time as _t
 
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.delegation_log import DelegationLog
+    from a3dasm._src.epistemics.delegation_log import DelegationLog
 
     run_dir = tmp_path / "runs" / "T0"
     (run_dir / "debug" / "strategizer_notes").mkdir(parents=True)

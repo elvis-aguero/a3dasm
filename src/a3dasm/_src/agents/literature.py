@@ -118,7 +118,7 @@ def _throttled_ss(fn, *args, **kwargs):
     # import has already succeeded (the whole tool set returns {} otherwise).
     from tenacity import RetryError
 
-    from ..literature_corpus import (
+    from ..literature.literature_corpus import (
         SourceCooldownError,
         _cooldown_message,
         _rate_limit_wait,
@@ -448,7 +448,7 @@ class LiteratureReviewAgent(Agent):
         from pathlib import Path as _Path
 
         try:
-            from ..literature_corpus import (
+            from ..literature.literature_corpus import (
                 LiteratureCorpus,
                 SourceCooldownError,
                 _robust_get,
@@ -508,7 +508,7 @@ class LiteratureReviewAgent(Agent):
         try:
             from semanticscholar import SemanticScholar as _SS
 
-            from ..settings import get_str
+            from ..runtime.settings import get_str
             # config.yaml's runtime: block (or F3DASM_SEMANTIC_SCHOLAR_API_KEY)
             # is the explicit-config channel; the bare env var is honoured too
             # since it is Semantic Scholar's own documented convention, not

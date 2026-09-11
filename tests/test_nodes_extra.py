@@ -53,7 +53,7 @@ def _minimal_spec(name: str = "strategizer", target: str = "implementer") -> Gra
 
 
 def _make_state(study_dir=None, **kwargs):
-    from a3dasm._src.graph_state import AgenticState
+    from a3dasm._src.runtime.graph_state import AgenticState
     import tempfile
     if study_dir is None:
         d = Path(tempfile.mkdtemp(prefix="f3dasm_nodes_extra_"))

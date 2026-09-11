@@ -23,7 +23,7 @@ def _make_proc_mock(returncode: int = 0):
 
 def test_run_compose_called_when_ollama_sidecar(tmp_path, monkeypatch):
     """run() calls _run_compose when ollama_sidecar=True and backend='ollama'."""
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(
         tmp_path, backend="ollama", ollama_sidecar=True,
@@ -41,7 +41,7 @@ def test_run_compose_called_when_ollama_sidecar(tmp_path, monkeypatch):
 
 def test_run_compose_invokes_docker_compose(tmp_path, monkeypatch):
     """_run_compose uses docker compose with the sidecar compose files."""
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     docker_dir = tmp_path / "docker"
     docker_dir.mkdir()
@@ -65,7 +65,7 @@ def test_run_compose_invokes_docker_compose(tmp_path, monkeypatch):
 
 def test_run_compose_sets_study_dir_env(tmp_path):
     """_run_compose passes STUDY_DIR in the environment."""
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     docker_dir = tmp_path / "docker"
     docker_dir.mkdir()
@@ -95,7 +95,7 @@ def test_run_docker_uses_run_py_entrypoint_when_present(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     (tmp_path / "run.py").write_text("# custom\n")
 
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(tmp_path, backend="claude", image="f3dasm:test",
                              _docker_dir=tmp_path / "docker")
@@ -115,7 +115,7 @@ def test_run_docker_no_run_py_passes_model_and_budget(tmp_path, monkeypatch):
     """When no run.py exists, --model and --budget are passed to the image."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(
         tmp_path, backend="claude", image="f3dasm:test",
@@ -143,7 +143,7 @@ def test_run_docker_no_run_py_passes_model_and_budget(tmp_path, monkeypatch):
 
 def test_latest_solution_empty_when_no_runs_dir(tmp_path):
     """_latest_solution returns '' when runs/ directory doesn't exist."""
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(tmp_path)
     assert runner._latest_solution() == ""
@@ -151,7 +151,7 @@ def test_latest_solution_empty_when_no_runs_dir(tmp_path):
 
 def test_latest_solution_empty_when_no_solution_md(tmp_path):
     """_latest_solution returns '' when runs/ exists but has no solution.md."""
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runs_dir = tmp_path / "runs" / "20250101T000000"
     runs_dir.mkdir(parents=True)
@@ -168,7 +168,7 @@ def test_latest_solution_empty_when_no_solution_md(tmp_path):
 
 def test_tail_log_returns_when_no_log_found(tmp_path):
     """_tail_log returns gracefully when no run.log appears within deadline."""
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runner = ContainerRunner(tmp_path)
     proc_mock = _make_proc_mock(0)
@@ -180,7 +180,7 @@ def test_tail_log_returns_when_no_log_found(tmp_path):
 
 def test_tail_log_reads_existing_log_file(tmp_path, capsys):
     """_tail_log reads and prints lines from an existing run.log."""
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     # Create the run.log file before _tail_log is called
     runs_dir = tmp_path / "runs" / "20250101T000000" / "debug"
@@ -211,7 +211,7 @@ def test_tail_log_reads_existing_log_file(tmp_path, capsys):
 
 def test_tail_log_drains_remaining_lines_after_process_exits(tmp_path, capsys):
     """_tail_log drains remaining log lines after process exits."""
-    from a3dasm._src.container_runner import ContainerRunner
+    from a3dasm._src.infra.container_runner import ContainerRunner
 
     runs_dir = tmp_path / "runs" / "20250101T000000" / "debug"
     runs_dir.mkdir(parents=True)

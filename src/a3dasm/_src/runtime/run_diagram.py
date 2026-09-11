@@ -47,7 +47,7 @@ from collections import Counter, deque
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .backends.base import Graph
+    from ..backends.base import Graph
 
 __all__ = ["render_architecture_svg"]
 

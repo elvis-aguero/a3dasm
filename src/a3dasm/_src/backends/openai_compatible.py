@@ -177,7 +177,7 @@ class _BashSession:
             reg = Path(store).parent / "debug" / "governor_pids.jsonl"
             if not reg.parent.exists():
                 return
-            from ..resource_backend import get_resource_backend
+            from ..infra.resource_backend import get_resource_backend
             be = get_resource_backend()
             rec = {
                 "delegation_id": did, "pid": pid,
@@ -337,7 +337,7 @@ def _make_killshell_tool(session: _BashSession) -> Any:
             return f"ERROR: no background shell {bash_id!r}."
         pid = entry["proc"].pid
         try:
-            from ..resource_backend import get_resource_backend
+            from ..infra.resource_backend import get_resource_backend
             get_resource_backend().kill([pid])   # tree kill (recursive)
         except Exception:  # noqa: BLE001
             try:
@@ -733,7 +733,7 @@ class OpenAICompatibleAdapter:
         from langchain_openai import ChatOpenAI
         from langgraph.prebuilt import create_react_agent
 
-        from ..tool_catalog import system_prompt_with_catalog
+        from ..prompts.tool_catalog import system_prompt_with_catalog
         llm = ChatOpenAI(
             model=self.model, base_url=self._base_url, api_key=self._api_key
         )

@@ -9,7 +9,7 @@ multi-candidate path search. A read-only F3DASM_STUDY_ROOT anchor removes that.
 """
 from __future__ import annotations
 
-from a3dasm._src.notebook_exec import sandbox_env
+from a3dasm._src.evaluation.notebook_exec import sandbox_env
 
 
 def test_sandbox_env_sets_store_config_and_study_root(tmp_path):
