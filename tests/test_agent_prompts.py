@@ -722,12 +722,14 @@ def test_shared_tool_docstrings_have_no_domain_specific_leakage():
     'max_compressive_strain' leak found in critic.py's hand-copy of it; fix
     it once, here, and it never needs fixing per-agent again.
     """
+    import importlib
     import inspect
+    import pkgutil
     import re
 
     from a3dasm._src.nodes.tools import routing
 
-    # Word-boundary, not substring: routing.py's maintainer comments legitimately
+    # Word-boundary, not substring: routing's maintainer comments legitimately
     # reference the upstream f3dasm GitHub org ("bessagroup/f3dasm#351"), which a
     # plain substring check on "bessa" would misfire on. This checks the same
     # forbidden vocabulary as test_no_domain_specific_leakage_extended, just
@@ -736,12 +738,21 @@ def test_shared_tool_docstrings_have_no_domain_specific_leakage():
         "coilable", "sigma_crit", "max_compressive_strain",
         "max_local_strain", "ratio_pitch", "ratio_d", "abaqus", "riks",
     ]
-    source = inspect.getsource(routing)
+    # routing is a PACKAGE (split by tool family: delegation/store/notes/
+    # notebook/feedback) — inspect.getsource(routing) alone would return only
+    # __init__.py's thin assembler, not the sibling modules the actual tool
+    # docstrings now live in. Scan every submodule so the leak-guard still
+    # covers the whole tool-definition surface, not just the assembler.
+    modules = [routing] + [
+        importlib.import_module(f"{routing.__name__}.{info.name}")
+        for info in pkgutil.iter_modules(routing.__path__)
+    ]
+    source = "\n".join(inspect.getsource(m) for m in modules)
     lower = source.lower()
     for term in forbidden_terms:
         assert not re.search(rf"\b{re.escape(term)}\b", lower), (
-            f"routing.py (tool definitions rendered into every agent's "
-            f"<tools> catalog) leaks term '{term}'"
+            f"nodes/tools/routing/ (tool definitions rendered into every "
+            f"agent's <tools> catalog) leaks term '{term}'"
         )
 
 

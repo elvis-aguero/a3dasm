@@ -114,7 +114,7 @@ def test_gate_and_feedback_rows_read_usage_rather_than_hardcoding_zero():
     from pathlib import Path
 
     src = (Path(__file__).parent.parent / "src" / "a3dasm" / "_src"
-           / "nodes" / "tools" / "routing.py").read_text(encoding="utf-8")
+           / "nodes" / "tools" / "routing" / "feedback.py").read_text(encoding="utf-8")
 
     for marker in ("_critic_usage", "_fb_usage"):
         assert f'{marker}.get("total_cost_usd")' in src, (

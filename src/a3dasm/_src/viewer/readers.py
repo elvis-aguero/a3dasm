@@ -98,7 +98,7 @@ _MODEL_LABELS: dict[str, str] = {
 
 @lru_cache(maxsize=1)
 def _routing_tool_docs() -> dict[str, str]:
-    """Tool docstrings read straight out of ``nodes/tools/routing.py``'s source.
+    """Tool docstrings read straight out of ``nodes/tools/routing/``'s source.
 
     Most tools an agent declares are implemented as functions nested inside
     per-run closure builders, so they exist only once a live registry has
@@ -110,7 +110,7 @@ def _routing_tool_docs() -> dict[str, str]:
     the map keeps claiming what a tool did a year ago and nothing fails.
     Parsing the module's AST reads the SAME docstring the agent is given
     (``tool_catalog.render_tool_catalog`` uses ``__doc__``), stays correct
-    as routing.py changes, and executes none of it.
+    as the routing package changes, and executes none of it.
 
     Only the first paragraph is kept, matching what the tool catalog shows.
     """
@@ -118,10 +118,16 @@ def _routing_tool_docs() -> dict[str, str]:
 
     nodes_dir = Path(__file__).parent.parent / "nodes"
     out: dict[str, str] = {}
-    # Tool definitions are split across the routing layer and the node
-    # modules that inject their own; scanned in a fixed order so the same
-    # name defined twice resolves the same way on every call.
-    for rel in ("tools/routing.py", "strategizer.py", "worker.py"):
+    # Tool definitions are split across the routing layer (itself split by
+    # tool family: delegation/store/notes/notebook/feedback, under
+    # tools/routing/) and the node modules that inject their own; scanned in
+    # a fixed order so the same name defined twice resolves the same way on
+    # every call.
+    routing_dir = nodes_dir / "tools" / "routing"
+    routing_files = sorted(
+        str(p.relative_to(nodes_dir)) for p in routing_dir.glob("*.py")
+    )
+    for rel in [*routing_files, "strategizer.py", "worker.py"]:
         path = nodes_dir / rel
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))

@@ -3651,9 +3651,19 @@ def test_a6_critic_gate_allows_pass_feedback_does_not():
     assert "PASS IS\n    available" in p or "PASS IS available" in p
 
     # The Done() gate task message must use GATE mode, not FEEDBACK.
+    import importlib
     import inspect
+    import pkgutil
     from a3dasm._src.nodes.tools import routing as _routing
-    src = inspect.getsource(_routing)
+    src = "\n".join(
+        [inspect.getsource(_routing)]
+        + [
+            inspect.getsource(
+                importlib.import_module(f"{_routing.__name__}.{info.name}")
+            )
+            for info in pkgutil.iter_modules(_routing.__path__)
+        ]
+    )
     assert "<mode>GATE</mode>" in src, "Done() gate must invoke critic in GATE mode"
 
 
@@ -3662,10 +3672,20 @@ def test_gate_prompt_and_runscratch_point_at_namespace_aware_reads():
     single-store idiom (ExperimentData.from_file(project_dir=<default store>))
     as THE way to audit the ledger — it silently misses design-namespace
     stores, the same gap fixed in RecallStore/QueryStore (backlog #21)."""
+    import importlib
     import inspect
+    import pkgutil
 
     from a3dasm._src.nodes.tools import routing as _routing
-    src = inspect.getsource(_routing)
+    src = "\n".join(
+        [inspect.getsource(_routing)]
+        + [
+            inspect.getsource(
+                importlib.import_module(f"{_routing.__name__}.{info.name}")
+            )
+            for info in pkgutil.iter_modules(_routing.__path__)
+        ]
+    )
     assert "audit the ledger yourself: call RecallStore()" in src
     assert "misses any namespace store" in src
     assert "load_experiments()" in src

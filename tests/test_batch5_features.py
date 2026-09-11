@@ -21,7 +21,7 @@ def test_three_strikes_escape_not_coached_to_agent():
     """The strategizer-facing critic-verdict message must not teach the N=3
     escape (advertising it makes the agent exhaust the critic instead of
     earning a PASS). The backstop logic itself stays."""
-    nodes = (_SRC / "nodes" / "tools" / "routing.py").read_text()
+    nodes = (_SRC / "nodes" / "tools" / "routing" / "feedback.py").read_text()
     # The old coaching phrasing must be gone from the agent-facing message.
     assert "again anyway" not in nodes
     assert "after 3 attempts the run closes" not in nodes

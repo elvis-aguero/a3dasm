@@ -383,10 +383,21 @@ def test_non_entry_node_delegate_omits_hypothesis_check():
     implementer) have ``_ledger=None``, so specialist→lit_reviewer
     delegation works without hypothesis_ids.
     """
-    # Verify directly by reading the routing module source:
+    # Verify directly by reading the routing package's source (split by tool
+    # family — scan every submodule, not just the thin __init__.py assembler).
+    import importlib
     import inspect
+    import pkgutil
     from a3dasm._src.nodes.tools import routing as _routing
-    src = inspect.getsource(_routing)
+    src = "\n".join(
+        [inspect.getsource(_routing)]
+        + [
+            inspect.getsource(
+                importlib.import_module(f"{_routing.__name__}.{info.name}")
+            )
+            for info in pkgutil.iter_modules(_routing.__path__)
+        ]
+    )
     # The guard must be conditional on ledger presence
     assert "node._ledger is not None" in src, (
         "Delegate must guard h_ids check on node._ledger is not None"
