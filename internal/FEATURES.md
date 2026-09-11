@@ -90,7 +90,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   the evidence will be judged against those criteria exactly as written, and
   explicitly licenses reporting a mismatch instead of substituting a
   different test.
-- **Where:** `nodes/tools/routing.py` `_hypothesis_brief()`, injected in
+- **Where:** `nodes/tools/routing/` `_hypothesis_brief()`, injected in
   `Delegate`'s task assembly beside the constraint snapshot.
 - **Why:** the criterion is immutable once registered and is the standard the
   verdict is judged by, but the only party a3dasm showed it to was the
@@ -121,7 +121,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 ### Delegation + inter-agent messaging
 - **What:** the strategizer delegates work to specialist agents and they report back;
   agents can ask one clarifying question, send async messages, and report progress.
-- **Where:** `nodes/tools/routing.py`, `nodes/strategizer.py`.
+- **Where:** `nodes/tools/routing/`, `nodes/strategizer.py`.
 - **Tools:** `Delegate`*, `GetStatus`, `Wait`, `FollowUp`, `Confer`, `ReportEvals`.
   (*Delegate is injected dynamically, not in a static `tools` set.)
 - **Fan-out harvesting:** `Wait()` takes an OPTIONAL delegation id. Bare
@@ -151,7 +151,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   the critic checks its provenance (it must trace to a real ledger row); the runtime
   no longer machine-matches it to an objective extremum (that wrongly rejected
   constrained optima — audit 20260624T021359).
-- **Where:** `notebook_exec.py`, `nodes/tools/routing.py`, `nodes/strategizer.py`
+- **Where:** `notebook_exec.py`, `nodes/tools/routing/`, `nodes/strategizer.py`
   (`_reproduction_gate`).
 - **Tools:** `AddPipelineCell`, `AddPipelineMarkdownCell`, `EditPipelineCell`,
   `DeletePipelineCell`, `ShowNotebook`, `WriteDeliverable`, `CheckDeliverable`.
@@ -196,7 +196,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   only the store is a copy; the study root is read-only reference code. The three
   duplicated sandbox-env blocks are unified in one `sandbox_env()` helper.
 - **Where:** `notebook_exec.py` `sandbox_env`; call sites in `nodes/strategizer.py`
-  (`_reproduction_gate`) and `nodes/tools/routing.py` (`RunPipelineCell`, scratch).
+  (`_reproduction_gate`) and `nodes/tools/routing/` (`RunPipelineCell`, scratch).
 - **Status:** telemetry/ergonomics, not a new cap. Run 20260705T181941 friction.
 
 ### Output-column guidance fix
@@ -307,7 +307,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 ### Delegation-ID allocation fix (D002)
 - **What:** delegation IDs are allocated *after* the milestone gate, so a blocked
   attempt no longer burns an ID (IDs stay contiguous).
-- **Where:** `nodes/tools/routing.py`. **Status:** done.
+- **Where:** `nodes/tools/routing/`. **Status:** done.
 
 ## D. Resource governance (this is the big recent addition)
 
@@ -338,7 +338,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 - **What:** `GetStatus` shows a delegation's eval count, current RSS, and **peak
   RSS** (the high-water across the watcher's ticks), so the strategizer can see a
   fat or fattening campaign (and `Confer` the implementer).
-- **Where:** `nodes/tools/routing.py`, `watchdog_cleanup.py`
+- **Where:** `nodes/tools/routing/`, `watchdog_cleanup.py`
   `delegation_rss` / `delegation_peak_rss`.
 - **Status:** done.
 
@@ -386,7 +386,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   on observed sim cost instead of an a priori per-sim estimate. Auto-delivered,
   not on-demand. Plain measurements only — interpretation is the strategizer's.
 - **Where:** `instrumented.py` `RunStateSummary.{wall_per_delegation,
-  delegation_footer}`; appended in `nodes/tools/routing.py`.
+  delegation_footer}`; appended in `nodes/tools/routing/`.
 - **Status:** done.
 
 ### Framework-owned local LLM on a SLURM GPU node (vLLM)
@@ -558,7 +558,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   above the tool's own output (`--crust`).
 - **Where:** `nodes/notices.py` (`wrap_notice` / `split_notices` and the
   marker); seven injection sites in `nodes/strategizer.py`
-  (`_drain_notifications`) and `nodes/tools/routing.py` (worker-message
+  (`_drain_notifications`) and `nodes/tools/routing/` (worker-message
   drains in `ReportEvals`/`FollowUp`/`GetStatus`, the `GetStatus` poll hints,
   and the science-monitor drains in both `Wait` branches);
   `viewer/app.py::_tool_result_html` renders them.
