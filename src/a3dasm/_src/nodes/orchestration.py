@@ -348,6 +348,9 @@ class OrchestrationMixin:
                         task="ScienceMonitor escalation audit",
                         deliverable=findings,
                         hypothesis_ids=offenders,
+                        workspace_sha=self._commit_workspace(
+                            f"{_fb_id} {self._name} -> {_critic_name} "
+                            "[ESCALATION]"),
                         started_at=datetime.now(
                             tz=timezone.utc
                         ).isoformat(timespec="seconds"),
@@ -941,6 +944,14 @@ class OrchestrationMixin:
                 id=_did,
                 from_node=self._name,
                 to_node=_entry.get("target", "unknown"),
+                # An interrupted delegation never reached _finish_ok/_error,
+                # so its partial writes are still uncommitted. Commit them
+                # HERE, against the delegation that made them, or the next
+                # delegation to commit absorbs them and the history says the
+                # wrong worker wrote those files.
+                workspace_sha=self._commit_workspace(
+                    f"{_did} {self._name} -> "
+                    f"{_entry.get('target', 'unknown')} [INTERRUPTED]"),
                 task="",
                 deliverable=(
                     "INTERRUPTED: run closed while this delegation was "

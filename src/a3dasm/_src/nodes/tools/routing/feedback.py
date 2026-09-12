@@ -537,13 +537,17 @@ class FeedbackTools:
         if node._delegation_log is None:
             return
         _critic_usage = getattr(node, "_last_critic_usage", {}) or {}
+        _gate_id = f"GATE{datetime.now(tz=timezone.utc).strftime('%H%M%S')}"
+        _sha = node._commit_workspace(
+            f"{_gate_id} {node._name} -> critic [GATE:{verdict}]")
         node._delegation_log.record(
-            id=f"GATE{datetime.now(tz=timezone.utc).strftime('%H%M%S')}",
+            id=_gate_id,
             from_node=node._name,
             to_node=node._find_critic_name(),
             task="Done() GATE acceptance check",
             deliverable=critique_text,
             hypothesis_ids=[],
+            workspace_sha=_sha,
             started_at=started_at,
             completed_at=datetime.now(
                 tz=timezone.utc).isoformat(timespec="seconds"),
@@ -586,13 +590,16 @@ class FeedbackTools:
 
         # Log to delegation log
         if node._delegation_log is not None:
+            _fb_id = f"FB{datetime.now(tz=timezone.utc).strftime('%H%M%S')}"
             node._delegation_log.record(
-                id=f"FB{datetime.now(tz=timezone.utc).strftime('%H%M%S')}",
+                id=_fb_id,
                 from_node=node._name,
                 to_node=node._find_critic_name(),
                 task="AskForFeedback (synchronous audit)",
                 deliverable=text,
                 hypothesis_ids=h_ids,
+                workspace_sha=node._commit_workspace(
+                    f"{_fb_id} {node._name} -> critic [FEEDBACK]"),
                 started_at=started_at,
                 completed_at=datetime.now(
                     tz=timezone.utc

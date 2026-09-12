@@ -150,6 +150,32 @@ class Node(
     # to any node — the entry node, a mid-tier delegating node, or a leaf such
     # as the critic. They need the run's store/ledger paths, which are resolved
     # here so the tools work identically wherever they are granted.
+    def _commit_workspace(self, message: str) -> str | None:
+        """Commit the run workspace and return the sha (spec 11).
+
+        On Node rather than on WorkerSession because a delegation is recorded
+        from four places, not one: a worker finishing (ok or error), the
+        critic gate, an AskForFeedback audit, and the close-time
+        reconciliation of a delegation still running when the run ended. Every
+        one of them appends a row to the delegation log, so every one of them
+        owes that row a sha — otherwise ``workspace_sha: null`` means both
+        "this delegation changed nothing" and "nobody looked", which is the
+        ambiguity --allow-empty exists to prevent.
+
+        The interrupted case is the one with teeth: a delegation killed
+        mid-flight never reaches _finish_ok/_finish_error, so its partial file
+        writes stay uncommitted and are swept into whichever delegation
+        commits NEXT — attributing one delegation's work to another. Silence
+        would be better than that; a commit is better still.
+
+        Never raises — see infra/workspace_vcs.
+        """
+        run_dir = self._resolve_run_dir()
+        if run_dir is None:
+            return None
+        from ..infra.workspace_vcs import commit_workspace
+        return commit_workspace(run_dir / "debug" / "delegations", message)
+
     def _resolve_run_dir(self) -> Path | None:
         """Best-effort run_dir, valid on any node.
 

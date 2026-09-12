@@ -575,28 +575,14 @@ class WorkerSession:
         return None
 
     def _commit_workspace(self, status: str) -> str | None:
-        """Commit this delegation's file changes to the run's workspace repo.
+        """This delegation's workspace commit, via the shared Node helper.
 
         One commit per delegation, whatever its outcome: a FAILED delegation's
-        partial edits are exactly as worth inspecting as a successful one's,
-        and an absent commit would be ambiguous between "changed nothing" and
-        "the record failed". Never raises — see infra/workspace_vcs.
+        partial edits are exactly as worth inspecting as a successful one's.
         """
         node = self.node
-        # Resolve the run-scoped workspace the way _prepare_run created it,
-        # NOT via node._workspace_dir: that attribute falls back to a
-        # study_dir-relative path on an orchestrating node (see _drain_to_dir
-        # below), which is a different directory and holds no repo. Pinning
-        # both ends to run_dir/debug/delegations keeps the commit and the
-        # init talking about the same tree.
-        run_dir = node._resolve_run_dir()
-        if run_dir is None:
-            return None
-        from ....infra.workspace_vcs import commit_workspace
-        return commit_workspace(
-            run_dir / "debug" / "delegations",
-            f"{self.delegation_id} {node._name} -> {self.target} [{status}]",
-        )
+        return node._commit_workspace(
+            f"{self.delegation_id} {node._name} -> {self.target} [{status}]")
 
     def _finish_ok(
         self,

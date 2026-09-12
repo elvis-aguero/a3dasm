@@ -212,3 +212,40 @@ def test_message_records_route_and_outcome(tmp_path, status):
     assert _git(ws, "log", "-1", "--format=%s", sha) == (
         f"D007 strategizer -> implementer [{status}]"
     )
+
+
+# ---------------------------------------------------------------------------
+# EVERY delegation-log record owes a sha, not just a worker's
+# ---------------------------------------------------------------------------
+
+def test_every_record_site_commits_the_workspace():
+    """Regression (wet run 20260912T193605): spec 11 landed on WorkerSession
+    only, so the run's three critic-gate rows carried workspace_sha=null while
+    D001's resolved. null then means BOTH "changed nothing" and "nobody
+    looked" — the ambiguity --allow-empty exists to prevent.
+
+    The interrupted path is the one with teeth: a delegation killed mid-flight
+    never reaches _finish_ok/_finish_error, so its partial writes stay
+    uncommitted and are swept into whichever delegation commits NEXT,
+    attributing one worker's files to another.
+    """
+    import inspect
+
+    from a3dasm._src.nodes import orchestration
+    from a3dasm._src.nodes.tools.routing import delegation, feedback
+
+    sources = {
+        "orchestration": inspect.getsource(orchestration),
+        "feedback": inspect.getsource(feedback),
+        "delegation": inspect.getsource(delegation),
+    }
+    for name, src in sources.items():
+        # count record( call sites and workspace_sha= arguments passed
+        n_records = src.count("_delegation_log.record(")
+        n_shas = src.count("workspace_sha=")
+        assert n_records > 0, f"{name}: no record call sites found"
+        assert n_shas >= n_records, (
+            f"{name}: {n_records} delegation-log record site(s) but only "
+            f"{n_shas} pass workspace_sha — a record without a sha cannot be "
+            "distinguished from a delegation that changed nothing"
+        )
