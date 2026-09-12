@@ -86,7 +86,35 @@ Downstream consumers become possible once the sha exists; none are in scope:
   need it. Deliberately not specified here — build the record first, and let
   a real audit demand the reader.
 
-### The workspace-location change is part of this
+### Retiring `### Files touched` is part of this, and only after it
+
+Every worker report currently carries a required `### Files touched`
+subsection. It is enforced in code, not convention: `report_sections` on
+`backends/base.py:197` (inherited by every agent, overridden with the same
+entry by the implementer, datagenerator and math_expert) and
+`_REQUIRED_SUBSECTIONS` in `nodes/parsing.py:12`; a report missing it trips
+the report-retry / REFLECT path.
+
+Once a delegation's commit exists, that section is **removed**, not kept and
+cross-checked against the diff. Keeping both manufactures precisely the
+failure this spec exists to eliminate: two records of the same fact, one
+mechanical and one self-reported, with no rule for which wins when they
+disagree. `git show --stat <sha>` answers "which files changed" and cannot
+be wrong about it; an agent re-narrating the same list can only agree (noise)
+or disagree (a contradiction someone must now adjudicate). A record is not
+made more trustworthy by being written twice.
+
+What does NOT survive the deletion is *intent* — "rewrote `main.py` to
+substitute before differentiating" is a claim a diff cannot make. That is
+already what `### Actions taken` is for, so the change is a deletion plus a
+clause in the surviving section, never a renamed replacement.
+
+**Strict ordering.** `### Files touched` is today the ONLY record of what a
+delegation touched. It cannot be removed before the commits land, or the run
+has neither. Land the mechanism, confirm `workspace_sha` resolves on real
+runs, then delete the section in a separate commit — with
+`test_report_no_longer_requires_files_touched` and a check that a report
+omitting it is accepted rather than bounced.
 
 Moving the workspace under `runs/<ts>/` is not an incidental cleanup; a git
 repo shared across runs would carry prior runs' answers into a new run's
