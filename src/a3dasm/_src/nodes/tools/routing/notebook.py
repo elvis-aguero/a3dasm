@@ -1,13 +1,24 @@
-"""Notebook/deliverable-authoring tool closures: WriteDeliverable,
-CheckDeliverable, AddPipelineMarkdownCell, AddPipelineCell, EditPipelineCell,
-DeletePipelineCell, ShowNotebook, LedgerBreakdown, RunScratch,
-RunPipelineCell. Built per-node via build_notebook_closures(node) — the node
-is passed in so closures reach its state. Extracted verbatim from the former
-build_routing_tools()."""
+"""Notebook/deliverable-authoring tools: WriteDeliverable, CheckDeliverable,
+AddPipelineMarkdownCell, AddPipelineCell, EditPipelineCell, DeletePipelineCell,
+ShowNotebook, LedgerBreakdown, RunScratch, RunPipelineCell.
+
+``NotebookTools`` holds them, bound to one node (``self.node``);
+``build_notebook_closures(node)`` at the bottom is the registration table.
+Tools stay PascalCase methods so their docstrings remain the model-facing
+description (``prompts.tool_catalog``) and stay readable from source by the
+viewer's AST scan; ``inspect.signature`` drops ``self``, so the JSON schema the
+backends infer is unchanged.
+
+The canonical cell vocabulary — the four f3dasm pillars plus the Popperian
+spine — is module-level: ``_PILLARS``, ``_NB_ORDER``, ``_NARRATIVE``. It is the
+same for every run, so it is stated once here rather than rebuilt per node.
+"""
 from __future__ import annotations
 
 import re
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 # Tool names whose entire purpose is authoring/checking pipeline.ipynb.
 # Stripped from a strategizer's effective toolset when pipeline_deliverable
@@ -20,6 +31,45 @@ _NOTEBOOK_TOOL_NAMES = frozenset({
     "ShowNotebook", "RunPipelineCell",
 })
 
+# ── The deliverable's canonical structure ────────────────────────────────────
+# The four f3dasm pillars + the Popperian spine are PLUMBING: the cell name
+# (= pillar) and the WHY-explainer are REQUIRED arguments, so the agent cannot
+# author a structureless notebook or forget the rationale. Each authoring call
+# builds/updates study_dir/pipeline.ipynb in this order via nbformat — no
+# hand-written JSON, no live kernel.
+_PILLARS = ("doe", "data_generation", "ml", "optimization", "analysis")
+
+
+def _canonical_cell_order() -> list[str]:
+    """The order cells are re-emitted in: narrative spine, then pillars."""
+    order = ["problem", "hypotheses"]
+    for p in _PILLARS:
+        # <deliverable_format> step 7 substitutes a literal '## Verdict &
+        # result' heading for the usual WHY-explainer immediately ahead of
+        # the analysis pillar's code cell — same "narrative heading then
+        # code" shape as every other pillar, just with a fixed name/text
+        # instead of a free-form WHY paragraph.
+        if p == "analysis":
+            order.append("verdict")
+        order += [f"{p}__why", p]
+    return order
+
+
+_NB_ORDER = _canonical_cell_order()
+
+# The standalone narrative (markdown-only) cells + their heading. "verdict"
+# is <deliverable_format>'s step 7 ('## Verdict & result', immediately
+# ahead of the analysis pillar) — without an entry here, AddPipelineMarkdownCell
+# rejected any name a strategizer guessed for it (e.g. "verdict_heading"),
+# a real, reproducible spec/tool mismatch (2 independent critic reviews,
+# run 20260820T003819) since the spec instructs this cell in exactly the
+# same literal-heading-text shape as "problem"/"hypotheses" but named
+# neither.
+_NARRATIVE = {
+    "problem": "# Problem & objective",
+    "hypotheses": "## Hypotheses",
+    "verdict": "## Verdict & result",
+}
 
 
 def _strip_leading_md_header(text: str) -> str:
@@ -37,9 +87,101 @@ def _strip_leading_md_header(text: str) -> str:
     return re.sub(r"^\s*#{1,6}[^\n]*(?:\n+|$)", "", (text or "").lstrip(), count=1)
 
 
+def _by_name(nb) -> dict:
+    """The notebook's named cells, keyed by their metadata name."""
+    out = {}
+    for c in nb.cells:
+        nm = (c.get("metadata", {}) or {}).get("name")
+        if nm:
+            out[nm] = c
+    return out
 
-def build_notebook_closures(node) -> dict:
-    def WriteDeliverable(filename: str, content: str) -> str:
+
+def _rev(source: str) -> str:
+    """Stateless content revision tag — a short hash of a cell's source.
+    Same source → same rev (survives reloads/checkpoints); computed
+    on-demand, never stored, so the gate's name/order metadata is untouched.
+    Used as an optimistic-concurrency token: an edit/delete must present the
+    rev it last saw, so it cannot blindly overwrite a cell that changed."""
+    import hashlib
+    return hashlib.sha256((source or "").encode("utf-8")).hexdigest()[:8]
+
+
+class NotebookTools:
+    """The deliverable-authoring tools, bound to one node."""
+
+    def __init__(self, node: Any) -> None:
+        self.node = node
+
+    # ── Notebook I/O shared by every authoring tool ──────────────────────────
+
+    def _load_or_new_notebook(self):
+        """The run's pipeline.ipynb, or a fresh one. A corrupt file starts clean."""
+        import nbformat
+
+        from ....evaluation.notebook_exec import repair_code_cells
+        nb_path = Path(self.node._study_dir) / "pipeline.ipynb"
+        if nb_path.exists():
+            try:
+                nb = nbformat.read(str(nb_path), as_version=4)
+                repair_code_cells(nb)
+                return nb, nb_path
+            except Exception:  # noqa: BLE001 — corrupt → start clean
+                pass
+        nb = nbformat.v4.new_notebook()
+        nb.metadata["kernelspec"] = {"name": "python3",
+                                     "display_name": "Python 3",
+                                     "language": "python"}
+        return nb, nb_path
+
+    def _emit_notebook(self, by_name: dict, nb, nb_path) -> None:
+        """Re-emit cells: canonical pillars first, then any CUSTOM named cells
+        (a confirmed non-pillar section, in insertion order), then any unnamed
+        extras (e.g. a runtime provenance stamp) preserved at the end."""
+        import nbformat
+        ordered = [by_name[k] for k in _NB_ORDER if k in by_name]
+        custom = [by_name[k] for k in by_name if k not in _NB_ORDER]
+        extras = [c for c in nb.cells
+                  if (c.get("metadata", {}) or {}).get("name") not in by_name]
+        nb.cells = ordered + custom + extras
+        nbformat.write(nb, str(nb_path))
+
+    @contextmanager
+    def _ledger_sandbox(self, prefix: str):
+        """A throwaway copy of the canonical ledger, and an env pointing at it.
+
+        Both execution tools (RunScratch, RunPipelineCell) run against a COPY so
+        nothing they do can touch the real ledger or pipeline.ipynb. Yields
+        ``(sandbox_dir, env)``; the directory is removed on the way out.
+        """
+        import json as _json
+        import shutil as _shutil
+        import tempfile as _tempfile
+
+        from ....evaluation.notebook_exec import sandbox_env
+        run_dir = self.node._current_notes_dir.parent.parent
+        store_dir = run_dir / "experiment_data"
+        run_config = run_dir / "debug" / "run_config.json"
+        sandbox = Path(_tempfile.mkdtemp(prefix=prefix))
+        try:
+            sb_store = sandbox / "experiment_data"
+            if store_dir.exists():
+                _shutil.copytree(store_dir, sb_store)
+            else:
+                sb_store.mkdir(parents=True, exist_ok=True)
+            _cfg = (_json.loads(run_config.read_text())
+                    if run_config.exists() else {})
+            _cfg["store_dir"] = str(sb_store)
+            sb_cfg = sandbox / "run_config.json"
+            sb_cfg.write_text(_json.dumps(_cfg))
+            yield sandbox, sandbox_env(
+                sb_store, sb_cfg, study_root=self.node._study_dir)
+        finally:
+            _shutil.rmtree(sandbox, ignore_errors=True)
+
+    # ── Writing and checking the deliverable ─────────────────────────────────
+
+    def WriteDeliverable(self, filename: str, content: str) -> str:
         """Author the deliverable pipeline.ipynb (the ONLY deliverable).
 
         pipeline.ipynb is the single merged artifact — the writeup AND the
@@ -65,6 +207,7 @@ def build_notebook_closures(node) -> dict:
         replicate.py) may also be written here, verbatim. Verify with
         CheckDeliverable() before Done().
         """
+        node = self.node
         prefix = node._drain_notifications()
         if node._study_dir is None:
             return "ERROR: study_dir not available."
@@ -118,8 +261,7 @@ def build_notebook_closures(node) -> dict:
         target.write_text(content, encoding="utf-8")
         return prefix + f"Written: {target}"
 
-
-    def CheckDeliverable() -> str:
+    def CheckDeliverable(self) -> str:
         """Dry-run pipeline.ipynb through the SAME controlled reproduction gate
         the runtime applies at Done(), and return the full result WITHOUT closing
         the run. This is how you DEBUG pipeline.ipynb before closing: it executes
@@ -132,40 +274,16 @@ def build_notebook_closures(node) -> dict:
         gate will pass. It runs ONLY pipeline.ipynb through the gate — not
         arbitrary code. Call it repeatedly until it passes, THEN call Done()."""
         from ....evaluation.notebook_exec import required_deliverable_name
+        node = self.node
         _dname = required_deliverable_name()
         prefix = node._drain_notifications()
         if not (Path(node._study_dir) / _dname).exists():
             # A no-op (nothing to check) does NOT consume the budget.
             return (prefix + f"No {_dname} yet — write it first via "
                     f"WriteDeliverable('{_dname}', …), then CheckDeliverable().")
-        # Fail fast if the canonical store holds no computed evaluations — the
-        # notebook cannot reproduce a result that was never computed. Key on
-        # POPULATED output.csv rows, NOT jobs.csv 'FINISHED' status: reproduction
-        # loads via ExperimentData.from_file() (output.csv), which carries values
-        # regardless of job status, and a stray worker `data.store()` can reset
-        # FINISHED→IN_PROGRESS without dropping any data. Checking jobs.csv here
-        # made this guard misfire on a store that is fully present but whose
-        # statuses were clobbered (the "no FINISHED rows" false positive).
-        # Checked across EVERY store (default + every design namespace) via
-        # experiment_stores() — a namespace-only run's default output.csv can
-        # exist but be empty, which false-blocked CheckDeliverable even though
-        # the ledger was populated (backlog #21's sibling gap).
-        _notes = getattr(node, "_current_notes_dir", None)
-        if _notes is not None:
-            from ....evaluation.ledger_summary import (
-                RunStateSummary,
-                experiment_stores,
-            )
-            _run_dir = Path(_notes).parent.parent
-            _store_root = _run_dir / "experiment_data"
-            _has_rows = any(
-                RunStateSummary.from_store(s) is not None
-                for s in experiment_stores(_store_root)
-            )
-            if not _has_rows:
-                return (prefix +
-                    "CheckDeliverable: canonical store has no evaluations yet. "
-                    "Run at least one evaluation campaign before calling CheckDeliverable.")
+        empty = self._empty_store_refusal()
+        if empty is not None:
+            return prefix + empty
         _BUDGET = 10
         prior = getattr(node, "_check_deliverable_calls", 0)
         if prior >= _BUDGET:
@@ -193,92 +311,43 @@ def build_notebook_closures(node) -> dict:
                 "Fix the exact problem below and CheckDeliverable() again:\n\n"
                 + problem + footer)
 
+    def _empty_store_refusal(self) -> str | None:
+        """Refuse to check a notebook that has nothing to reproduce, else None.
+
+        Keys on POPULATED output.csv rows, NOT jobs.csv 'FINISHED' status:
+        reproduction loads via ExperimentData.from_file() (output.csv), which
+        carries values regardless of job status, and a stray worker
+        ``data.store()`` can reset FINISHED→IN_PROGRESS without dropping any
+        data. Checking jobs.csv here made this guard misfire on a store that is
+        fully present but whose statuses were clobbered (the "no FINISHED rows"
+        false positive).
+
+        Checked across EVERY store (default + every design namespace) via
+        experiment_stores() — a namespace-only run's default output.csv can
+        exist but be empty, which false-blocked CheckDeliverable even though
+        the ledger was populated (backlog #21's sibling gap).
+        """
+        _notes = getattr(self.node, "_current_notes_dir", None)
+        if _notes is None:
+            return None
+        from ....evaluation.ledger_summary import (
+            RunStateSummary,
+            experiment_stores,
+        )
+        _store_root = Path(_notes).parent.parent / "experiment_data"
+        _has_rows = any(
+            RunStateSummary.from_store(s) is not None
+            for s in experiment_stores(_store_root)
+        )
+        if _has_rows:
+            return None
+        return (
+            "CheckDeliverable: canonical store has no evaluations yet. "
+            "Run at least one evaluation campaign before calling CheckDeliverable.")
 
     # ── Structured notebook authoring ────────────────────────────────────────
-    # The four f3dasm pillars + the Popperian spine are PLUMBING here: the cell
-    # name (= pillar) and the WHY-explainer are REQUIRED arguments, so the agent
-    # cannot author a structureless notebook or forget the rationale. Each call
-    # builds/updates study_dir/pipeline.ipynb in canonical order via nbformat —
-    # no hand-written JSON, no live kernel.
-    _PILLARS = ("doe", "data_generation", "ml", "optimization", "analysis")
-    _NB_ORDER = ["problem", "hypotheses"]
-    for _p in _PILLARS:
-        # <deliverable_format> step 7 substitutes a literal '## Verdict &
-        # result' heading for the usual WHY-explainer immediately ahead of
-        # the analysis pillar's code cell — same "narrative heading then
-        # code" shape as every other pillar, just with a fixed name/text
-        # instead of a free-form WHY paragraph.
-        if _p == "analysis":
-            _NB_ORDER += ["verdict"]
-        _NB_ORDER += [f"{_p}__why", _p]
 
-
-    def _load_or_new_notebook():
-        import nbformat
-
-        from ....evaluation.notebook_exec import repair_code_cells
-        nb_path = Path(node._study_dir) / "pipeline.ipynb"
-        if nb_path.exists():
-            try:
-                nb = nbformat.read(str(nb_path), as_version=4)
-                repair_code_cells(nb)
-                return nb, nb_path
-            except Exception:  # noqa: BLE001 — corrupt → start clean
-                pass
-        nb = nbformat.v4.new_notebook()
-        nb.metadata["kernelspec"] = {"name": "python3",
-                                     "display_name": "Python 3",
-                                     "language": "python"}
-        return nb, nb_path
-
-
-    def _emit_notebook(by_name: dict, nb, nb_path):
-        """Re-emit cells: canonical pillars first, then any CUSTOM named cells
-        (a confirmed non-pillar section, in insertion order), then any unnamed
-        extras (e.g. a runtime provenance stamp) preserved at the end."""
-        import nbformat
-        ordered = [by_name[k] for k in _NB_ORDER if k in by_name]
-        custom = [by_name[k] for k in by_name if k not in _NB_ORDER]
-        extras = [c for c in nb.cells
-                  if (c.get("metadata", {}) or {}).get("name") not in by_name]
-        nb.cells = ordered + custom + extras
-        nbformat.write(nb, str(nb_path))
-
-
-    def _by_name(nb) -> dict:
-        out = {}
-        for c in nb.cells:
-            nm = (c.get("metadata", {}) or {}).get("name")
-            if nm:
-                out[nm] = c
-        return out
-
-
-    def _rev(source: str) -> str:
-        """Stateless content revision tag — a short hash of a cell's source.
-        Same source → same rev (survives reloads/checkpoints); computed
-        on-demand, never stored, so the gate's name/order metadata is untouched.
-        Used as an optimistic-concurrency token: an edit/delete must present the
-        rev it last saw, so it cannot blindly overwrite a cell that changed."""
-        import hashlib
-        return hashlib.sha256((source or "").encode("utf-8")).hexdigest()[:8]
-
-
-    # The standalone narrative (markdown-only) cells + their heading. "verdict"
-    # is <deliverable_format>'s step 7 ('## Verdict & result', immediately
-    # ahead of the analysis pillar) — without an entry here, AddPipelineMarkdownCell
-    # rejected any name a strategizer guessed for it (e.g. "verdict_heading"),
-    # a real, reproducible spec/tool mismatch (2 independent critic reviews,
-    # run 20260820T003819) since the spec instructs this cell in exactly the
-    # same literal-heading-text shape as "problem"/"hypotheses" but named
-    # neither.
-    _NARRATIVE = {
-        "problem": "# Problem & objective",
-        "hypotheses": "## Hypotheses",
-        "verdict": "## Verdict & result",
-    }
-
-    def AddPipelineMarkdownCell(name: str, content: str) -> str:
+    def AddPipelineMarkdownCell(self, name: str, content: str) -> str:
         """CREATE one standalone narrative markdown cell in pipeline.ipynb.
         Three names are RESERVED and get a canonical heading added for you:
         'problem' (the question, min/max, success criterion), 'hypotheses'
@@ -294,6 +363,7 @@ def build_notebook_closures(node) -> dict:
         change it with EditPipelineCell(name, content=…) or remove it with
         DeletePipelineCell. Creates pipeline.ipynb if absent."""
         import nbformat
+        node = self.node
         prefix = node._drain_notifications()
         if node._study_dir is None:
             return "ERROR: study_dir not available."
@@ -301,12 +371,12 @@ def build_notebook_closures(node) -> dict:
         if not name:
             return "ERROR: `name` is required."
         if name in _PILLARS or (name.endswith("__why")
-                                 and name[:-len("__why")] in _PILLARS):
+                                and name[:-len("__why")] in _PILLARS):
             return (f"ERROR: {name!r} belongs to a pillar's code cell or its "
                     "WHY-explainer — use AddPipelineCell instead.")
         if not (content or "").strip():
             return f"ERROR: `content` is empty for {name!r}."
-        nb, nb_path = _load_or_new_notebook()
+        nb, nb_path = self._load_or_new_notebook()
         by = _by_name(nb)
         if name in by:
             return (prefix + f"ERROR: {name!r} already exists "
@@ -321,7 +391,7 @@ def build_notebook_closures(node) -> dict:
         cell = nbformat.v4.new_markdown_cell(source)
         cell.metadata["name"] = name
         by[name] = cell
-        _emit_notebook(by, nb, nb_path)
+        self._emit_notebook(by, nb, nb_path)
         if _custom_name:
             return (prefix + f"Added custom {name!r} markdown cell (rev "
                     f"{_rev(cell['source'])}) to pipeline.ipynb, after the "
@@ -329,8 +399,7 @@ def build_notebook_closures(node) -> dict:
                     "EditPipelineCell / DeletePipelineCell.")
         return prefix + f"Added {name} cell (rev {_rev(cell['source'])}) to pipeline.ipynb."
 
-
-    def AddPipelineCell(phase: str, why: str, code: str) -> str:
+    def AddPipelineCell(self, phase: str, why: str, code: str) -> str:
         """CREATE one f3dasm-pillar cell in pipeline.ipynb, preceded by its
         WHY-explainer. `phase` is usually one of: doe, data_generation, ml,
         optimization, analysis — these are the standard pillars. A non-standard
@@ -346,6 +415,7 @@ def build_notebook_closures(node) -> dict:
         the ledger and print exactly 'REPRODUCED: <value>'. Creates
         pipeline.ipynb if absent."""
         import nbformat
+        node = self.node
         prefix = node._drain_notifications()
         if node._study_dir is None:
             return ("ERROR: no study directory is set for this run — an "
@@ -368,7 +438,7 @@ def build_notebook_closures(node) -> dict:
                     "rationale (the WHY-explainer the writeup always lacked).")
         if not (code or "").strip():
             return f"ERROR: `code` is empty for phase {phase!r}."
-        nb, nb_path = _load_or_new_notebook()
+        nb, nb_path = self._load_or_new_notebook()
         by = _by_name(nb)
         if phase in by:
             return (prefix + f"ERROR: phase {phase!r} already exists "
@@ -382,7 +452,7 @@ def build_notebook_closures(node) -> dict:
         cc.metadata["name"] = phase
         cc.metadata["tags"] = [phase]
         by[f"{phase}__why"], by[phase] = wc, cc
-        _emit_notebook(by, nb, nb_path)
+        self._emit_notebook(by, nb, nb_path)
         if _custom_phase:
             return (prefix + f"Added custom '{phase}' cell (rev {_rev(code)}) to "
                     f"pipeline.ipynb, after the standard pillars. '{phase}' isn't "
@@ -396,8 +466,7 @@ def build_notebook_closures(node) -> dict:
                 + (f" Still missing: {missing}." if missing else
                    " All pillars present — verify with CheckDeliverable()."))
 
-
-    def EditPipelineCell(name: str, why: str = None, code: str = None,
+    def EditPipelineCell(self, name: str, why: str = None, code: str = None,
                          content: str = None, old: str = None, new: str = None,
                          expected_rev: str = None) -> str:
         """Patch an EXISTING cell in pipeline.ipynb. `name` is any named cell: a
@@ -413,17 +482,11 @@ def build_notebook_closures(node) -> dict:
           pass `code=` and/or `why=`; for a MARKDOWN cell (problem / hypotheses /
           <pillar>__why) pass `content=`.
         Create cells with AddPipelineCell / AddPipelineMarkdownCell — this only edits."""
-        import nbformat
+        node = self.node
         prefix = node._drain_notifications()
         if node._study_dir is None:
             return "ERROR: study_dir not available."
         name = (name or "").strip()
-        # No static name-whitelist gate here: a custom cell (created via
-        # AddPipelineMarkdownCell's free-form path, or AddPipelineCell's
-        # custom-phase path) is a real cell in the notebook but isn't in the
-        # canonical _NB_ORDER list — the check below (against the notebook's
-        # ACTUAL contents) is what correctly distinguishes "doesn't exist yet"
-        # from "exists, edit it" for both canonical and custom names alike.
         surgical = old is not None or new is not None
         full = [k for k, v in (("code", code), ("why", why), ("content", content))
                 if v is not None]
@@ -433,78 +496,115 @@ def build_notebook_closures(node) -> dict:
         if not surgical and not full:
             return ("ERROR: pass `old`/`new` (surgical), or a full-field value: "
                     "`code`/`why` for a pillar, `content` for a markdown cell.")
-        nb, nb_path = _load_or_new_notebook()
+        nb, nb_path = self._load_or_new_notebook()
         by = _by_name(nb)
+        # No static name-whitelist gate here: a custom cell (created via
+        # AddPipelineMarkdownCell's free-form path, or AddPipelineCell's
+        # custom-phase path) is a real cell in the notebook but isn't in the
+        # canonical _NB_ORDER list — this check, against the notebook's ACTUAL
+        # contents, is what correctly distinguishes "doesn't exist yet" from
+        # "exists, edit it" for both canonical and custom names alike.
         if name not in by:
             return (prefix + f"ERROR: {name!r} is not in pipeline.ipynb yet — create "
                     "it with AddPipelineCell / AddPipelineMarkdownCell first. "
                     f"Present: {[k for k in _NB_ORDER if k in by]}.")
         cur_rev = _rev(by[name].get("source", ""))
-        is_pillar = name in _PILLARS
         if surgical:
-            if old is None or new is None:
-                return "ERROR: surgical edit needs BOTH `old` and `new`."
-            src = by[name].get("source", "")
-            cnt = src.count(old)
-            if cnt == 0:
-                return (prefix + f"ERROR: `old` not found in {name!r} (it may have "
-                        f"changed; current rev {cur_rev}). ShowNotebook('{name}') and retry.")
-            if cnt > 1:
-                return (prefix + f"ERROR: `old` occurs {cnt}× in {name!r} — include "
-                        "surrounding context so it matches exactly once.")
-            by[name]["source"] = src.replace(old, new, 1)
+            problem = self._apply_surgical_edit(by, name, old, new, cur_rev)
         else:
-            if expected_rev is None:
-                return (prefix + f"ERROR: full-field edit requires `expected_rev` "
-                        f"({name!r} is at rev {cur_rev}). ShowNotebook('{name}') to "
-                        "confirm the content, then pass that rev.")
-            if expected_rev != cur_rev:
-                return (prefix + f"ERROR: {name!r} changed since rev {expected_rev} "
-                        f"(now {cur_rev}). ShowNotebook('{name}') to see the current "
-                        "content, then retry.")
-            if is_pillar:
-                if content is not None:
-                    return (f"ERROR: {name!r} is a pillar — use `code=` and/or "
-                            "`why=`, not `content=`.")
-                if code is not None:
-                    if not code.strip():
-                        return f"ERROR: `code` is empty for {name!r}."
-                    by[name]["source"] = code
-                if why is not None:
-                    if not why.strip():
-                        return "ERROR: `why` is empty."
-                    wname = f"{name}__why"
-                    body = f"### {name}\n\n" + _strip_leading_md_header(why)
-                    if wname in by:
-                        by[wname]["source"] = body
-                    else:
-                        wc = nbformat.v4.new_markdown_cell(body)
-                        wc.metadata["name"] = wname
-                        by[wname] = wc
-            else:
-                # markdown cell: problem / hypotheses / verdict / <pillar>__why /
-                # a free-form custom name (AddPipelineMarkdownCell's custom path)
-                if code is not None or why is not None:
-                    return (f"ERROR: {name!r} is a markdown cell — use `content=`, "
-                            "not `code=`/`why=`.")
-                if not content.strip():
-                    return f"ERROR: `content` is empty for {name!r}."
-                if name in _NARRATIVE:
-                    heading = _NARRATIVE[name]
-                elif name.endswith("__why"):
-                    heading = f"### {name[:-len('__why')]}"
-                else:
-                    heading = None  # free-form custom cell — no forced heading
-                by[name]["source"] = (
-                    heading + "\n\n" + _strip_leading_md_header(content)
-                    if heading is not None else content
-                )
-        _emit_notebook(by, nb, nb_path)
+            problem = self._apply_full_field_edit(
+                by, name, why, code, content, expected_rev, cur_rev)
+        if problem is not None:
+            return prefix + problem
+        self._emit_notebook(by, nb, nb_path)
         new_rev = _rev(by[name].get("source", ""))
         return prefix + f"Edited {name} in pipeline.ipynb (rev {cur_rev} → {new_rev})."
 
+    def _apply_surgical_edit(
+        self, by: dict, name: str, old: str | None, new: str | None, cur_rev: str
+    ) -> str | None:
+        """Literal find/replace on one cell. Returns a refusal, or None on success.
 
-    def DeletePipelineCell(name: str, expected_rev: str = None) -> str:
+        Self-guarding: if the cell changed since the author read it, `old` will
+        not match, so no expected_rev is needed.
+        """
+        if old is None or new is None:
+            return "ERROR: surgical edit needs BOTH `old` and `new`."
+        src = by[name].get("source", "")
+        cnt = src.count(old)
+        if cnt == 0:
+            return (f"ERROR: `old` not found in {name!r} (it may have "
+                    f"changed; current rev {cur_rev}). ShowNotebook('{name}') and retry.")
+        if cnt > 1:
+            return (f"ERROR: `old` occurs {cnt}× in {name!r} — include "
+                    "surrounding context so it matches exactly once.")
+        by[name]["source"] = src.replace(old, new, 1)
+        return None
+
+    def _apply_full_field_edit(
+        self,
+        by: dict,
+        name: str,
+        why: str | None,
+        code: str | None,
+        content: str | None,
+        expected_rev: str | None,
+        cur_rev: str,
+    ) -> str | None:
+        """Replace a whole field of one cell. Returns a refusal, or None.
+
+        Optimistic concurrency: the caller must present the rev it last saw, so
+        it cannot blindly overwrite a cell that changed underneath it.
+        """
+        import nbformat
+        if expected_rev is None:
+            return (f"ERROR: full-field edit requires `expected_rev` "
+                    f"({name!r} is at rev {cur_rev}). ShowNotebook('{name}') to "
+                    "confirm the content, then pass that rev.")
+        if expected_rev != cur_rev:
+            return (f"ERROR: {name!r} changed since rev {expected_rev} "
+                    f"(now {cur_rev}). ShowNotebook('{name}') to see the current "
+                    "content, then retry.")
+        if name in _PILLARS:
+            if content is not None:
+                return (f"ERROR: {name!r} is a pillar — use `code=` and/or "
+                        "`why=`, not `content=`.")
+            if code is not None:
+                if not code.strip():
+                    return f"ERROR: `code` is empty for {name!r}."
+                by[name]["source"] = code
+            if why is not None:
+                if not why.strip():
+                    return "ERROR: `why` is empty."
+                wname = f"{name}__why"
+                body = f"### {name}\n\n" + _strip_leading_md_header(why)
+                if wname in by:
+                    by[wname]["source"] = body
+                else:
+                    wc = nbformat.v4.new_markdown_cell(body)
+                    wc.metadata["name"] = wname
+                    by[wname] = wc
+            return None
+        # markdown cell: problem / hypotheses / verdict / <pillar>__why /
+        # a free-form custom name (AddPipelineMarkdownCell's custom path)
+        if code is not None or why is not None:
+            return (f"ERROR: {name!r} is a markdown cell — use `content=`, "
+                    "not `code=`/`why=`.")
+        if not content.strip():
+            return f"ERROR: `content` is empty for {name!r}."
+        if name in _NARRATIVE:
+            heading = _NARRATIVE[name]
+        elif name.endswith("__why"):
+            heading = f"### {name[:-len('__why')]}"
+        else:
+            heading = None  # free-form custom cell — no forced heading
+        by[name]["source"] = (
+            heading + "\n\n" + _strip_leading_md_header(content)
+            if heading is not None else content
+        )
+        return None
+
+    def DeletePipelineCell(self, name: str, expected_rev: str = None) -> str:
         """Remove a cell from pipeline.ipynb. `name` is any named cell: a pillar
         (doe, data_generation, ml, optimization, analysis) — which also removes its
         '<pillar>__why' explainer — or a narrative cell (problem, hypotheses,
@@ -513,11 +613,12 @@ def build_notebook_closures(node) -> dict:
         saw, from ShowNotebook or a prior Add/Edit) so you cannot delete a cell that
         changed since you last saw it."""
         import nbformat
+        node = self.node
         prefix = node._drain_notifications()
         if node._study_dir is None:
             return "ERROR: study_dir not available."
         name = (name or "").strip()
-        nb, nb_path = _load_or_new_notebook()
+        nb, nb_path = self._load_or_new_notebook()
         by = _by_name(nb)
         if name not in by:
             return prefix + f"Nothing to delete: {name!r} not in pipeline.ipynb."
@@ -538,8 +639,7 @@ def build_notebook_closures(node) -> dict:
         return (prefix + f"Deleted {name} from pipeline.ipynb. "
                 f"Pillars present: {present}.")
 
-
-    def ShowNotebook(name: str = None) -> str:
+    def ShowNotebook(self, name: str = None) -> str:
         """Read pipeline.ipynb back. NO argument → a BRIEF table of contents
         LISTING EVERY CELL BY NAME in canonical order, each with its type, rev,
         and first source line, plus which pillars are present/missing — call this
@@ -547,6 +647,7 @@ def build_notebook_closures(node) -> dict:
         pillar, or a '<pillar>__why' explainer) → the FULL source of that cell and
         its rev (the rev you then pass as `expected_rev` to EditPipelineCell /
         DeletePipelineCell). Read-only; never creates the file; free."""
+        node = self.node
         prefix = node._drain_notifications()
         if node._study_dir is None:
             return "ERROR: study_dir not available."
@@ -554,7 +655,7 @@ def build_notebook_closures(node) -> dict:
         if not nb_path.exists():
             return prefix + ("pipeline.ipynb does not exist yet — author it with "
                              "AddPipelineMarkdownCell / AddPipelineCell.")
-        nb, _ = _load_or_new_notebook()
+        nb, _ = self._load_or_new_notebook()
         by = _by_name(nb)
         if name is not None:
             name = name.strip()
@@ -585,8 +686,9 @@ def build_notebook_closures(node) -> dict:
                 + f"\n\nPillars present: {present}."
                 + (f" Missing: {missing}." if missing else " All present."))
 
+    # ── Reading the ledger, and running things against a copy of it ──────────
 
-    def LedgerBreakdown() -> str:
+    def LedgerBreakdown(self) -> str:
         """Show, per experiment and per delegation, how many ledgered evaluations
         each contributed — read live from the canonical store. Use this at REPORT
         time to DERIVE eval counts for the writeup/hypothesis evidence instead of
@@ -601,6 +703,7 @@ def build_notebook_closures(node) -> dict:
 
         The numbers here are the ones pipeline.ipynb will reproduce — quote THESE,
         never a remembered figure."""
+        node = self.node
         prefix = node._drain_notifications()
         notes = getattr(node, "_current_notes_dir", None)
         if notes is None:
@@ -638,8 +741,7 @@ def build_notebook_closures(node) -> dict:
             lines.append(f"— run total: {grand} ledgered evaluations")
         return prefix + "\n".join(lines)
 
-
-    def RunScratch(code: str) -> str:
+    def RunScratch(self, code: str) -> str:
         """Run a short Python snippet against a COPY of the canonical ledger and
         return its stdout/stderr — your scratchpad for INSPECTING state before
         committing it to pipeline.ipynb. f3dasm and a3dasm are importable and
@@ -654,33 +756,14 @@ def build_notebook_closures(node) -> dict:
         and does NOT count toward the eval budget. Use it to debug instead of
         guessing (e.g. 'does hypotheses.json load? does h_dict populate?')
         rather than discovering a silent bug only at CheckDeliverable."""
-        import json as _json
-        import shutil as _shutil
         import subprocess as _sub
-        import tempfile as _tempfile
+        node = self.node
         prefix = node._drain_notifications()
         if not (code or "").strip():
             return prefix + "ERROR: `code` is empty."
-        notes = getattr(node, "_current_notes_dir", None)
-        if notes is None:
+        if getattr(node, "_current_notes_dir", None) is None:
             return prefix + "ERROR: no run context available for scratch execution."
-        run_dir = notes.parent.parent
-        store_dir = run_dir / "experiment_data"
-        run_config = run_dir / "debug" / "run_config.json"
-        sandbox = Path(_tempfile.mkdtemp(prefix="f3dasm_scratch_"))
-        try:
-            sb_store = sandbox / "experiment_data"
-            if store_dir.exists():
-                _shutil.copytree(store_dir, sb_store)
-            else:
-                sb_store.mkdir(parents=True, exist_ok=True)
-            _cfg = (_json.loads(run_config.read_text())
-                    if run_config.exists() else {})
-            _cfg["store_dir"] = str(sb_store)
-            sb_cfg = sandbox / "run_config.json"
-            sb_cfg.write_text(_json.dumps(_cfg))
-            from ....evaluation.notebook_exec import sandbox_env
-            env = sandbox_env(sb_store, sb_cfg, study_root=node._study_dir)
+        with self._ledger_sandbox("f3dasm_scratch_") as (sandbox, env):
             snippet = sandbox / "_scratch.py"
             snippet.write_text(code)
             try:
@@ -696,11 +779,8 @@ def build_notebook_closures(node) -> dict:
             return (prefix + f"[scratch exit {proc.returncode}]\n--- stdout ---\n"
                     + (out or "(empty)")
                     + (f"\n--- stderr ---\n{err}" if err.strip() else ""))
-        finally:
-            _shutil.rmtree(sandbox, ignore_errors=True)
 
-
-    def RunPipelineCell(name: str = None) -> str:
+    def RunPipelineCell(self, name: str = None) -> str:
         """Execute pipeline.ipynb against a COPY of the canonical ledger and return
         a PER-CELL trace — the cell-level debugger CheckDeliverable's binary
         pass/fail lacks. With `name` (any named CODE cell — a standard pillar
@@ -713,35 +793,16 @@ def build_notebook_closures(node) -> dict:
         real ledger or pipeline.ipynb) and does NOT count toward the eval
         budget. Use it to localize a CheckDeliverable failure to one cell
         before editing, instead of re-running the binary gate blindly."""
-        import json as _json
-        import shutil as _shutil
         import subprocess as _sub
-        import tempfile as _tempfile
+        node = self.node
         prefix = node._drain_notifications()
         nb_path = Path(node._study_dir) / "pipeline.ipynb"
         if not nb_path.exists():
             return prefix + ("No pipeline.ipynb yet — author it first "
                              "(AddPipelineCell / AddPipelineMarkdownCell).")
-        notes = getattr(node, "_current_notes_dir", None)
-        if notes is None:
+        if getattr(node, "_current_notes_dir", None) is None:
             return prefix + "ERROR: no run context available for cell execution."
-        run_dir = notes.parent.parent
-        store_dir = run_dir / "experiment_data"
-        run_config = run_dir / "debug" / "run_config.json"
-        sandbox = Path(_tempfile.mkdtemp(prefix="f3dasm_cell_"))
-        try:
-            sb_store = sandbox / "experiment_data"
-            if store_dir.exists():
-                _shutil.copytree(store_dir, sb_store)
-            else:
-                sb_store.mkdir(parents=True, exist_ok=True)
-            _cfg = (_json.loads(run_config.read_text())
-                    if run_config.exists() else {})
-            _cfg["store_dir"] = str(sb_store)
-            sb_cfg = sandbox / "run_config.json"
-            sb_cfg.write_text(_json.dumps(_cfg))
-            from ....evaluation.notebook_exec import sandbox_env
-            env = sandbox_env(sb_store, sb_cfg, study_root=node._study_dir)
+        with self._ledger_sandbox("f3dasm_cell_") as (sandbox, env):
             try:
                 from ....evaluation.notebook_exec import diagnose_notebook
                 trace = diagnose_notebook(
@@ -758,49 +819,54 @@ def build_notebook_closures(node) -> dict:
                         "cell (a markdown-only cell like 'problem' or "
                         "'verdict' has no execution state to run up to). "
                         "Use ShowNotebook() to see the cells.")
-            lines = []
-            scope = (f"up to & including '{name}'" if name
-                     else "whole notebook")
-            for c in trace["cells"]:
-                if c["cell_type"] != "code":
-                    continue
-                tag = "ERROR" if c["errored"] else "ok"
-                nm = c["name"] or f"cell{c['index']}"
-                lines.append(f"  [{tag}] {nm}")
-                out = (c["stdout"] or "").strip()
-                if out:
-                    lines.append("        stdout: " + out[-300:].replace("\n", "\n        "))
-                if c["errored"]:
-                    lines.append("        " + (c["error"] or "").strip()[-700:].replace("\n", "\n        "))
-            fe = trace["first_error"]
-            head = (
-                f"{'TIMED OUT — ' if trace['timed_out'] else ''}"
-                f"per-cell trace ({scope}, against a COPY of the ledger):\n"
-                + ("\n".join(lines) or "  (no code cells)")
-            )
-            verdict = (
-                f"\n\nFIRST FAILURE: cell '{fe['name'] or fe['index']}' — fix this "
-                "cell, then RunPipelineCell() again or CheckDeliverable()."
-                if fe else
-                "\n\nAll code cells ran without error against the copy. If "
-                "CheckDeliverable still fails, the issue is the gate's checks "
-                "(zero-new-evals / REPRODUCED line / ledger unchanged), not a cell "
-                "exception."
-            )
-            return prefix + head + verdict
-        finally:
-            _shutil.rmtree(sandbox, ignore_errors=True)
+            return prefix + _render_cell_trace(trace, name)
 
 
+def _render_cell_trace(trace: dict, name: str | None) -> str:
+    """Format a per-cell execution trace: one line per code cell, then a verdict."""
+    lines = []
+    scope = f"up to & including '{name}'" if name else "whole notebook"
+    for c in trace["cells"]:
+        if c["cell_type"] != "code":
+            continue
+        tag = "ERROR" if c["errored"] else "ok"
+        nm = c["name"] or f"cell{c['index']}"
+        lines.append(f"  [{tag}] {nm}")
+        out = (c["stdout"] or "").strip()
+        if out:
+            lines.append("        stdout: " + out[-300:].replace("\n", "\n        "))
+        if c["errored"]:
+            lines.append("        " + (c["error"] or "").strip()[-700:].replace("\n", "\n        "))
+    fe = trace["first_error"]
+    head = (
+        f"{'TIMED OUT — ' if trace['timed_out'] else ''}"
+        f"per-cell trace ({scope}, against a COPY of the ledger):\n"
+        + ("\n".join(lines) or "  (no code cells)")
+    )
+    verdict = (
+        f"\n\nFIRST FAILURE: cell '{fe['name'] or fe['index']}' — fix this "
+        "cell, then RunPipelineCell() again or CheckDeliverable()."
+        if fe else
+        "\n\nAll code cells ran without error against the copy. If "
+        "CheckDeliverable still fails, the issue is the gate's checks "
+        "(zero-new-evals / REPRODUCED line / ledger unchanged), not a cell "
+        "exception."
+    )
+    return head + verdict
+
+
+def build_notebook_closures(node) -> dict:
+    """The notebook-authoring tools for one node, by registered name."""
+    t = NotebookTools(node)
     return {
-        "WriteDeliverable": WriteDeliverable,
-        "CheckDeliverable": CheckDeliverable,
-        "AddPipelineMarkdownCell": AddPipelineMarkdownCell,
-        "AddPipelineCell": AddPipelineCell,
-        "EditPipelineCell": EditPipelineCell,
-        "DeletePipelineCell": DeletePipelineCell,
-        "ShowNotebook": ShowNotebook,
-        "LedgerBreakdown": LedgerBreakdown,
-        "RunScratch": RunScratch,
-        "RunPipelineCell": RunPipelineCell,
+        "WriteDeliverable": t.WriteDeliverable,
+        "CheckDeliverable": t.CheckDeliverable,
+        "AddPipelineMarkdownCell": t.AddPipelineMarkdownCell,
+        "AddPipelineCell": t.AddPipelineCell,
+        "EditPipelineCell": t.EditPipelineCell,
+        "DeletePipelineCell": t.DeletePipelineCell,
+        "ShowNotebook": t.ShowNotebook,
+        "LedgerBreakdown": t.LedgerBreakdown,
+        "RunScratch": t.RunScratch,
+        "RunPipelineCell": t.RunPipelineCell,
     }
