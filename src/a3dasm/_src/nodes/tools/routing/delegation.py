@@ -1921,8 +1921,13 @@ class DelegationTools:
         with node._notifications_lock:
             _notifs = list(node._notifications)
             node._notifications.clear()
-        for _notif in _notifs:
-            out += _notif + "\n\n"
+        # Marked, exactly as _drain_notifications marks the same messages
+        # outside a Wait. These are a3dasm speaking to the agent; emitting
+        # them bare here made an identical notification render as the tool's
+        # own output purely because it arrived DURING a Wait rather than
+        # before one (see nodes/notices.py for why the marker, not a regex).
+        if _notifs:
+            out += wrap_notice("\n".join(_notifs))
         if node._science_monitor is not None:
             drift = node._science_monitor.drain()
             if drift:

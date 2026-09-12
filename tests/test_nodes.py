@@ -3689,3 +3689,26 @@ def test_gate_prompt_and_runscratch_point_at_namespace_aware_reads():
     assert "audit the ledger yourself: call RecallStore()" in src
     assert "misses any namespace store" in src
     assert "load_experiments()" in src
+
+
+def test_notifications_drained_mid_wait_keep_their_notice_marker():
+    """Regression (run 20260912T142229): _drain_while_waiting concatenated
+    each pending notification RAW while wrapping science drift right below
+    it, so an identical notification was marked or unmarked purely by whether
+    it arrived before a Wait() or during one. Observed in that run's
+    transcript: "[Delegation D001 Done]" inside <a3dasm-note>, "[Delegation
+    D002 Done]" outside it, in the same tool result."""
+    import inspect
+
+    from a3dasm._src.nodes.notices import NOTICE_OPEN
+    from a3dasm._src.nodes.tools.routing.delegation import DelegationTools
+
+    src = inspect.getsource(DelegationTools._drain_while_waiting)
+    assert "wrap_notice" in src
+    # the notification branch, not only the science-drift branch, must wrap
+    notif_block = src.split("_science_monitor")[0]
+    assert "wrap_notice" in notif_block, (
+        "pending notifications are emitted unmarked mid-Wait; they render as "
+        "the tool's own output instead of as a3dasm speaking"
+    )
+    assert NOTICE_OPEN
