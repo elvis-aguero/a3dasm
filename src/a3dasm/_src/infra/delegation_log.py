@@ -176,16 +176,31 @@ class DelegationLog:
                 f.write(json.dumps(record) + "\n")
 
     def query_received(
-        self, node_name: str, n: int | None = None
+        self,
+        node_name: str,
+        n: int | None = None,
+        include_in_flight: bool = False,
     ) -> list[dict]:
         """Return last n records where to_node == node_name, oldest-first.
 
         Returns all matching records if n is None.
+
+        Still-RUNNING records are excluded by default. record_started() appends
+        a RUNNING row with an empty deliverable BEFORE the worker is invoked,
+        so the delegation a node is executing right now is already in the log
+        when that node calls RecallHistory — without this filter it recalls
+        its own in-flight task as "prior work" with a blank deliverable.
+        _load_all collapses by id last-wins, so a finished delegation's DONE
+        row supersedes its RUNNING row and is never filtered here; only
+        genuinely in-flight records are. Terminal statuses other than DONE
+        (FAILED, the critic's GATE:*) are history and are kept.
         """
         with self._lock:
             records = self._load_all()
 
         matching = [r for r in records if r.get("to_node") == node_name]
+        if not include_in_flight:
+            matching = [r for r in matching if r.get("status") != "RUNNING"]
         if n is not None:
             # MCP string-in tools may pass n as "6"; `matching[-n:]` would raise
             # "bad operand type for unary -: 'str'". Coerce here so every caller

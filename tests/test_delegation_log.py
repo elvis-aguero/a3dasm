@@ -249,3 +249,44 @@ def test_query_received_coerces_string_n(tmp_path):
     assert len(got) == 2
     # garbage n degrades gracefully to "all", not a crash
     assert len(log.query_received("implementer", "not-a-number")) == 4
+
+
+# ---------------------------------------------------------------------------
+# query_received excludes the still-RUNNING (in-flight) delegation
+# ---------------------------------------------------------------------------
+
+def test_query_received_excludes_in_flight_delegation(tmp_path):
+    """Regression (run 20260912T142229, D002): record_started() appends a RUNNING
+    row with an empty deliverable BEFORE the worker runs, so math_expert's
+    RecallHistory() returned its OWN in-flight task as 'Prior delegation 1'
+    with a blank deliverable. History is completed work."""
+    log = _make_log(tmp_path)
+    _record(log, id="D001", to_node="math_expert", task="earlier work")
+    log.record_started(
+        id="D002",
+        from_node="strategizer",
+        to_node="math_expert",
+        task="the task being executed right now",
+        hypothesis_ids=["H1"],
+        started_at="2026-09-12T14:23:52+00:00",
+    )
+
+    got = log.query_received("math_expert")
+    assert [r["id"] for r in got] == ["D001"]
+
+    # n-slicing happens AFTER the filter, so n=1 still yields real history
+    assert [r["id"] for r in log.query_received("math_expert", 1)] == ["D001"]
+
+    # opt-in still sees it, for callers that want the live picture
+    assert [
+        r["id"] for r in log.query_received("math_expert", include_in_flight=True)
+    ] == ["D001", "D002"]
+
+
+def test_query_received_keeps_non_done_terminal_statuses(tmp_path):
+    """FAILED and the critic's GATE:* rows are history, not in-flight: the
+    critic's own RecallHistory depends on seeing what it already ruled."""
+    log = _make_log(tmp_path)
+    _record(log, id="G1", to_node="critic", status="GATE:PASS")
+    _record(log, id="D9", to_node="critic", status="FAILED")
+    assert [r["id"] for r in log.query_received("critic")] == ["G1", "D9"]
