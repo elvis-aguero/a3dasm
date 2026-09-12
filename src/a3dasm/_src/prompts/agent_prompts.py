@@ -1,17 +1,32 @@
-"""System prompts for the agentic-f3dasm specialist-team runtime.
+"""The runtime prompt strings that belong to no single agent.
 
-This module ships all string constants that bootstrap the default 5-node
-graph (strategizer, literature_reviewer, datagenerator, implementer,
-critic) used by ``a3dasm.run``.  They are kept in one place so
-the prompts can be versioned, reviewed, and improved independently of
-the routing runtime.
+This module does NOT own the per-role system prompts.  Each one lives
+beside the agent it belongs to — ``agents/strategizer.py``,
+``agents/implementer.py``, ``agents/critic.py``, ``agents/literature.py``,
+``agents/debugger.py`` — and is re-exported here only so that existing
+``from ...agent_prompts import X`` imports keep working.  Edit a role's
+prompt in its own agent module; editing is not done here.
+
+What this module genuinely owns is the text the runtime injects that has
+no single owning role: the two system-prompt PREAMBLES every node gets
+(``RUN_PATHS_PREAMBLE_TEMPLATE`` for the graph's entry node,
+``WORKSPACE_PREAMBLE_TEMPLATE`` for every other node — see
+``runtime/agent_runtime.py::_make_adapter``), the checkpoint and reset
+messages, and the report-retry / REFLECT diagnosis strings.
+
+For the rest of what reaches an agent's context — the handbook menu and
+chapters (``knowledge/``), the falsification charter
+(``knowledge/charter.py``), the f3dasm idioms (``knowledge/idioms.py``),
+and the tool catalog rendered from each tool's own docstring
+(``prompts/tool_catalog.py``) — see those modules.  This one is a
+sliver of the corpus, not its index.
 
 Constants
 ---------
 STRATEGIZER_SYSTEM_PROMPT
-    System prompt for the long-running Strategizer (thinker) session.
+    Re-export of ``agents.strategizer.STRATEGIZER_SYSTEM_PROMPT``.
 IMPLEMENTER_SYSTEM_PROMPT
-    System prompt for the long-running Implementer (doer) session.
+    Re-export of ``agents.implementer.IMPLEMENTER_SYSTEM_PROMPT``.
 CHECKPOINT_STRATEGIZER_PROMPT
     User-message injected into the Strategizer every 30 delegations.
 IMPLEMENTER_RESET_PROMPT_TEMPLATE
@@ -19,13 +34,21 @@ IMPLEMENTER_RESET_PROMPT_TEMPLATE
     freshly-reset Implementer after a checkpoint.  Single placeholder:
     ``{checkpoint_summary}``.
 RUN_PATHS_PREAMBLE_TEMPLATE
-    ``.format()``-ready preamble prepended to the Strategizer system
-    prompt at the start of every run.  Placeholders: ``{study_dir}``,
-    ``{run_dir}``, ``{debug_dir}``, ``{notes_dir}``,
-    ``{experiment_data_dir}``.
+    ``.format()``-ready preamble prepended to the system prompt of the
+    graph's ENTRY node — whichever node that is, not the strategizer by
+    name.  Placeholders: ``{study_dir}``, ``{run_dir}``, ``{debug_dir}``,
+    ``{notes_dir}``, ``{experiment_data_dir}``, ``{resources}``,
+    ``{knowledge}``.
 WORKSPACE_PREAMBLE_TEMPLATE
-    ``.format()``-ready preamble prepended to the Implementer system
-    prompt at the start of every run.  Placeholder: ``{workspace_dir}``.
+    ``.format()``-ready preamble prepended to the system prompt of every
+    NON-entry node, worker and critic alike.  Placeholders:
+    ``{workspace_dir}``, ``{study_dir}``, ``{resources}``, ``{knowledge}``.
+
+    ``{resources}`` is live host facts from ``_resource_stanza()``;
+    ``{knowledge}`` is the audience-filtered handbook menu from
+    ``_kb_menu(role)``.  Both are computed per run in
+    ``runtime/agent_runtime.py::_make_adapter``, which is also the single
+    place that chooses between these two templates.
 IMPLEMENTER_REPORT_RETRY_PROMPT
     Static correction message sent to the Implementer when its first
     reply lacks a parseable ``## Report`` block.
