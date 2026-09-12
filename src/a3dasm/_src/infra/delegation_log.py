@@ -94,8 +94,16 @@ class DelegationLog:
         evals: int = 0,
         phase: str | None = None,
         constraints: dict | None = None,
+        workspace_sha: str | None = None,
     ) -> None:
         """Append one delegation record.
+
+        ``workspace_sha`` is the commit this delegation produced in the run's
+        workspace repository (spec 11) — the mechanical answer to "which files
+        did this delegation change", as opposed to the deliverable's own
+        account of it. Additive and default None: a run whose workspace could
+        not be version-controlled, and every record written before spec 11,
+        simply carries no sha.
 
         task and deliverable are stored in full. ``phase`` is the optional
         f3dasm process phase this delegation belongs to (DoE / DataGeneration /
@@ -123,6 +131,7 @@ class DelegationLog:
             "evals": evals,
             "phase": phase,
             "constraints": constraints,
+            "workspace_sha": workspace_sha,
         }
         with self._lock:
             with self._path.open("a", encoding="utf-8") as f:

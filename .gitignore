@@ -55,3 +55,9 @@ dist/
 /PLAN.md
 /*_SUMMARY.md
 /HANDOFF*.md
+
+# Run artifacts. Each run's debug/delegations/ is its OWN git repository
+# (spec 11: one commit per delegation), so this is not merely noise-filtering:
+# without it a `git add -A` here would absorb that nested repo as a gitlink
+# and commit a broken submodule reference into a3dasm.
+studies/*/runs/

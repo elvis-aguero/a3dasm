@@ -18,6 +18,7 @@ from ..agents import ImplementerAgent, StrategizerAgent, _default_graph
 from ..backends.base import Agent, Graph
 from ..infra.container_runner import ContainerRunner
 from ..infra.delegation_log import DelegationLog
+from ..infra.workspace_vcs import init_workspace_repo
 from ..prompts.agent_prompts import (
     RUN_PATHS_PREAMBLE_TEMPLATE,
     WORKSPACE_PREAMBLE_TEMPLATE,
@@ -448,6 +449,11 @@ class AgenticRun:
         # workspace_dir for worker delegations
         workspace_dir = debug_dir / "delegations"
         workspace_dir.mkdir(parents=True, exist_ok=True)
+        # One git repo per run, one commit per delegation (spec 11): makes
+        # "which files did this delegation change" evidence instead of the
+        # agent's own testimony. Never fatal — a run whose workspace cannot be
+        # version-controlled records no sha and proceeds unchanged.
+        init_workspace_repo(workspace_dir)
 
         thread_id = self._resolve_thread_id(debug_dir, resume)
 

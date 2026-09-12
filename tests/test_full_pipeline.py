@@ -413,3 +413,48 @@ def test_run_log_does_not_falsely_claim_the_notebook_was_stamped(tmp_path):
         f"Expected run.log to honestly report the missing deliverable; "
         f"log:\n{log_text}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Spec 11 — the workspace repo, end to end through a real run
+# ---------------------------------------------------------------------------
+
+
+def test_run_initialises_a_workspace_repo(pipeline_run):
+    """_prepare_run version-controls debug/delegations/ for the run."""
+    import subprocess
+    _, study = pipeline_run
+    ws = next((study / "runs").iterdir()) / "debug" / "delegations"
+    assert (ws / ".git").exists()
+    count = subprocess.run(
+        ["git", f"--git-dir={ws / '.git'}", f"--work-tree={ws}",
+         "rev-list", "--count", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    # root commit + one per delegation
+    assert int(count) == 1 + 2
+
+
+def test_every_delegation_record_carries_a_resolvable_workspace_sha(pipeline_run):
+    """The KPI of spec 11: 'which files did this delegation change' is answered
+    by the record, not by the deliverable's own prose."""
+    import subprocess
+    from a3dasm._src.infra.delegation_log import DelegationLog
+
+    _, study = pipeline_run
+    run_dir = next((study / "runs").iterdir())
+    ws = run_dir / "debug" / "delegations"
+    records = DelegationLog(run_dir / "debug" / "delegation_log.jsonl").query_all()
+
+    assert records
+    for rec in records:
+        sha = rec.get("workspace_sha")
+        assert sha, f"{rec['id']} carries no workspace_sha"
+        done = subprocess.run(
+            ["git", f"--git-dir={ws / '.git'}", f"--work-tree={ws}",
+             "cat-file", "-t", sha],
+            capture_output=True, text=True,
+        )
+        assert done.returncode == 0 and done.stdout.strip() == "commit", (
+            f"{rec['id']}'s workspace_sha {sha!r} does not resolve"
+        )

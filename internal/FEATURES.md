@@ -288,6 +288,30 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 - **Where:** `backends/base.py`'s `Agent.build_closure_tools` default.
   **Status:** core.
 
+### Delegation-bounded version control of the run workspace
+- **What:** one git repository per run, rooted at the run's own
+  `debug/delegations/` workspace, with one commit per delegation (DONE and
+  FAILED alike) and the resulting sha stamped onto that delegation's record as
+  `workspace_sha`. Answers "which files did this delegation change" from the
+  record rather than from the deliverable's own prose — the reproduction gate
+  proves the notebook runs, it cannot prove a delegation's account of its own
+  edits is faithful. Agents get no git tool and never see the repo: the
+  harness commits on their behalf, since an agent that can rewrite the history
+  recording its work defeats the purpose. The workspace normally sits INSIDE a
+  checkout of a3dasm, so every git call pins `--git-dir`/`--work-tree`
+  explicitly (no directory discovery, no walking up into the parent repo, and
+  those flags outrank inherited `GIT_DIR`/`GIT_WORK_TREE`), config is passed
+  per-invocation so a global `commit.gpgsign` or `core.hooksPath` cannot block
+  or hijack a commit, and `.gitignore` excludes `studies/*/runs/` so the parent
+  cannot absorb the nested repo as a gitlink. Never fatal: no git, no repo, or
+  a failed commit records `workspace_sha=None` and the run proceeds.
+- **Where:** `infra/workspace_vcs.py` (`init_workspace_repo`,
+  `commit_workspace`), initialised in `runtime/agent_runtime.py::_prepare_run`,
+  committed in `nodes/tools/routing/delegation.py::WorkerSession._commit_workspace`
+  from both `_finish_ok` and `_finish_error`; `workspace_sha` on
+  `infra/delegation_log.py::DelegationLog.record`. See
+  `internal/specs/11-delegation-bounded-version-control.md`. **Status:** core
+
 ### MathExpert — verified symbolic derivation
 - **What:** a specialist agent (NOT part of `_default_graph()` — opt-in via a
   custom `Graph`, same precedent as `DebuggerAgent`) that authors and runs a
