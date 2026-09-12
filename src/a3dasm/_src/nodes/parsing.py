@@ -51,7 +51,7 @@ def _resolve_delegation_evals(
     if run_exp_dir is None:
         return reported
     try:
-        from ..evaluation.instrumented import delegation_evals
+        from ..evaluation.ledger_summary import delegation_evals
         ledgered = delegation_evals(run_exp_dir, delegation_id)
         if ledgered > 0:
             return ledgered
@@ -73,7 +73,7 @@ def _stamped_eval_count(run_exp_dir: Path | None, delegation_id: str) -> int:
     if run_exp_dir is None:
         return 0
     try:
-        from ..evaluation.instrumented import delegation_evals
+        from ..evaluation.ledger_summary import delegation_evals
         return delegation_evals(run_exp_dir, delegation_id)
     except Exception:  # noqa: BLE001
         return 0

@@ -126,12 +126,12 @@ def _make_dlog_record(
 
 class TestRunStateSummaryEmpty:
     def test_from_store_returns_none_when_no_store(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         result = RunStateSummary.from_store(tmp_path)
         assert result is None
 
     def test_from_store_returns_none_when_only_dir_exists(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         (tmp_path / "experiment_data").mkdir()
         result = RunStateSummary.from_store(tmp_path)
         assert result is None
@@ -139,7 +139,7 @@ class TestRunStateSummaryEmpty:
 
 class TestRunStateSummaryPopulated:
     def test_n_rows(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [
             (0.1, 1.0, "D001"),
             (0.2, 2.0, "D001"),
@@ -152,7 +152,7 @@ class TestRunStateSummaryPopulated:
         assert s.n_rows == 5
 
     def test_n_per_delegation(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [
             (0.1, 1.0, "D001"),
             (0.2, 2.0, "D001"),
@@ -162,7 +162,7 @@ class TestRunStateSummaryPopulated:
         assert s.n_per_delegation == {"D001": 2, "D002": 1}
 
     def test_n_per_source(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         # source column is always "test" in _build_store
         _build_store(tmp_path, [(0.1, 1.0, "D001"), (0.2, 2.0, "D001")])
         s = RunStateSummary.from_store(tmp_path)
@@ -170,7 +170,7 @@ class TestRunStateSummaryPopulated:
         assert s.n_per_source["test"] == 2
 
     def test_output_stats_excludes_provenance(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [
             (0.1, 1.0, "D001"),
             (0.2, 2.0, "D001"),
@@ -188,13 +188,13 @@ class TestRunStateSummaryPopulated:
         assert stats["mean"] == pytest.approx(2.0)
 
     def test_n_per_fidelity_none_when_no_column(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [(0.1, 1.0, "D001")])
         s = RunStateSummary.from_store(tmp_path, fidelity_column="fidelity")
         assert s.n_per_fidelity is None
 
     def test_n_per_fidelity_populated_when_column_present(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [
             (0.1, 1.0, "D001", 1.0),
             (0.2, 2.0, "D001", 2.0),
@@ -207,7 +207,7 @@ class TestRunStateSummaryPopulated:
 
     def test_mean_eval_wall_ms_excludes_pool_and_nan(self, tmp_path):
         """Spec A: overall mean per-eval wall-time, dropping D000/pool rows."""
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         dom = Domain()
         dom.add_float("x0", 0.0, 1.0)
         for k in ("f", "_delegation_id", "_source", "_ts", "_wall_ms"):
@@ -235,14 +235,14 @@ class TestRunStateSummaryPopulated:
         assert "mean eval wall-time" in s.format()
 
     def test_mean_eval_wall_ms_none_without_column(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [(0.1, 1.0, "D001")])  # no _wall_ms column
         s = RunStateSummary.from_store(tmp_path)
         assert s.mean_eval_wall_ms is None
         assert "mean eval wall-time" not in s.format()
 
     def test_fidelity_ignored_when_not_in_input_columns(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         # Store has no fidelity column in inputs
         _build_store(tmp_path, [(0.1, 1.0, "D001"), (0.2, 2.0, "D002")])
         s = RunStateSummary.from_store(tmp_path, fidelity_column="fidelity")
@@ -251,7 +251,7 @@ class TestRunStateSummaryPopulated:
 
 class TestRunStateSummaryFormat:
     def test_format_returns_string(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [(0.1, i * 0.1, "D001") for i in range(5)])
         s = RunStateSummary.from_store(tmp_path)
         text = s.format()
@@ -259,14 +259,14 @@ class TestRunStateSummaryFormat:
         assert len(text) > 0
 
     def test_format_within_25_lines(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [(i * 0.1, i * 0.5, f"D{(i % 3) + 1:03d}") for i in range(10)])
         s = RunStateSummary.from_store(tmp_path)
         lines = s.format().splitlines()
         assert len(lines) <= 25, f"format() returned {len(lines)} lines (max 25)"
 
     def test_format_mentions_row_count(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [(0.1, 1.0, "D001")] * 7)
         s = RunStateSummary.from_store(tmp_path)
         assert "7" in s.format()
@@ -274,14 +274,14 @@ class TestRunStateSummaryFormat:
 
 class TestRunStateSummaryMtimeCache:
     def test_same_object_returned_on_repeated_calls(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [(0.1, 1.0, "D001")])
         s1 = RunStateSummary.from_store(tmp_path)
         s2 = RunStateSummary.from_store(tmp_path)
         assert s1 is s2
 
     def test_new_object_when_file_changes(self, tmp_path):
-        from a3dasm._src.evaluation.instrumented import RunStateSummary
+        from a3dasm._src.evaluation.ledger_summary import RunStateSummary
         _build_store(tmp_path, [(0.1, 1.0, "D001")])
         s1 = RunStateSummary.from_store(tmp_path)
         # Touch output.csv to change mtime
@@ -834,7 +834,7 @@ def test_surrogate_generator_not_metered(tmp_path):
     stamps _delegation_id rows. Documents the identity-metering invariant
     that keeps exploration free."""
     from f3dasm import datagenerator
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     store_dir = tmp_path / "store"
     _build_store(store_dir, [(0.1, 1.0, "D001"), (0.2, 2.0, "D001")])

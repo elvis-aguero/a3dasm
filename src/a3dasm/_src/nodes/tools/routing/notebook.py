@@ -152,7 +152,7 @@ def build_notebook_closures(node) -> dict:
         # the ledger was populated (backlog #21's sibling gap).
         _notes = getattr(node, "_current_notes_dir", None)
         if _notes is not None:
-            from ....evaluation.instrumented import (
+            from ....evaluation.ledger_summary import (
                 RunStateSummary,
                 experiment_stores,
             )
@@ -606,7 +606,7 @@ def build_notebook_closures(node) -> dict:
         if notes is None:
             return prefix + "ERROR: no run context available."
         store_root = notes.parent.parent / "experiment_data"
-        from ....evaluation.instrumented import ledger_breakdown
+        from ....evaluation.ledger_summary import ledger_breakdown
         rows = ledger_breakdown(store_root)
         if not rows:
             return (prefix + "No ledgered evaluations yet — the canonical store "

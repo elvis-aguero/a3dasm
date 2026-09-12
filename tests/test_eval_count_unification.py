@@ -11,10 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from a3dasm._src.evaluation.instrumented import (
-    delegation_evals,
-    total_ledgered_evals,
-)
+from a3dasm._src.evaluation.ledger_summary import delegation_evals, total_ledgered_evals
 from f3dasm._src.design.domain import Domain
 from f3dasm._src.experimentdata import ExperimentData
 from f3dasm._src.experimentsample import ExperimentSample, JobStatus
@@ -73,7 +70,7 @@ def test_headline_equals_guard_set(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_experiment_stores_finds_family_substores(tmp_path):
-    from a3dasm._src.evaluation.instrumented import experiment_stores
+    from a3dasm._src.evaluation.ledger_summary import experiment_stores
     root = tmp_path / "experiment_data"
     _build_store(root, [(0.1, 1.0, "D001", "oracle")])                     # main
     _build_store(root / "elliptical_rings",
@@ -108,7 +105,7 @@ def test_eval_count_sums_across_all_stores_not_just_main(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_unstamped_row_count_flags_empty_and_missing_stamps(tmp_path):
-    from a3dasm._src.evaluation.instrumented import unstamped_row_count
+    from a3dasm._src.evaluation.ledger_summary import unstamped_row_count
     store_root = tmp_path / "experiment_data"
     _build_store(store_root, [
         (0.1, 1.0, "D000", "precomputed_pool"),   # attributed (pool)
@@ -120,7 +117,7 @@ def test_unstamped_row_count_flags_empty_and_missing_stamps(tmp_path):
 
 
 def test_unstamped_row_count_zero_when_all_attributed(tmp_path):
-    from a3dasm._src.evaluation.instrumented import unstamped_row_count
+    from a3dasm._src.evaluation.ledger_summary import unstamped_row_count
     store_root = tmp_path / "experiment_data"
     _build_store(store_root, [
         (0.1, 1.0, "D000", "precomputed_pool"),
@@ -129,7 +126,6 @@ def test_unstamped_row_count_zero_when_all_attributed(tmp_path):
     ])
     assert unstamped_row_count(store_root) == 0
     # invariant: it is exactly n_rows minus the attributable rows
-    from a3dasm._src.evaluation.instrumented import (
-        RunStateSummary, experiment_stores)
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary, experiment_stores
     s = RunStateSummary.from_store(experiment_stores(store_root)[0])
     assert s.n_rows == 3

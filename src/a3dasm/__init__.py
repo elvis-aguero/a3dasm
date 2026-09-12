@@ -28,13 +28,14 @@ from ._src.backends.base import Agent, Edge, Graph
 from ._src.backends.claude import ClaudeAdapter
 from ._src.backends.ollama import OllamaAdapter
 from ._src.epistemics.math_dsl import Workspace
+from ._src.evaluation.ledger_summary import load_experiments
+from ._src.evaluation.lookup import LookupDataGenerator
 
 # Only get_evaluator() is agent-facing — the ONE door to the registered
 # oracle. InstrumentedDataGenerator stays internal (constructed solely inside
 # get_evaluator); it is deliberately not re-exported so agents cannot build a
 # store-redirected evaluator. See KB 0001.
-from ._src.evaluation.instrumented import get_evaluator, load_experiments
-from ._src.evaluation.lookup import LookupDataGenerator
+from ._src.evaluation.oracle_resolution import get_evaluator
 from ._src.nodes import (
     AgentNode,
     ImplementerNode,

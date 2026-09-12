@@ -412,7 +412,7 @@ def test_ingest_precomputed_pool_d000_rows_in_store(tmp_path):
 def test_ingest_precomputed_pool_readable_by_runstatesummary(tmp_path):
     """D000 rows are visible in RunStateSummary.from_store."""
     from a3dasm._src.runtime.agent_runtime import _ingest_precomputed_pool
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     pool_dir = tmp_path / "pool"
     pool_dir.mkdir()
@@ -468,7 +468,7 @@ def test_execute_with_lookup_config_ingests_d000(tmp_path):
         _default_graph,
     )
     from a3dasm._src.runtime.graph_builder import build_graph
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     # Build pool.
     pool_dir = tmp_path / "pool"
@@ -548,7 +548,7 @@ def test_execute_with_training_data_ingests_d000_no_oracle(tmp_path):
         _default_graph,
     )
     from a3dasm._src.runtime.graph_builder import build_graph
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     pool_dir = tmp_path / "pool"
     pool_dir.mkdir()

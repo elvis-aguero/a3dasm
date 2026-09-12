@@ -3542,7 +3542,7 @@ def test_resolve_delegation_evals_returns_reported_when_store_empty(
     """Falls back to reported when store has no rows for delegation."""
     from a3dasm._src.nodes import _resolve_delegation_evals
     from unittest.mock import patch
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     # Store exists but has no data for D001
     stub = RunStateSummary(
@@ -3561,7 +3561,7 @@ def test_resolve_delegation_evals_reads_store_rows(tmp_path):
     """Returns row count from store when delegation has rows."""
     from a3dasm._src.nodes import _resolve_delegation_evals
     from unittest.mock import patch
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     stub = RunStateSummary(
         n_rows=42,
@@ -3579,7 +3579,7 @@ def test_resolve_delegation_evals_store_overrides_self_report(tmp_path):
     """Store row count overrides a different ReportEvals self-report."""
     from a3dasm._src.nodes import _resolve_delegation_evals
     from unittest.mock import patch
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     stub = RunStateSummary(
         n_rows=100,
@@ -3597,7 +3597,7 @@ def test_resolve_delegation_evals_falls_back_when_store_none(tmp_path):
     """Falls back to reported when RunStateSummary returns None."""
     from a3dasm._src.nodes import _resolve_delegation_evals
     from unittest.mock import patch
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     with patch.object(RunStateSummary, "from_store", return_value=None):
         result = _resolve_delegation_evals(tmp_path, "D002", 33)
@@ -3613,7 +3613,7 @@ def test_resolve_delegation_evals_store_dir_path_resolution(tmp_path):
     """
     from a3dasm._src.nodes import _resolve_delegation_evals
     from unittest.mock import patch
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     # Simulate path derivation:
     # notes_dir = run_dir/debug/strategizer_notes

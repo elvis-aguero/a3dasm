@@ -834,7 +834,7 @@ def build_delegation_closures(node) -> dict:
                 _snapshot = snapshot_for_node(node)
                 text = text + "\n\n" + _snapshot.as_text()
                 try:
-                    from ....evaluation.instrumented import (
+                    from ....evaluation.ledger_summary import (
                         RunStateSummary,
                         experiment_stores,
                     )

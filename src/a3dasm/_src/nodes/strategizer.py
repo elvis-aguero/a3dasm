@@ -919,7 +919,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
             """
             import hashlib
 
-            from ..evaluation.instrumented import experiment_stores
+            from ..evaluation.ledger_summary import experiment_stores
 
             total_rows = 0
             all_rows: list[tuple] = []
@@ -1148,7 +1148,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         # ledger count (max() keeps the accumulator for lookup-direct studies
         # with no instrumented store).
         try:
-            from ..evaluation.instrumented import total_ledgered_evals
+            from ..evaluation.ledger_summary import total_ledgered_evals
             _nd = getattr(self, "_current_notes_dir", None)
             if _nd is not None:
                 # Sum across the canonical store AND every design namespace —
@@ -1433,7 +1433,7 @@ class StrategizerNode(RecordingMixin, CriticGateMixin, LifecycleMixin, AgentNode
         # ledger across all namespaces is the authoritative count → run_status.
         _evals_persist = state.get("evals_used", 0) + evals_new
         try:
-            from ..evaluation.instrumented import total_ledgered_evals
+            from ..evaluation.ledger_summary import total_ledgered_evals
             _nd = getattr(self, "_current_notes_dir", None)
             if _nd is not None:
                 _evals_persist = max(

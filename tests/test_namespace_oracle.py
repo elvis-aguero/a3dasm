@@ -53,7 +53,7 @@ def _add_oracle_block(cfg_path: Path, namespace: str, block: dict) -> None:
 
 
 def test_default_namespace_resolves_flat_keys(tmp_path, monkeypatch):
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -83,7 +83,7 @@ def test_default_namespace_resolves_flat_keys(tmp_path, monkeypatch):
 
 
 def test_named_namespace_resolves_own_oracle(tmp_path, monkeypatch):
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -134,7 +134,7 @@ def test_named_namespace_resolves_own_oracle(tmp_path, monkeypatch):
 
 
 def test_namespace_from_env_var(tmp_path, monkeypatch):
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -177,7 +177,7 @@ def test_namespace_from_env_var(tmp_path, monkeypatch):
 
 
 def test_unknown_namespace_raises(tmp_path, monkeypatch):
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -213,7 +213,7 @@ def test_namespace_oracle_keys_taken_wholesale(tmp_path, monkeypatch):
     """If the base config uses a lookup but the namespace declares an entrypoint,
     the namespace must resolve the entrypoint — the base lookup must not win
     (load_inner_evaluator checks lookup first)."""
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
     from a3dasm._src.evaluation.lookup import LookupDataGenerator
 
     study_dir = tmp_path / "study"

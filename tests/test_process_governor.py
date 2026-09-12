@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import os
 
-import a3dasm._src.evaluation.instrumented as inst
+import a3dasm._src.evaluation.oracle_resolution as inst
 
 
 def _reset(monkeypatch, spy):

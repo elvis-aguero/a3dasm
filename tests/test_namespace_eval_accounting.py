@@ -39,7 +39,7 @@ def _seed_store(store_dir: Path, n: int, delegation_id: str = "D001") -> None:
 
 
 def test_total_ledgered_evals_sums_across_namespaces(tmp_path):
-    from a3dasm._src.evaluation.instrumented import total_ledgered_evals
+    from a3dasm._src.evaluation.ledger_summary import total_ledgered_evals
 
     # canonical store at <store>/experiment_data; namespace 'polar' at
     # <store>/polar/experiment_data — the on-disk layout get_evaluator uses.
@@ -47,7 +47,7 @@ def test_total_ledgered_evals_sums_across_namespaces(tmp_path):
     _seed_store(store, 100)                 # canonical (cartesian)
     _seed_store(store / "polar", 100)       # namespace
     # Canonical-only count is the OLD (buggy) view.
-    from a3dasm._src.evaluation.instrumented import RunStateSummary
+    from a3dasm._src.evaluation.ledger_summary import RunStateSummary
     assert RunStateSummary.from_store(store).n_rows == 100
     # Aggregate count sees both.
     assert total_ledgered_evals(store) == 200
@@ -55,7 +55,7 @@ def test_total_ledgered_evals_sums_across_namespaces(tmp_path):
 
 def test_total_ledgered_evals_canonical_only_is_unchanged(tmp_path):
     """No namespaces → identical to the canonical row count (back-compat)."""
-    from a3dasm._src.evaluation.instrumented import total_ledgered_evals
+    from a3dasm._src.evaluation.ledger_summary import total_ledgered_evals
 
     store = tmp_path / "experiment_data"
     _seed_store(store, 42)
@@ -65,7 +65,7 @@ def test_total_ledgered_evals_canonical_only_is_unchanged(tmp_path):
 def test_delegation_evals_counts_a_delegation_across_stores(tmp_path):
     """Provenance-based: a delegation's rows are counted by its stamp wherever
     they landed — canonical OR any experiment store — never by guessing which."""
-    from a3dasm._src.evaluation.instrumented import delegation_evals
+    from a3dasm._src.evaluation.ledger_summary import delegation_evals
 
     store = tmp_path / "experiment_data"
     _seed_store(store, 100, "D001")                 # canonical: D001
@@ -116,7 +116,7 @@ def test_ledger_breakdown_is_per_experiment_per_delegation(tmp_path):
     accounting counts, so a writeup derives counts instead of hardcoding them
     (run 20260628T001710 hardcoded 70 polar evals; the ledger held 90 → UNGATED).
     """
-    from a3dasm._src.evaluation.instrumented import ledger_breakdown
+    from a3dasm._src.evaluation.ledger_summary import ledger_breakdown
 
     store = tmp_path / "experiment_data"
     _seed_store(store, 30, delegation_id="D004")          # default / cartesian
@@ -135,7 +135,7 @@ def test_ledger_breakdown_is_per_experiment_per_delegation(tmp_path):
 
 
 def test_ledger_breakdown_empty_store_is_empty_not_error(tmp_path):
-    from a3dasm._src.evaluation.instrumented import ledger_breakdown
+    from a3dasm._src.evaluation.ledger_summary import ledger_breakdown
     assert ledger_breakdown(tmp_path / "nope") == []
 
 
@@ -143,7 +143,7 @@ def test_load_experiments_returns_every_store_keyed_by_name(tmp_path):
     """The multi-namespace load idiom: one call returns all experiment stores
     (default + each design experiment), so a notebook does not silently miss
     polar by loading only the default store (run 20260628T130525 CRITICAL)."""
-    from a3dasm._src.evaluation.instrumented import load_experiments
+    from a3dasm._src.evaluation.ledger_summary import load_experiments
 
     store = tmp_path / "experiment_data"
     _seed_store(store, 30, delegation_id="D004")          # default
@@ -156,7 +156,7 @@ def test_load_experiments_returns_every_store_keyed_by_name(tmp_path):
 
 
 def test_load_experiments_single_study_is_just_default(tmp_path):
-    from a3dasm._src.evaluation.instrumented import load_experiments
+    from a3dasm._src.evaluation.ledger_summary import load_experiments
     store = tmp_path / "experiment_data"
     _seed_store(store, 12)
     exps = load_experiments(store)
@@ -164,7 +164,7 @@ def test_load_experiments_single_study_is_just_default(tmp_path):
 
 
 def test_load_experiments_empty_run_is_empty_dict(tmp_path):
-    from a3dasm._src.evaluation.instrumented import load_experiments
+    from a3dasm._src.evaluation.ledger_summary import load_experiments
     assert load_experiments(tmp_path / "nope") == {}
 
 

@@ -69,7 +69,7 @@ def _make_delegation_dir(
 
 def test_bare_fn_file_path_entrypoint_resolves(tmp_path, monkeypatch):
     """A file-path:attr entrypoint wraps a bare fn; evaluates one point."""
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 
     # Write a tiny study evaluator
     study_dir = tmp_path / "study"
@@ -128,7 +128,7 @@ def test_run_config_resolves_via_env_var_independent_of_cwd(
     lives DOWN at runs/<id>/debug/ — a walk-UP never reaches it, so the worker
     had to cd into debug/ first. The env var points straight at the file.
     """
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -166,7 +166,7 @@ def test_run_config_resolves_via_env_var_independent_of_cwd(
 
 def test_datagenerator_class_entrypoint_resolves(tmp_path, monkeypatch):
     """A file-path:ClassAttr entrypoint; class is no-args-instantiated."""
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -245,7 +245,7 @@ def test_lookup_config_resolves_to_lookup_data_generator(
     tmp_path, monkeypatch
 ):
     """evaluator_lookup config builds a LookupDataGenerator."""
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
     from a3dasm._src.evaluation.lookup import LookupDataGenerator
 
     study_dir = tmp_path / "study"
@@ -297,7 +297,7 @@ def test_no_evaluator_config_raises_clear_error(
 ):
     """get_evaluator() with no entrypoint raises ValueError mentioning
     ReportEvals fallback."""
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 
     store_dir = tmp_path / "store"
     store_dir.mkdir()

@@ -136,7 +136,7 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
         rd = node._resolve_run_dir()
         if rd is None:
             return []
-        from ....evaluation.instrumented import experiment_stores
+        from ....evaluation.ledger_summary import experiment_stores
         return experiment_stores(rd / "experiment_data")
 
     if "RecallStore" in agent_tools:
@@ -144,7 +144,7 @@ def build_declared_shared_closures(node, agent_tools) -> dict:
             """Summary of the run's canonical evaluation ledger: rows per
             delegation/source, output ranges. Call before deciding the next
             delegation."""
-            from ....evaluation.instrumented import RunStateSummary
+            from ....evaluation.ledger_summary import RunStateSummary
             stores = _all_store_dirs()
             blocks: list[tuple[str, str]] = []
             for i, store in enumerate(stores):

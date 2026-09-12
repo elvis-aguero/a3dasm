@@ -1195,7 +1195,7 @@ class AgenticRun:
             # Sum across the canonical store AND every design namespace (Axis 3a):
             # namespace evals live in sibling stores the canonical-only count
             # missed (run 20260627T013812 reported 100 while 200 real evals ran).
-            from ..evaluation.instrumented import total_ledgered_evals
+            from ..evaluation.ledger_summary import total_ledgered_evals
             _total = total_ledgered_evals(debug_dir.parent / "experiment_data")
             if _total:
                 evals = _total

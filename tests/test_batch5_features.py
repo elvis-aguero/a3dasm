@@ -33,7 +33,7 @@ def test_three_strikes_escape_not_coached_to_agent():
 # --- #6: extensible, oracle-stamped provenance -------------------------------
 
 def test_extra_provenance_stamped_and_persisted(tmp_path, monkeypatch):
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 
     study = tmp_path / "study"
     study.mkdir()

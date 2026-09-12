@@ -78,7 +78,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   the PROTECTED-store shrink/regression guard still holds; reachable by agents as
   `get_evaluator().supersede(sample)`. The ledger is append-only otherwise.
 - **Where:** `science_monitor.py` (`_check_unledgered`, `_check_unstamped_rows`,
-  `_check_duplicate_evaluations`); `instrumented.py` `unstamped_row_count`,
+  `_check_duplicate_evaluations`); `ledger_summary.py` `unstamped_row_count`,
   `duplicate_eval_stats`; `routing.py` `Wait()`. **Status:** core (§4 user-owned).
 
 ### Registered criterion reaches the worker (pre-registration the experimenter can read)
@@ -212,7 +212,8 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 ### Metered oracle (get_evaluator) + canonical ledger
 - **What:** the one door to the registered ground-truth oracle; every evaluation is
   written to the canonical store with provenance, under a file lock.
-- **Where:** `instrumented.py`. **Tools (worker scratch):** `RunScratch`, `ReportEvals`.
+- **Where:** `instrumented.py` (the wrapper), `oracle_resolution.py` (`get_evaluator`).
+  **Tools (worker scratch):** `RunScratch`, `ReportEvals`.
 - **Status:** core.
 
 ### Design namespaces — multiple oracles + ledgers per run (#20, Axis 3)
@@ -225,19 +226,19 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   ADDITIVE: `namespace=None` is byte-for-byte the single-study path. Comparable-by-
   construction (a new design reuses the fixed objective evaluator; see
   `OPEN_DESIGN_SPACE_FRAMEWORK.md`).
-- **Where:** `instrumented.py` (`get_evaluator`, `_effective_oracle_config`),
+- **Where:** `oracle_resolution.py` (`get_evaluator`, `_effective_oracle_config`),
   `agent_runtime.py` (`register_evaluator_entrypoint(namespace=…)`), `backends/base.py`
   + `backends/claude.py` (`set_namespace`/`F3DASM_NAMESPACE`), `graph_state.py`
   (`Delegation.namespace`), `routing.py` (`Delegate` + registration handoff).
 - **Report-time provenance:** `LedgerBreakdown()` (strategizer tool) shows per-experiment
   / per-delegation ledgered eval counts read live from the stores
-  (`instrumented.ledger_breakdown`), so a writeup DERIVES counts from the ledger instead
+  (`ledger_summary.ledger_breakdown`), so a writeup DERIVES counts from the ledger instead
   of hardcoding stale plan numbers (run 20260628T001710 hardcoded 70 polar evals; the
   ledger held 90 → UNGATED). It also reads `eval_budget` from run_config and prints
   `spent of budget — N remaining`, so the agent READS that number rather than hand-
   computing it and flipping spent↔remaining (run 20260628T130525 asserted "200 remain"
   with 200 spent of 300 → UNGATED). Read-only; spends no eval budget.
-- **Multi-experiment load idiom:** `a3dasm.load_experiments()` (`instrumented.
+- **Multi-experiment load idiom:** `a3dasm.load_experiments()` (`ledger_summary.
   load_experiments`) loads every experiment store of a run as `{name: ExperimentData}`
   (default + each design experiment, at their nested paths). A namespaced run has N
   stores and no namespace column, so the single-study `from_file` idiom silently loads
@@ -361,7 +362,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 - **Where:** `watchdog_cleanup.py` `resource_envelope` / `delegation_peak_rss`
   (high-water recorded in `check_memory_and_kill`); `agent_runtime.py`
   `_resource_stanza`; `agent_prompts.py` `{resources}` placeholder;
-  `instrumented.py` `delegation_footer` peak-RAM line.
+  `ledger_summary.py` `delegation_footer` peak-RAM line.
 - **Status:** awareness only — the hard memory cap stays the one enforced boundary.
 
 ### `mode="parallel"` host-safety hard cap
@@ -387,7 +388,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   Measured from the rows the delegation actually wrote, so budget planning runs
   on observed sim cost instead of an a priori per-sim estimate. Auto-delivered,
   not on-demand. Plain measurements only — interpretation is the strategizer's.
-- **Where:** `instrumented.py` `RunStateSummary.{wall_per_delegation,
+- **Where:** `ledger_summary.py` `RunStateSummary.{wall_per_delegation,
   delegation_footer}`; appended in `nodes/tools/routing/`.
 - **Status:** done.
 

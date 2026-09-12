@@ -50,7 +50,7 @@ def test_register_updates_run_config_atomically(tmp_path):
 
 def test_register_then_get_evaluator_resolves(tmp_path, monkeypatch):
     """register -> chdir into a D### dir -> get_evaluator() resolves and runs."""
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
     from f3dasm._src.experimentdata import ExperimentData
     from f3dasm._src.design.domain import Domain
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus
@@ -132,7 +132,7 @@ def test_register_namespace_writes_oracles_block_not_default(tmp_path):
 def test_register_namespace_then_get_evaluator_resolves(tmp_path, monkeypatch):
     """register(namespace) → F3DASM_NAMESPACE worker → get_evaluator() resolves
     the namespace oracle and writes its own ledger."""
-    from a3dasm._src.evaluation.instrumented import get_evaluator
+    from a3dasm._src.evaluation.oracle_resolution import get_evaluator
     from f3dasm._src.experimentdata import ExperimentData
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 
