@@ -351,7 +351,7 @@ def _make_search_async_pool():
                     "then CollectSearches() to get all results before using them.")
 
         wrapper.__name__ = getattr(fn, "__name__", "tool")
-        _doc = (fn.__doc__ or "").rstrip()
+        _doc = inspect.cleandoc(fn.__doc__ or "")
         wrapper.__doc__ = _doc + (
             "\n\nASYNC: pass wait=False to run this in the background and get a "
             "handle immediately, so you can fire independent searches on OTHER "

@@ -12,6 +12,7 @@ parity is automatic.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 
 __all__ = ["tool_examples", "render_tool_catalog"]
@@ -33,7 +34,9 @@ def render_tool_catalog(closure_tools: dict[str, Callable]) -> str:
     """Render a ``<tools>`` block from the LIVE closure dict.
 
     Per tool: the exact registered name (the dict key — so a tool can never be
-    missing or misnamed in the prompt), its docstring, and its examples. Does
+    missing or misnamed in the prompt), its docstring (``inspect.cleandoc``-ed,
+    so the rendered text does not depend on how deeply the closure happens to
+    be nested in source), and its examples. Does
     NOT re-emit parameter types/schema — the backends already carry those to the
     model via the tool-use API. Deterministic (sorted by name) for cache
     stability. Returns "" when there are no closures.
@@ -43,7 +46,7 @@ def render_tool_catalog(closure_tools: dict[str, Callable]) -> str:
     blocks: list[str] = []
     for name in sorted(closure_tools):
         fn = closure_tools[name]
-        doc = (getattr(fn, "__doc__", None) or "").strip() or "(no description)"
+        doc = inspect.cleandoc(getattr(fn, "__doc__", None) or "") or "(no description)"
         block = f"### {name}\n{doc}"
         examples = getattr(fn, "_tool_examples", None)
         if examples:
