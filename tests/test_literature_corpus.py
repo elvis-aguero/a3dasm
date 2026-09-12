@@ -86,7 +86,7 @@ def test_corpus_csv_created_on_first_add(tmp_path):
     md_file.write_text("<!-- page 1 -->\nThe Transformer model.", encoding="utf-8")
 
     result = corpus.add(
-        source=str(md_file),
+        file_path=str(md_file),
         arxiv_id="1706.03762",
         title="Attention Is All You Need",
         authors="Vaswani et al.",

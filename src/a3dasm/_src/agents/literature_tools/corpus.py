@@ -10,16 +10,24 @@ def build_corpus_closures(corpus, cache_dir) -> dict:
     # Defined as named functions (not lambdas) so each carries a docstring:
     # the generated <tools> catalog renders these, making it the single
     # source of tool docs — no hand-written list in the prompt to drift.
-    def CorpusAdd(source: str, title: str = "", authors: str = "",
+    def CorpusAdd(file_path: str, title: str = "", authors: str = "",
                   year: str = "", doi: str = "", arxiv_id: str = "",
                   venue: str = "", abstract: str = "",
                   citation_count: int = 0):
         """Index a LOCAL file (a saved PDF or full-text markdown) into the
-        corpus so its passages become searchable. citation_count boosts BM25
-        retrieval weight (log10(c+1) scaling) — pass the citationCount from
-        Semantic Scholar or OpenAlex."""
+        corpus so its passages become searchable.
+
+        file_path is a PATH ON DISK to a .pdf/.md/.txt you already downloaded
+        (e.g. "papers/2506.14097.pdf") — NOT a provider name and NOT a paper
+        id. Download the file first with arxiv_download_paper, or write the
+        text from arxiv_read_paper with the Write tool. The remaining
+        arguments are metadata about that file, copied from the search result
+        that identified it; arxiv_id/doi are recorded as metadata and used to
+        derive a stable paper_id, they are not fetched. citation_count boosts
+        BM25 retrieval weight (log10(c+1) scaling) — pass the citationCount
+        from Semantic Scholar or OpenAlex."""
         return corpus.add(
-            source, title=title, authors=authors, year=year, doi=doi,
+            file_path, title=title, authors=authors, year=year, doi=doi,
             arxiv_id=arxiv_id, venue=venue, abstract=abstract,
             citation_count=int(citation_count or 0))
 

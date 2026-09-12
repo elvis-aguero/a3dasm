@@ -148,7 +148,7 @@ class LiteratureCorpus:
 
     def add(
         self,
-        source: str,
+        file_path: str,
         title: str = "",
         authors: str = "",
         year: str = "",
@@ -162,12 +162,12 @@ class LiteratureCorpus:
 
         Parameters
         ----------
-        source:
+        file_path:
             Absolute or relative path to a PDF (``.pdf``) or extracted
-            text (``.md`` / ``.txt``) file already on disk.  Download
-            the file first with ``arxiv_download_paper`` or write
-            the text returned by ``arxiv_read_paper`` via the
-            Write tool.
+            text (``.md`` / ``.txt``) file already on disk.  A path, not
+            a provider name and not a paper id.  Download the file first
+            with ``arxiv_download_paper`` or write the text returned by
+            ``arxiv_read_paper`` via the Write tool.
         title, authors, year, doi, arxiv_id, venue, abstract:
             Optional metadata.  Pass values obtained from the MCP
             search result that identified this paper.
@@ -178,9 +178,9 @@ class LiteratureCorpus:
             ``paper_id`` on success, ``"Already in corpus: {id}"``,
             or ``"ERROR: …"`` on failure.
         """
-        src = Path(source)
+        src = Path(file_path)
         if not src.exists():
-            return f"ERROR: file not found: {source!r}. Download it first."
+            return f"ERROR: file not found: {file_path!r}. Download it first."
 
         # Derive a stable paper_id from arxiv_id, doi, or filename
         paper_id = self._derive_paper_id(arxiv_id, doi, src)
