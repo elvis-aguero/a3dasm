@@ -54,9 +54,48 @@ can set:
 | `required_deliverables` | extra files that must exist before the run can finish | none |
 | `evaluator` | how a design gets scored, see below | honor-system |
 
+| `runtime` | run knobs — debug capture, timeouts, retry, limits; see below | all defaulted |
+
 See [Customizing a run](customizing-a-run.md#reference-the-available-backends) for the
 `backend`/`model` details, including setting them per agent instead of for
 the whole run.
+
+### `runtime:` — the run knobs
+
+Everything that tunes *how the run executes* rather than *what it is asked to
+do* lives in one nested block. Every knob has a working default, so the block
+is optional; set one only when you have a reason to.
+
+```yaml
+runtime:
+  debug: true            # write transcripts/diagnostics under runs/<ts>/debug/
+  recursion_limit: 200   # LangGraph step ceiling for one run
+```
+
+`config.yaml` is the source of truth for these. An `F3DASM_<KEY>` environment
+variable overrides the configured value, but that channel is for secrets and
+one-off overrides — it is not where a study's settings belong. A key this
+table does not list is ignored with a warning at startup, so a typo tells you
+rather than silently reverting to the default.
+
+| key | meaning | default |
+|---|---|---|
+| `debug` | capture full transcripts, diagnostics and per-delegation logs under `runs/<ts>/debug/`. Required for the run-analysis workflow | `false` |
+| `milestones_enabled` | run the process-milestone gate | `true` |
+| `pipeline_deliverable` | require `pipeline.ipynb` as the deliverable; turn off for a study with no notebook | `true` |
+| `recursion_limit` | LangGraph step ceiling for one run | `2000` |
+| `max_consecutive_errors` | consecutive failures to one target before the run halts | `12` |
+| `run_backstop_multiple` | multiple of the wall budget after which the run is force-closed | `2.0` |
+| `followup_wait_s` | how long a `FollowUp` waits for a human answer | `600` |
+| `llm_retry_max` | retry attempts for a failed model call | `5` |
+| `llm_retry_base` | base seconds for retry backoff | `2.0` |
+| `llm_stream_idle_timeout` | seconds of stream silence before a call is abandoned (`0` disables) | `600.0` |
+| `llm_tool_idle_timeout` | seconds a single tool call may stall (`0` disables) | `0.0` |
+| `llm_max_buffer_mb` | cap on a single response buffered in memory | `30.0` |
+| `llm_metadata_fetch` | look up model metadata (context window, pricing) at startup | `true` |
+| `llm_metadata_timeout_s` | seconds to wait for that lookup | `8.0` |
+| `llm_quantization` | quantization hint for a locally-served model | none |
+| `semantic_scholar_api_key` | Semantic Scholar key; raises the literature rate limit | none |
 
 ## How designs get evaluated (the evaluator)
 

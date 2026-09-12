@@ -20,12 +20,41 @@ import os
 import threading
 
 __all__ = [
+    "KNOWN_KEYS",
     "configure",
     "get_bool",
     "get_int",
     "get_float",
     "get_str",
 ]
+
+# Every knob the codebase reads through this module. Its purpose is to make a
+# typo LOUD: a misspelled key in a study's `runtime:` block would otherwise
+# resolve to its default and the run would proceed as if the setting had been
+# honoured, which is the classic silent-config failure. configure() warns on
+# anything not listed here.
+#
+# tests/test_settings_contract.py greps the source for every get_*("key") call
+# and fails if one is missing from this set, so the list cannot drift behind
+# the code that reads it.
+KNOWN_KEYS: frozenset[str] = frozenset({
+    "debug",
+    "followup_wait_s",
+    "llm_max_buffer_mb",
+    "llm_metadata_fetch",
+    "llm_metadata_timeout_s",
+    "llm_quantization",
+    "llm_retry_base",
+    "llm_retry_max",
+    "llm_stream_idle_timeout",
+    "llm_tool_idle_timeout",
+    "max_consecutive_errors",
+    "milestones_enabled",
+    "pipeline_deliverable",
+    "recursion_limit",
+    "run_backstop_multiple",
+    "semantic_scholar_api_key",
+})
 
 _lock = threading.Lock()
 _config: dict = {}
@@ -39,8 +68,21 @@ def configure(config: dict | None) -> None:
     Replaces any prior mapping (each run installs its own). Pass ``None`` or an
     empty dict to clear (e.g. between tests)."""
     global _config
+    cfg = dict(config or {})
+    unknown = sorted(set(cfg) - KNOWN_KEYS)
+    if unknown:
+        # A warning, not an error: an unknown knob is far more often a typo
+        # than a reason to refuse to run, and refusing would make a stale
+        # config block a study you cannot start.
+        import logging
+        logging.getLogger(__name__).warning(
+            "config.yaml runtime: has unrecognised key(s) %s — ignored. "
+            "Known knobs: %s",
+            ", ".join(repr(k) for k in unknown),
+            ", ".join(sorted(KNOWN_KEYS)),
+        )
     with _lock:
-        _config = dict(config or {})
+        _config = cfg
 
 
 def _raw(key: str):

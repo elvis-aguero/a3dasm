@@ -25,8 +25,8 @@ EXAMPLE = _REPO / "studies" / "example_study"
 
 # The config surface the contract documents (authoring-a-study.md). Keep in sync.
 DOCUMENTED_TOP_KEYS = {
-    "model", "backend", "budget", "eval_budget",
-    "required_deliverables", "evaluator",
+    "model", "backend", "budget", "budget_usd", "eval_budget",
+    "required_deliverables", "evaluator", "runtime",
 }
 DOCUMENTED_EVALUATOR_KEYS = {
     "entrypoint", "output_names", "lookup", "fidelity_column", "name",
@@ -97,3 +97,4 @@ def test_example_evaluator_resolves_and_runs(tmp_path, monkeypatch):
     # global minimum: (x1-1)^2 + (x2+2)^2 = 0 at (1, -2)
     assert out._output_data["y"] == pytest.approx(0.0, abs=1e-9)
     assert out._output_data["_delegation_id"] == "D001"
+
