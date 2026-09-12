@@ -227,7 +227,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   construction (a new design reuses the fixed objective evaluator; see
   `OPEN_DESIGN_SPACE_FRAMEWORK.md`).
 - **Where:** `oracle_resolution.py` (`get_evaluator`, `_effective_oracle_config`),
-  `agent_runtime.py` (`register_evaluator_entrypoint(namespace=…)`), `backends/base.py`
+  `run_setup.py` (`register_evaluator_entrypoint(namespace=…)`), `backends/base.py`
   + `backends/claude.py` (`set_namespace`/`F3DASM_NAMESPACE`), `graph_state.py`
   (`Delegation.namespace`), `routing.py` (`Delegate` + registration handoff).
 - **Report-time provenance:** `LedgerBreakdown()` (strategizer tool) shows per-experiment
@@ -331,7 +331,9 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   hit. Per-delegation, absolute (not a share of system RAM), does not sum across
   delegations.
 - **Where:** `studies/.../run.py` `_memory_watcher`; `watchdog_cleanup.py`
-  (`check_memory_and_kill`, `_owned_pids`); `resource_backend.py`.
+  (`check_memory_and_kill`, `_owned_pids`); `resource_backend.py`; the cap is
+  resolved (config → env → SLURM allocation → default) by `runtime/run_setup.py`
+  `resolve_mem_cap_bytes`.
 - **Config:** `mem_cap` (config.yaml / `F3DASM_MEM_CAP`); default 4 GiB. On SLURM set
   below the job's `--mem`. **Status:** done (cgroup-native HPC backend = future seam).
 

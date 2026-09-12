@@ -10,7 +10,7 @@ from pathlib import Path
 from f3dasm import ExperimentData
 from f3dasm._src.samplers import RandomUniform
 from f3dasm.design import Domain
-from a3dasm._src.runtime.agent_runtime import _init_canonical_store
+from a3dasm._src.runtime.run_setup import _init_canonical_store
 from a3dasm._src.evaluation.oracle_resolution import get_evaluator
 from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 from a3dasm._src.nodes import _resolve_delegation_evals

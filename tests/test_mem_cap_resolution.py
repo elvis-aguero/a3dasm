@@ -7,7 +7,7 @@ throttled worker concurrency (run 20260706T204732: ~3x wall-clock, D005).
 """
 from __future__ import annotations
 
-from a3dasm._src.runtime.agent_runtime import (
+from a3dasm._src.runtime.run_setup import (
     DEFAULT_MEM_CAP_BYTES,
     resolve_mem_cap_bytes,
 )

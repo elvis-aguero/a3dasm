@@ -15,7 +15,7 @@ import pytest
 
 def test_load_study_config_returns_empty_dict_when_no_config(tmp_path):
     """_load_study_config returns {} when config.yaml does not exist."""
-    from a3dasm._src.runtime.agent_runtime import _load_study_config
+    from a3dasm._src.runtime.run_setup import _load_study_config
 
     result = _load_study_config(tmp_path)
     assert result == {}
@@ -24,7 +24,7 @@ def test_load_study_config_returns_empty_dict_when_no_config(tmp_path):
 def test_load_study_config_reads_yaml_when_present(tmp_path):
     """_load_study_config reads and parses config.yaml."""
     import yaml as _yaml
-    from a3dasm._src.runtime.agent_runtime import _load_study_config
+    from a3dasm._src.runtime.run_setup import _load_study_config
 
     config = {"model": "claude-haiku", "budget": 3600}
     (tmp_path / "config.yaml").write_text(_yaml.dump(config))
@@ -36,7 +36,7 @@ def test_load_study_config_reads_yaml_when_present(tmp_path):
 
 def test_load_study_config_returns_empty_for_empty_yaml(tmp_path):
     """_load_study_config returns {} when config.yaml is empty."""
-    from a3dasm._src.runtime.agent_runtime import _load_study_config
+    from a3dasm._src.runtime.run_setup import _load_study_config
 
     (tmp_path / "config.yaml").write_text("")
 
@@ -51,14 +51,14 @@ def test_load_study_config_returns_empty_for_empty_yaml(tmp_path):
 
 def test_parse_budget_str_none():
     """_parse_budget_str returns None for None input."""
-    from a3dasm._src.runtime.agent_runtime import _parse_budget_str
+    from a3dasm._src.runtime.run_setup import _parse_budget_str
 
     assert _parse_budget_str(None) is None
 
 
 def test_parse_budget_str_float():
     """_parse_budget_str returns float for numeric input."""
-    from a3dasm._src.runtime.agent_runtime import _parse_budget_str
+    from a3dasm._src.runtime.run_setup import _parse_budget_str
 
     assert _parse_budget_str(3600.0) == 3600.0
     assert _parse_budget_str(1800) == 1800.0
@@ -66,7 +66,7 @@ def test_parse_budget_str_float():
 
 def test_parse_budget_str_hhmmss():
     """_parse_budget_str parses HH:MM:SS string."""
-    from a3dasm._src.runtime.agent_runtime import _parse_budget_str
+    from a3dasm._src.runtime.run_setup import _parse_budget_str
 
     result = _parse_budget_str("01:30:00")
     assert result == 5400.0  # 1h30m = 5400s
@@ -74,7 +74,7 @@ def test_parse_budget_str_hhmmss():
 
 def test_parse_budget_str_float_string():
     """_parse_budget_str parses a plain float string."""
-    from a3dasm._src.runtime.agent_runtime import _parse_budget_str
+    from a3dasm._src.runtime.run_setup import _parse_budget_str
 
     result = _parse_budget_str("7200")
     assert result == 7200.0
@@ -226,7 +226,7 @@ def test_make_adapter_claude_extra_closures_injected(tmp_path):
 
 def test_init_canonical_store_creates_dirs(tmp_path):
     """_init_canonical_store creates experiment_data/."""
-    from a3dasm._src.runtime.agent_runtime import _init_canonical_store
+    from a3dasm._src.runtime.run_setup import _init_canonical_store
 
     run_dir = tmp_path / "runs" / "20260101T000000"
     (run_dir / "debug").mkdir(parents=True, exist_ok=True)
@@ -242,7 +242,7 @@ def test_init_canonical_store_creates_dirs(tmp_path):
 def test_init_canonical_store_writes_run_config_json(tmp_path):
     """_init_canonical_store writes run_config.json with correct keys."""
     import json
-    from a3dasm._src.runtime.agent_runtime import _init_canonical_store
+    from a3dasm._src.runtime.run_setup import _init_canonical_store
 
     run_dir = tmp_path / "runs" / "20260101T000000"
     (run_dir / "debug").mkdir(parents=True, exist_ok=True)
@@ -269,7 +269,7 @@ def test_init_canonical_store_writes_run_config_json(tmp_path):
 
 def test_init_canonical_store_returns_config_dict(tmp_path):
     """_init_canonical_store return value is the config dict."""
-    from a3dasm._src.runtime.agent_runtime import _init_canonical_store
+    from a3dasm._src.runtime.run_setup import _init_canonical_store
 
     run_dir = tmp_path / "runs" / "ts"
     (run_dir / "debug").mkdir(parents=True, exist_ok=True)
@@ -385,7 +385,7 @@ def _make_pool(pool_dir: Path, n: int = 5) -> None:
 def test_ingest_precomputed_pool_d000_rows_in_store(tmp_path):
     """_ingest_precomputed_pool writes D000 rows to the canonical store."""
     from f3dasm import ExperimentData
-    from a3dasm._src.runtime.agent_runtime import _ingest_precomputed_pool
+    from a3dasm._src.runtime.run_setup import _ingest_precomputed_pool
 
     pool_dir = tmp_path / "pool"
     pool_dir.mkdir()
@@ -411,7 +411,7 @@ def test_ingest_precomputed_pool_d000_rows_in_store(tmp_path):
 
 def test_ingest_precomputed_pool_readable_by_runstatesummary(tmp_path):
     """D000 rows are visible in RunStateSummary.from_store."""
-    from a3dasm._src.runtime.agent_runtime import _ingest_precomputed_pool
+    from a3dasm._src.runtime.run_setup import _ingest_precomputed_pool
     from a3dasm._src.evaluation.ledger_summary import RunStateSummary
 
     pool_dir = tmp_path / "pool"
@@ -434,7 +434,7 @@ def test_ingest_precomputed_pool_readable_by_runstatesummary(tmp_path):
 
 def test_d000_not_counted_as_evals(tmp_path):
     """_resolve_delegation_evals for D000 returns 0 (no real eval rows)."""
-    from a3dasm._src.runtime.agent_runtime import _ingest_precomputed_pool
+    from a3dasm._src.runtime.run_setup import _ingest_precomputed_pool
     from a3dasm._src.nodes import _resolve_delegation_evals
 
     pool_dir = tmp_path / "pool"

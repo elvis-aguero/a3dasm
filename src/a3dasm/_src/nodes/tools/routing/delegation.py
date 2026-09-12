@@ -983,7 +983,7 @@ def build_delegation_closures(node) -> dict:
                         if _manifest.exists():
                             import json as _json
 
-                            from ....runtime.agent_runtime import (
+                            from ....runtime.run_setup import (
                                 register_evaluator_entrypoint,
                             )
                             _m = _json.loads(_manifest.read_text())

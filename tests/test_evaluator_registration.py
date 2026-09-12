@@ -10,7 +10,7 @@ import json
 import textwrap
 from pathlib import Path
 
-from a3dasm._src.runtime.agent_runtime import register_evaluator_entrypoint
+from a3dasm._src.runtime.run_setup import register_evaluator_entrypoint
 
 from tests.test_evaluator_resolution import (
     _make_delegation_dir,
