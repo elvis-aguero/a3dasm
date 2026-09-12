@@ -345,10 +345,12 @@ class TestCircuitBreaker:
         monkeypatch.setattr(lc_mod, "_sleep", lambda s: None)
         _reset_rate_state("api.openalex.org")
 
-        # Manually set cooldown
+        # Manually set cooldown — via monkeypatch so it is undone at teardown
+        # (the state table is process-global and shared with every later test).
         with lc_mod._rate_lock:
-            lc_mod._domain_cooldown_until["api.openalex.org"] = (
-                time.monotonic() + 9999
+            monkeypatch.setitem(
+                lc_mod._domain_cooldown_until, "api.openalex.org",
+                time.monotonic() + 9999,
             )
 
         call_count = [0]
@@ -1054,8 +1056,9 @@ class TestGetOpenAlexCitations:
         # Force the circuit breaker into cooldown for openalex
         _reset_rate_state("api.openalex.org")
         with lc_mod._rate_lock:
-            lc_mod._domain_cooldown_until["api.openalex.org"] = (
-                time.monotonic() + 9999
+            monkeypatch.setitem(
+                lc_mod._domain_cooldown_until, "api.openalex.org",
+                time.monotonic() + 9999,
             )
 
         call_count = [0]
@@ -1202,8 +1205,9 @@ class TestGetOpenAlexReferences:
         # Force the circuit breaker into cooldown for openalex
         _reset_rate_state("api.openalex.org")
         with lc_mod._rate_lock:
-            lc_mod._domain_cooldown_until["api.openalex.org"] = (
-                time.monotonic() + 9999
+            monkeypatch.setitem(
+                lc_mod._domain_cooldown_until, "api.openalex.org",
+                time.monotonic() + 9999,
             )
 
         call_count = [0]
