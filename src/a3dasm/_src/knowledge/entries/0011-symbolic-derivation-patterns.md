@@ -118,6 +118,29 @@ in a paper: exactly one `assume()` (the choice), exactly one `check_equals()`
   applying an initial condition — (2.17)'s actual mechanism. Treating this
   as algebraic solving silently drops the data that pins down the solution.
 
+## Reading a summary another edition wrote
+`write_summary(path)` emits a self-describing document, not a bare list:
+
+```json
+{"schema": "a3dasm.math_dsl.summary/1",
+ "workspace": "main",
+ "counts": {"CONFIRMED": 6, "REFUTED": 0, "INCONCLUSIVE": 0,
+            "ASSERTED": 11, "unchecked": 2},
+ "steps": [{"name": "eqn_km_contact_amplitudes", "type": "check_equals",
+            "verdict": "CONFIRMED", "statement": null, "latex": "...",
+            "residual": null, "derived_from": []}]}
+```
+
+Read `data["steps"]`; do not guess the envelope with an `isinstance` guard.
+`counts` is the verdict tally computed where the verdicts are authoritative —
+quote it rather than re-counting the steps yourself, so a number in your
+report cannot drift from the ledger it claims to summarize. `unchecked`
+counts steps SymPy never adjudicates (`truncate_series`, `solve_ode`, whose
+verdict is `null`); ASSERTED is its own bucket and is not a check. `residual`
+carries the leftover expression for a REFUTED or INCONCLUSIVE step — that is
+the evidence for the verdict, and it is what makes a failing step auditable
+without opening the `.py`.
+
 ## The symbolic engine verifies; you propose the creative step
 Your job in a delegation is choosing *what* ansatz, assumption, or
 particular-solution guess to try; the library only checks whether that

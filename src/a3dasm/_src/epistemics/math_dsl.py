@@ -34,6 +34,11 @@ from sympy.physics.units.systems.si import SI
 # RNG makes it reproducible run to run for a script with the same call order.
 _DETERMINISM_SEED = 0
 
+# Version tag written into every write_summary() document. Bump the trailing
+# number whenever the envelope or a step's fields change, so a consumer can
+# tell what it is reading instead of inferring it from the shape.
+SUMMARY_SCHEMA = "a3dasm.math_dsl.summary/1"
+
 
 def _latex(expr) -> str:
     return sp.latex(expr)
@@ -198,19 +203,51 @@ class Workspace:
             f.write("\n".join(lines))
 
     def write_summary(self, path: str) -> None:
-        """A flat {name, type, verdict, latex} table as plain JSON — the
-        interoperability contract: another agent parses this without
-        importing SymPy or reading the .py source at all."""
-        rows = [
+        """The interoperability contract: a consumer parses this without
+        importing SymPy or reading the .py source at all.
+
+        ``{"schema", "workspace", "counts", "steps"}``, where each step is
+        ``{name, type, verdict, statement, latex, residual, derived_from}``.
+
+        Three deliberate properties (run 20260912T142229 motivated all three):
+
+        ``schema``  The file names its own format. Two consumers — the
+            math_expert comparing two editions, and the critic auditing them —
+            independently guessed the envelope and had to sniff it with an
+            isinstance() guard. A record that does not say what it is forces
+            every reader to infer it, and a later change breaks them silently
+            instead of loudly.
+        ``counts``  The verdict tally, computed once where the verdicts are
+            authoritative. Every downstream consumer was recomputing it by
+            hand and then narrating the result in prose, which puts an
+            arithmetic step between the evidence and the claim. ``unchecked``
+            counts steps SymPy never adjudicates (truncate_series, solve_ode:
+            verdict ``None``); ASSERTED is its own bucket, not a check.
+        ``residual``  The evidence for a non-CONFIRMED verdict. Without it the
+            contract holds for the steps that passed and fails for exactly the
+            steps a skeptical reader needs to examine.
+        """
+        steps = [
             {
                 "name": s["name"],
                 "type": s["type"],
                 "verdict": s["verdict"],
                 "statement": s.get("statement"),
                 "latex": s["latex"],
+                "residual": s.get("residual"),
                 "derived_from": s["derived_from"],
             }
             for s in self._steps
         ]
+        counts = {v: 0 for v in ("CONFIRMED", "REFUTED", "INCONCLUSIVE", "ASSERTED")}
+        counts["unchecked"] = 0
+        for s in steps:
+            counts["unchecked" if s["verdict"] is None else s["verdict"]] += 1
+        doc = {
+            "schema": SUMMARY_SCHEMA,
+            "workspace": self.name,
+            "counts": counts,
+            "steps": steps,
+        }
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(rows, f, indent=2)
+            json.dump(doc, f, indent=2)

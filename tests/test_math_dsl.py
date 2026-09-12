@@ -86,11 +86,59 @@ def test_write_summary_is_plain_json_no_sympy_import_needed(tmp_path):
     with open(out) as f:
         data = json.load(f)
 
-    assert [row["name"] for row in data] == ["a1", "c1"]
-    assert data[0]["type"] == "assume"
-    assert data[0]["verdict"] == "ASSERTED"
-    assert data[1]["verdict"] == "CONFIRMED"
-    assert all(isinstance(v, (str, type(None), list)) for row in data for v in row.values())
+    steps = data["steps"]
+    assert [row["name"] for row in steps] == ["a1", "c1"]
+    assert steps[0]["type"] == "assume"
+    assert steps[0]["verdict"] == "ASSERTED"
+    assert steps[1]["verdict"] == "CONFIRMED"
+    assert all(
+        isinstance(v, (str, type(None), list)) for row in steps for v in row.values()
+    )
+
+
+def test_write_summary_envelope_is_self_describing(tmp_path):
+    """Regression (run 20260912T142229, D003 + critic-1): the summary was a
+    bare list, so two consumers independently sniffed its shape with an
+    isinstance() guard. A record that does not name its own format makes every
+    reader infer it, and breaks them silently when it changes."""
+    from a3dasm._src.epistemics.math_dsl import SUMMARY_SCHEMA
+
+    ws = Workspace("main")
+    x = ws.symbols("x", real=True)[0]
+    ws.assume("a1", "an ansatz", expr=x + 1)
+    ws.check_equals("c1", x + 1, 1 + x)
+    ws.truncate_series("t1", sp.sin(x), x, 3)
+
+    out = tmp_path / "summary.json"
+    ws.write_summary(str(out))
+    with open(out) as f:
+        data = json.load(f)
+
+    assert data["schema"] == SUMMARY_SCHEMA
+    assert data["workspace"] == "main"
+    assert data["counts"] == {
+        "CONFIRMED": 1, "REFUTED": 0, "INCONCLUSIVE": 0,
+        "ASSERTED": 1, "unchecked": 1,
+    }
+    # counts and steps are two views of one fact, never allowed to disagree
+    assert sum(data["counts"].values()) == len(data["steps"])
+
+
+def test_write_summary_carries_residual_for_non_confirmed(tmp_path):
+    """The evidence for a non-CONFIRMED verdict must survive into the summary:
+    the contract promises a consumer can audit without reading the .py, and
+    a failing step is precisely the one worth auditing."""
+    ws = Workspace("t")
+    x = ws.symbols("x", real=True)[0]
+    ws.check_equals("bad", x + 1, x + 2)
+
+    out = tmp_path / "summary.json"
+    ws.write_summary(str(out))
+    with open(out) as f:
+        step = json.load(f)["steps"][0]
+
+    assert step["verdict"] in ("REFUTED", "INCONCLUSIVE")
+    assert step["residual"] is not None and step["residual"] != ""
 
 
 def test_rerunning_the_same_script_reconstructs_identical_steps(tmp_path):
