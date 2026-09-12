@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import sympy as sp
 
 from a3dasm._src.epistemics.math_dsl import Workspace
@@ -247,3 +248,57 @@ def test_coefficient_is_a_thin_wrap_not_a_recorded_step():
 
     assert coeff == 5
     assert len(ws._steps) == steps_before
+
+
+def test_write_summary_journals_every_execution(tmp_path):
+    """Regression (run 20260912T142229, D002): a script is edited and rerun
+    until its checks pass, and every rerun overwrites the summary. Six checks
+    that failed INCONCLUSIVE, prompted a correction, and then CONFIRMED left
+    exactly the same trace as six that passed first time: none. Keep each
+    execution so a result can be shown to have been earned."""
+    out = tmp_path / "main_summary.json"
+    hist = tmp_path / "main_summary.history.jsonl"
+
+    # execution 1: the check cannot be decided as written
+    ws = Workspace("main")
+    u = ws.symbols("u")[0]  # no assumptions -> SymPy cannot decide
+    ws.check_equals("coefficient_match", sp.Abs(u), u)
+    ws.write_summary(str(out))
+
+    # execution 2: same step name, the premise corrected
+    ws = Workspace("main")
+    u = ws.symbols("u", positive=True)[0]
+    ws.check_equals("coefficient_match", sp.Abs(u), u)
+    ws.write_summary(str(out))
+
+    entries = [json.loads(line) for line in hist.read_text().splitlines()]
+    assert len(entries) == 2
+
+    verdicts = [e["steps"][0]["verdict"] for e in entries]
+    assert verdicts[0] != "CONFIRMED"      # the state that used to vanish
+    assert verdicts[1] == "CONFIRMED"
+    assert all(e["steps"][0]["name"] == "coefficient_match" for e in entries)
+    assert all(e["written_at"] for e in entries)
+
+    # the summary file is still the CURRENT state, unchanged in role
+    assert json.loads(out.read_text())["steps"][0]["verdict"] == "CONFIRMED"
+
+
+def test_write_summary_survives_an_unwritable_journal(tmp_path, monkeypatch):
+    """The summary is the contract; a journal that cannot be written costs a
+    warning, not the derivation."""
+    from a3dasm._src.epistemics import math_dsl
+
+    def _boom(*a, **k):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(math_dsl.Workspace, "_append_history", staticmethod(_boom))
+    ws = Workspace("main")
+    x = ws.symbols("x", real=True)[0]
+    ws.check_equals("c1", x + 1, 1 + x)
+
+    out = tmp_path / "s.json"
+    with pytest.raises(OSError):
+        ws.write_summary(str(out))
+    # the summary landed before the journal was attempted
+    assert json.loads(out.read_text())["steps"][0]["verdict"] == "CONFIRMED"

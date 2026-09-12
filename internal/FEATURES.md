@@ -303,6 +303,12 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   that depends on `.equals()`'s randomized numerical fallback is reproducible
   across reruns of the identical script (verified directly: unseeded, this
   flips between `REFUTED`/`INCONCLUSIVE` across process runs).
+  `write_summary()` writes a self-describing document
+  (`{schema, workspace, counts, steps}`, each step carrying its `residual`)
+  and appends that document to a sibling `<name>.history.jsonl` — one entry
+  per execution, so the verdicts an edited-and-rerun script used to report
+  survive being overwritten. Additive and write-only: the summary file
+  remains the current state and the only thing a consumer reads.
 - **Where:** `math_dsl.py` (the `Workspace` library, re-exported publicly as
   `a3dasm.Workspace`), `agents/math_expert.py` (`MathExpertAgent`),
   `knowledge/entries/0011-symbolic-derivation-patterns.md` (worked-example

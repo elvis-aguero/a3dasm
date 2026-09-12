@@ -156,6 +156,13 @@ carries the leftover expression for a REFUTED or INCONCLUSIVE step — that is
 the evidence for the verdict, and it is what makes a failing step auditable
 without opening the `.py`.
 
+Every execution is also appended to a sibling `<name>_summary.history.jsonl`,
+so a check that came back INCONCLUSIVE, made you correct a premise, and then
+CONFIRMED is still on record after the rerun overwrote the summary. You do
+not write to it and normally do not read it — it exists so that a result can
+be shown to have been *earned*. Report the correction in your deliverable
+anyway; the journal corroborates your account, it does not replace it.
+
 ## The symbolic engine verifies; you propose the creative step
 Your job in a delegation is choosing *what* ansatz, assumption, or
 particular-solution guess to try; the library only checks whether that

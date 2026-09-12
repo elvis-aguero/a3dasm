@@ -134,8 +134,12 @@ but that is a different spec.
 - Giving agents any git tool. They never see the repo; the harness commits on
   their behalf. An agent that can rewrite the history recording its own work
   defeats the purpose.
-- Capturing intermediate states *within* one delegation. Evidence (2) is
-  mitigated (the script is recoverable per delegation) but not solved: a
-  Workspace re-run inside a single delegation still overwrites its own earlier
-  verdicts. Whether `write_summary` should carry a step's verdict *history* is
-  an epistemic-record question and belongs to the user under CLAUDE.md §4.
+- Capturing intermediate states *within* one delegation — now handled
+  separately and NOT by this spec. `write_summary()` appends every execution
+  to a sibling `.history.jsonl`, so evidence (2) is addressed at its source:
+  the verdicts a rerun overwrites are on record without needing the commit
+  history to recover them. That was initially deferred here as a CLAUDE.md §4
+  epistemic-record question, which was wrong — keeping more evidence changes
+  what the system *retains*, not what a verdict *means*, and nothing about
+  the falsification contract moves. This spec still earns its place for
+  evidence (1) and (3), which the journal does not touch.

@@ -18,6 +18,9 @@ the entire "durability" story (no separate trace/replay format).
 from __future__ import annotations
 
 import json
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
 
 import sympy as sp
 import sympy.core.random as _sp_random
@@ -38,6 +41,12 @@ _DETERMINISM_SEED = 0
 # number whenever the envelope or a step's fields change, so a consumer can
 # tell what it is reading instead of inferring it from the shape.
 SUMMARY_SCHEMA = "a3dasm.math_dsl.summary/1"
+
+log = logging.getLogger(__name__)
+
+
+def _now_iso() -> str:
+    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
 
 
 def _latex(expr) -> str:
@@ -251,3 +260,43 @@ class Workspace:
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(doc, f, indent=2)
+        self._append_history(path, doc)
+
+    @staticmethod
+    def _append_history(path: str, doc: dict) -> None:
+        """Append this execution's summary to a sibling ``.history.jsonl``.
+
+        A derivation script is edited and rerun until its checks pass, and
+        every rerun builds a fresh Workspace and overwrites the summary. So a
+        check that came back INCONCLUSIVE, prompted a correction, and then
+        CONFIRMED leaves exactly the same trace as one that passed on the
+        first try: none. That is the most informative event in the derivation
+        — it is the evidence that a result was earned rather than assumed —
+        and it was the one event the record could not hold.
+
+        This is durability of evidence, not a claim about what a verdict
+        means: nothing here changes a verdict, a count, or what the agent
+        must do. The summary file remains the current state and the single
+        thing any consumer reads; the journal is additive and write-only.
+
+        NOT the JSONL call-log that spec 10 considered and dropped. That one
+        replaced the .py script as the source of truth and needed bespoke
+        code to replay it — dropped because a real derivation is linear and
+        running the script top to bottom already IS the replay, which is
+        still right. This appends finished summary documents; there is
+        nothing to replay and the script stays the document.
+
+        Never fatal: the summary is the contract and is already on disk by
+        the time this runs. A journal that cannot be written costs a warning,
+        not the derivation.
+        """
+        try:
+            entry = {"written_at": _now_iso(), **doc}
+            with open(
+                Path(path).with_suffix(".history.jsonl"), "a", encoding="utf-8"
+            ) as f:
+                # One compact line per execution: a short single write keeps
+                # concurrent appends from interleaving mid-record.
+                f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+        except OSError as exc:
+            log.warning("could not append derivation history for %s: %s", path, exc)
