@@ -290,3 +290,36 @@ def test_query_received_keeps_non_done_terminal_statuses(tmp_path):
     _record(log, id="G1", to_node="critic", status="GATE:PASS")
     _record(log, id="D9", to_node="critic", status="FAILED")
     assert [r["id"] for r in log.query_received("critic")] == ["G1", "D9"]
+
+
+# ---------------------------------------------------------------------------
+# A delegation is durable before it is observable
+# ---------------------------------------------------------------------------
+
+def test_terminal_row_is_written_before_the_registry_publishes_done(tmp_path):
+    """Regression: _finish_ok flipped the registry to "Done" BEFORE writing the
+    DONE row. A delegator polls GetStatus() and acts the moment it stops saying
+    "Working" — HypothesisUpdate then resolves triggered_by via
+    last_completed_id(), which needs that row. The window was microseconds
+    until spec 11 put a git subprocess in it, at which point triggered_by came
+    back None every time and a FALSIFIED verdict lost its link to the evidence
+    that produced it. Ordering, not timing, is the fix: record, then publish.
+    """
+    import inspect
+
+    from a3dasm._src.nodes.tools.routing import delegation
+
+    for fn_name in ("_finish_ok", "_finish_error"):
+        src = inspect.getsource(getattr(delegation.WorkerSession, fn_name))
+        record_at = src.index("_delegation_log.record(")
+        # the registry write that PUBLISHES the terminal status
+        publish_at = max(
+            src.index('"status": "Done"') if '"status": "Done"' in src else -1,
+            src.index('"status": "Errored"') if '"status": "Errored"' in src else -1,
+        )
+        assert publish_at > 0, f"{fn_name}: no terminal status write found"
+        assert record_at < publish_at, (
+            f"{fn_name} publishes the terminal registry status before writing "
+            "the delegation-log row; a poller can observe completion and then "
+            "fail to resolve the delegation it just saw finish"
+        )

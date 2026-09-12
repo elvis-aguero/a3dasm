@@ -574,6 +574,30 @@ class WorkerSession:
             return None
         return None
 
+    def _commit_workspace(self, status: str) -> str | None:
+        """Commit this delegation's file changes to the run's workspace repo.
+
+        One commit per delegation, whatever its outcome: a FAILED delegation's
+        partial edits are exactly as worth inspecting as a successful one's,
+        and an absent commit would be ambiguous between "changed nothing" and
+        "the record failed". Never raises — see infra/workspace_vcs.
+        """
+        node = self.node
+        # Resolve the run-scoped workspace the way _prepare_run created it,
+        # NOT via node._workspace_dir: that attribute falls back to a
+        # study_dir-relative path on an orchestrating node (see _drain_to_dir
+        # below), which is a different directory and holds no repo. Pinning
+        # both ends to run_dir/debug/delegations keeps the commit and the
+        # init talking about the same tree.
+        run_dir = node._resolve_run_dir()
+        if run_dir is None:
+            return None
+        from ....infra.workspace_vcs import commit_workspace
+        return commit_workspace(
+            run_dir / "debug" / "delegations",
+            f"{self.delegation_id} {node._name} -> {self.target} [{status}]",
+        )
+
     def _finish_ok(
         self,
         text: str,
@@ -591,6 +615,43 @@ class WorkerSession:
             _detached = (
                 node._registry[delegation_id].get("status") == "Cancelled"
             )
+
+        # A delegation must not become OBSERVABLE as finished before its
+        # completion is DURABLE. The delegator polls GetStatus(), which reads
+        # the registry, and acts the moment it stops saying "Working" — in
+        # particular HypothesisUpdate resolves triggered_by via
+        # DelegationLog.last_completed_id(), which needs this delegation's
+        # terminal row to already be on disk. Flipping the registry first left
+        # a window in which the delegator could ask for a provenance link that
+        # did not exist yet and silently receive None, permanently unlinking a
+        # verdict from the evidence that produced it. The window used to be
+        # microseconds and is now a git subprocess wide (spec 11), so write
+        # the log first and publish the status second.
+        workspace_sha = self._commit_workspace("DONE")
+        if node._delegation_log is not None:
+            node._delegation_log.record(
+                id=delegation_id,
+                from_node=node._name,
+                to_node=target,
+                task=self.intent,
+                deliverable=text,
+                hypothesis_ids=self.hypothesis_ids,
+                started_at=self.started_at,
+                completed_at=datetime.now(
+                    tz=timezone.utc
+                ).isoformat(timespec="seconds"),
+                status="DONE",
+                tokens_in=(usage.get("input_tokens", 0) or 0),
+                tokens_out=(usage.get("output_tokens", 0) or 0),
+                cost_usd=usage.get("total_cost_usd"),
+                is_falsification_attempt=bool(self.is_falsification_attempt),
+                evals=evals,
+                phase=self.phase,
+                constraints=snapshot.as_dict(),
+                workspace_sha=workspace_sha,
+            )
+
+        with node._registry_lock:
             if _detached:
                 # CancelDelegation detached this while it ran: keep it
                 # Cancelled and DISCARD the deliverable. Usage was
@@ -643,33 +704,11 @@ class WorkerSession:
                 stamped=stamped,
                 detached=_detached,
             )
-        # Write delegation record to graph-wide delegation log
-        if node._delegation_log is not None:
-            node._delegation_log.record(
-                id=delegation_id,
-                from_node=node._name,
-                to_node=target,
-                task=self.intent,
-                deliverable=text,
-                hypothesis_ids=self.hypothesis_ids,
-                started_at=self.started_at,
-                completed_at=datetime.now(
-                    tz=timezone.utc
-                ).isoformat(timespec="seconds"),
-                status="DONE",
-                tokens_in=(usage.get("input_tokens", 0) or 0),
-                tokens_out=(usage.get("output_tokens", 0) or 0),
-                cost_usd=usage.get("total_cost_usd"),
-                is_falsification_attempt=bool(self.is_falsification_attempt),
-                evals=evals,
-                phase=self.phase,
-                constraints=snapshot.as_dict(),
-            )
-            if node._science_monitor is not None:
-                try:
-                    node._science_monitor.on_delegation_complete(delegation_id)
-                except Exception:  # noqa: BLE001
-                    pass
+        if node._delegation_log is not None and node._science_monitor is not None:
+            try:
+                node._science_monitor.on_delegation_complete(delegation_id)
+            except Exception:  # noqa: BLE001
+                pass
 
         self._register_authored_evaluator()
 
@@ -762,20 +801,12 @@ class WorkerSession:
         node, delegation_id, target = self.node, self.delegation_id, self.target
         usage = getattr(self.worker, "last_usage", {}) or {}
         node._record_worker_usage(self.worker, target, delegation_id)
-        with node._registry_lock:
-            node._registry[delegation_id].update({
-                "status": "Errored",
-                "result": tb,
-                "evals": self.claimed_evals,
-                "usage": usage,
-            })
-            node._consecutive_errors[target] = (
-                node._consecutive_errors.get(target, 0) + 1
-            )
-        with node._notifications_lock:
-            node._notifications.append(
-                f"[Delegation {delegation_id} Errored]"
-            )
+
+        # Durable before observable — the same ordering invariant as
+        # _finish_ok. A poller watching GetStatus() leaves "Working" the
+        # instant the registry flips, and a FAILED delegation is just as
+        # citable as a DONE one.
+        workspace_sha = self._commit_workspace("FAILED")
         if node._delegation_log is not None:
             from ....runtime.constraint_snapshot import snapshot_for_node
             node._delegation_log.record(
@@ -798,6 +829,22 @@ class WorkerSession:
                 is_falsification_attempt=bool(self.is_falsification_attempt),
                 phase=self.phase,
                 constraints=snapshot_for_node(node).as_dict(),
+                workspace_sha=workspace_sha,
+            )
+
+        with node._registry_lock:
+            node._registry[delegation_id].update({
+                "status": "Errored",
+                "result": tb,
+                "evals": self.claimed_evals,
+                "usage": usage,
+            })
+            node._consecutive_errors[target] = (
+                node._consecutive_errors.get(target, 0) + 1
+            )
+        with node._notifications_lock:
+            node._notifications.append(
+                f"[Delegation {delegation_id} Errored]"
             )
 
 
