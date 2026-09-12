@@ -17,6 +17,7 @@ from .feedback import (
     _FAILED_RETROSPECTIVE,
     build_feedback_closures,
 )
+from .ledger import build_ledger_closures
 from .notebook import (
     _NOTEBOOK_TOOL_NAMES,
     _strip_leading_md_header,
@@ -125,18 +126,13 @@ def build_routing_tools(node) -> dict:
 
     # Capability closures are DECLARATION-GATED (single source of truth = the
     # Agent's `tools`), exactly like the notebook/Done/notes tools above.
-    # Hypothesis MUTATE tools go only to agents that declare them (the
-    # strategizer); a stateless leaf must never mutate the shared ledger.
-    _hyp = node._build_hypothesis_closures()
-    for _t in ("HypothesisPropose", "HypothesisUpdate",
-               "LinkFalsificationAttempt"):
-        if _t in _agent_tools and _t in _hyp:
-            closures[_t] = _hyp[_t]
-    # Milestone tools (process policy) — declaration-gated too.
-    if hasattr(node, "_build_milestone_closures"):
-        for _t, _fn in node._build_milestone_closures().items():
-            if _t in _agent_tools:
-                closures[_t] = _fn
+    # Every ledger tool MUTATES — hypothesis (epistemics) or milestone
+    # (process policy) — so they go only to agents that declare them; a
+    # stateless leaf must never mutate a shared ledger. The read-only
+    # HypothesisList/HypothesisGet come from the shared builder below instead.
+    for _t, _fn in build_ledger_closures(node).items():
+        if _t in _agent_tools:
+            closures[_t] = _fn
     # Read-only ledger/store tools — declaration-gated and shared verbatim with
     # leaf nodes (see nodes/leaf.py), so the exposure surface is
     # identical across node types.

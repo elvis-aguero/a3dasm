@@ -16,8 +16,9 @@ declare — which is exactly how a reader should think about them.
 The two behaviours live in ``orchestration`` and ``leaf``; the remaining
 mixins are per-concern, not per-type: ``recording`` (notes, retrospectives),
 ``critic_gate`` (the adversarial review), ``lifecycle`` (budget/backstop
-halts), ``ledger_tools`` (hypothesis + milestone closures),
-``reproduction_gate`` (the notebook's lazy-reproduction check).
+halts), ``reproduction_gate`` (the notebook's lazy-reproduction
+check). The ledger tools are a tool family like any other and live in
+``nodes/tools/routing/ledger.py``.
 """
 
 from __future__ import annotations
@@ -33,7 +34,6 @@ if TYPE_CHECKING:
 from ..infra.delegation_log import DelegationLog
 from .critic_gate import CriticGateMixin
 from .leaf import LeafMixin
-from .ledger_tools import LedgerToolsMixin
 from .lifecycle import LifecycleMixin
 from .orchestration import OrchestrationMixin
 from .recording import RecordingMixin
@@ -44,7 +44,6 @@ class Node(
     RecordingMixin,
     CriticGateMixin,
     LifecycleMixin,
-    LedgerToolsMixin,
     ReproductionGateMixin,
     OrchestrationMixin,
     LeafMixin,

@@ -21,7 +21,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   SUPPORTED / FALSIFIED / INCONCLUSIVE), append-only.
 - **Where:** `hypothesis_ledger.py`; the strategizer's mutate closures
   (`HypothesisPropose`/`HypothesisUpdate`/`LinkFalsificationAttempt`) in
-  `nodes/ledger_tools.py`; per-run file `debug/strategizer_notes/hypotheses.json`.
+  `nodes/tools/routing/ledger.py`; per-run file `debug/strategizer_notes/hypotheses.json`.
 - **Status:** core.
 
 ### Falsification charter (the Popperian rules)
@@ -35,7 +35,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   that the verdict obeys the charter, and nudges the strategizer if not.
 - **Why:** the gate critic only checks at the end; this catches charter violations
   at the moment of assertion.
-- **Where:** `verdict_validator.py` (judge logic); invoked by `nodes/ledger_tools.py`
+- **Where:** `verdict_validator.py` (judge logic); invoked by `nodes/tools/routing/ledger.py`
   HypothesisUpdate via `node._run_verdict_validator`, which is defined in
   `nodes/critic_gate.py`. Runs on the **critic's** model (reuses the critic adapter),
   not the strategizer's — one refereeing standard, decoupled from the agent it judges.
@@ -118,7 +118,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 ### Process milestones
 - **What:** a small backlog (assess-literature, oracle-ready, …) that gates the
   implementer until the strategizer resolves each (complete or skip).
-- **Where:** `milestones.py`; the `Milestone*` closures in `nodes/ledger_tools.py`.
+- **Where:** `milestones.py`; the `Milestone*` tools in `nodes/tools/routing/ledger.py`.
   **Status:** core.
 
 ### Delegation + inter-agent messaging
