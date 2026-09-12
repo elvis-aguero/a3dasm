@@ -127,7 +127,7 @@ def _routing_tool_docs() -> dict[str, str]:
     routing_files = sorted(
         str(p.relative_to(nodes_dir)) for p in routing_dir.glob("*.py")
     )
-    for rel in [*routing_files, "strategizer.py", "worker.py"]:
+    for rel in [*routing_files, "strategizer.py", "ledger_tools.py", "worker.py"]:
         path = nodes_dir / rel
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))

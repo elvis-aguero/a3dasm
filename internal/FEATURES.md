@@ -19,7 +19,9 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 ### Hypothesis ledger
 - **What:** the run's record of falsifiable hypotheses and their verdicts (OPEN /
   SUPPORTED / FALSIFIED / INCONCLUSIVE), append-only.
-- **Where:** `hypothesis_ledger.py`; per-run file `debug/strategizer_notes/hypotheses.json`.
+- **Where:** `hypothesis_ledger.py`; the strategizer's mutate closures
+  (`HypothesisPropose`/`HypothesisUpdate`/`LinkFalsificationAttempt`) in
+  `nodes/ledger_tools.py`; per-run file `debug/strategizer_notes/hypotheses.json`.
 - **Status:** core.
 
 ### Falsification charter (the Popperian rules)
@@ -33,7 +35,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   that the verdict obeys the charter, and nudges the strategizer if not.
 - **Why:** the gate critic only checks at the end; this catches charter violations
   at the moment of assertion.
-- **Where:** `verdict_validator.py` (judge logic); invoked by `nodes/strategizer.py`
+- **Where:** `verdict_validator.py` (judge logic); invoked by `nodes/ledger_tools.py`
   HypothesisUpdate via `node._run_verdict_validator`, which is defined in
   `nodes/critic_gate.py`. Runs on the **critic's** model (reuses the critic adapter),
   not the strategizer's — one refereeing standard, decoupled from the agent it judges.
@@ -116,7 +118,8 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 ### Process milestones
 - **What:** a small backlog (assess-literature, oracle-ready, …) that gates the
   implementer until the strategizer resolves each (complete or skip).
-- **Where:** `milestones.py`. **Status:** core.
+- **Where:** `milestones.py`; the `Milestone*` closures in `nodes/ledger_tools.py`.
+  **Status:** core.
 
 ### Delegation + inter-agent messaging
 - **What:** the strategizer delegates work to specialist agents and they report back;
@@ -151,7 +154,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   the critic checks its provenance (it must trace to a real ledger row); the runtime
   no longer machine-matches it to an objective extremum (that wrongly rejected
   constrained optima — audit 20260624T021359).
-- **Where:** `notebook_exec.py`, `nodes/tools/routing/`, `nodes/strategizer.py`
+- **Where:** `notebook_exec.py`, `nodes/tools/routing/`, `nodes/reproduction_gate.py`
   (`_reproduction_gate`).
 - **Tools:** `AddPipelineCell`, `AddPipelineMarkdownCell`, `EditPipelineCell`,
   `DeletePipelineCell`, `ShowNotebook`, `WriteDeliverable`, `CheckDeliverable`.
@@ -195,7 +198,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   instead of hand-rolling multi-candidate path search. Store isolation is unchanged —
   only the store is a copy; the study root is read-only reference code. The three
   duplicated sandbox-env blocks are unified in one `sandbox_env()` helper.
-- **Where:** `notebook_exec.py` `sandbox_env`; call sites in `nodes/strategizer.py`
+- **Where:** `notebook_exec.py` `sandbox_env`; call sites in `nodes/reproduction_gate.py`
   (`_reproduction_gate`) and `nodes/tools/routing/` (`RunPipelineCell`, scratch).
 - **Status:** telemetry/ergonomics, not a new cap. Run 20260705T181941 friction.
 

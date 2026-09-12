@@ -7,7 +7,7 @@ rounds because it never compared the two.
 """
 from __future__ import annotations
 
-from a3dasm._src.nodes.strategizer import _headline_consistency
+from a3dasm._src.nodes.reproduction_gate import _headline_consistency
 
 
 def test_mismatch_is_flagged():
