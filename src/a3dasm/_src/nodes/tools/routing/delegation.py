@@ -20,7 +20,6 @@ drops ``self``, so the JSON schema the backends infer is unchanged.
 """
 from __future__ import annotations
 
-import functools
 import re
 import threading
 import time
@@ -37,6 +36,7 @@ from ...parsing import (
     _reconcile_delegation_evals,
     _stamped_eval_count,
 )
+from ._binding import with_doc
 
 # Roles whose delegations actually reach the ground-truth oracle and so are
 # subject to the eval-ledger guards (raw-oracle nudge, unledgered bounce,
@@ -95,21 +95,6 @@ def resolve_target(
         if _norm_target(roles.get(t, "")) == rn:
             return t
     return None
-
-
-def with_doc(fn, doc: str):
-    """Re-present a bound tool method with a per-node docstring.
-
-    ``Delegate``'s description embeds this node's own connected targets, so its
-    text is per-node while its code is not. ``update_wrapper`` carries across
-    ``__name__``/``__dict__`` (hence ``@tool_examples``), and the leading
-    ``__wrapped__`` keeps ``inspect.signature`` — and so the inferred JSON
-    schema — identical to the method's.
-    """
-    bound = functools.partial(fn)
-    functools.update_wrapper(bound, fn)
-    bound.__doc__ = doc
-    return bound
 
 
 class ConferTools:

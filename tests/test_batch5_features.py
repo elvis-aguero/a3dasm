@@ -23,11 +23,17 @@ def test_three_strikes_escape_not_coached_to_agent():
     earning a PASS). The backstop logic itself stays."""
     nodes = (_SRC / "nodes" / "tools" / "routing" / "feedback.py").read_text()
     # The old coaching phrasing must be gone from the agent-facing message.
+    # These stay source greps: they are about agent-facing PROSE.
     assert "again anyway" not in nodes
     assert "after 3 attempts the run closes" not in nodes
     assert "(revision {node._revise_count}/3)" not in nodes
-    # The silent backstop must still exist.
-    assert "_revise_count >= 3" in nodes
+    # The silent backstop must still exist, and still be three strikes. Read
+    # the live constant rather than grepping for a literal — a source grep
+    # passes just as happily on a branch that has become dead code.
+    feedback = importlib.import_module(
+        "a3dasm._src.nodes.tools.routing.feedback")
+    assert feedback._REVISE_MAX == 3
+    assert "_revise_count >= _REVISE_MAX" in nodes
 
 
 # --- #6: extensible, oracle-stamped provenance -------------------------------
