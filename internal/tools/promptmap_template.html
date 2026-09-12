@@ -1,0 +1,540 @@
+<title>a3dasm Agent's-Eye View</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+:root{
+  --ground:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f6; --sunk:#e6eaf1;
+  --ink:#16202b; --ink-2:#42505f; --ink-3:#6d7c8c;
+  --line:#d3dae4; --line-soft:#e4e9f0;
+  --accent:#1e5f8f; --accent-soft:#e3edf6; --accent-ink:#174a6f;
+  --hard:#a8323a; --hard-soft:#f7e6e7;
+  --soft:#8f5c12; --soft-soft:#f8eedd;
+  --proc:#41607c; --proc-soft:#e6edf3;
+  --adv:#4a6b4c; --adv-soft:#e7efe7;
+  --mark:#fdecb6;
+  --r:3px;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --serif:"IBM Plex Serif",Georgia,serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0e141b; --surface:#151d26; --surface-2:#1b242f; --sunk:#101820;
+  --ink:#e2e9f1; --ink-2:#a8b6c5; --ink-3:#7b8a9a;
+  --line:#2a3644; --line-soft:#212c38;
+  --accent:#79b6e2; --accent-soft:#16283a; --accent-ink:#a5cfee;
+  --hard:#e08a90; --hard-soft:#33191c;
+  --soft:#d6a44f; --soft-soft:#302512;
+  --proc:#8fadc7; --proc-soft:#1b2733;
+  --adv:#92b894; --adv-soft:#1a251b;
+  --mark:#5a4a12;
+}}
+:root[data-theme="dark"]{
+  --ground:#0e141b; --surface:#151d26; --surface-2:#1b242f; --sunk:#101820;
+  --ink:#e2e9f1; --ink-2:#a8b6c5; --ink-3:#7b8a9a;
+  --line:#2a3644; --line-soft:#212c38;
+  --accent:#79b6e2; --accent-soft:#16283a; --accent-ink:#a5cfee;
+  --hard:#e08a90; --hard-soft:#33191c;
+  --soft:#d6a44f; --soft-soft:#302512;
+  --proc:#8fadc7; --proc-soft:#1b2733;
+  --adv:#92b894; --adv-soft:#1a251b;
+  --mark:#5a4a12;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+  font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:100vh}
+.rail{background:var(--surface);border-right:1px solid var(--line);
+  padding-block:18px;padding-inline:14px;display:flex;flex-direction:column;gap:20px;
+  position:sticky;top:0;height:100vh;overflow-y:auto}
+.main{min-width:0;padding-block:22px 60px;padding-inline:clamp(16px,3vw,38px)}
+
+.brand{display:flex;flex-direction:column;gap:3px}
+.brand b{font-size:15px;font-weight:700;letter-spacing:-.01em}
+.brand span{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+
+.railgroup{display:flex;flex-direction:column;gap:2px}
+.railhead{font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--ink-3);margin-bottom:6px}
+.railbtn{display:flex;align-items:baseline;gap:8px;width:100%;text-align:left;
+  background:none;border:0;border-left:2px solid transparent;
+  padding:6px 8px;color:var(--ink-2);font:inherit;cursor:pointer;border-radius:0 var(--r) var(--r) 0}
+.railbtn:hover{background:var(--surface-2);color:var(--ink)}
+.railbtn[aria-current="true"]{background:var(--accent-soft);border-left-color:var(--accent);
+  color:var(--accent-ink);font-weight:600}
+.railbtn em{font-style:normal;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);
+  margin-left:auto;font-variant-numeric:tabular-nums}
+.railbtn[aria-current="true"] em{color:var(--accent-ink)}
+
+.search{position:relative}
+.search input{width:100%;font:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--line);
+  border-radius:var(--r);background:var(--sunk);color:var(--ink)}
+.search input::placeholder{color:var(--ink-3)}
+.railnote{font-size:11.5px;color:var(--ink-3);line-height:1.45;border-top:1px solid var(--line-soft);
+  padding-top:12px;margin-top:auto}
+.railnote code{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);overflow-wrap:anywhere}
+
+/* ---------- headings ---------- */
+.eyebrow{font-size:10px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-3)}
+h1{font-size:clamp(21px,2.4vw,27px);line-height:1.18;margin:4px 0 0;letter-spacing:-.02em;
+  text-wrap:balance;font-weight:600}
+h2{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
+.lede{font-family:var(--serif);font-size:14.5px;color:var(--ink-2);max-width:66ch;margin:10px 0 0}
+.sectionhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  margin:34px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.sectionhead p{margin:0;font-size:12.5px;color:var(--ink-3);flex:1 1 260px}
+
+/* ---------- role header ---------- */
+.facts{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:14px;
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-2)}
+.facts b{font-weight:500;color:var(--ink-3)}
+
+/* ---------- composition bar ---------- */
+.comp{margin-top:22px}
+.compbar{display:flex;height:34px;border:1px solid var(--line);border-radius:var(--r);
+  overflow:hidden;background:var(--surface)}
+.compseg{display:flex;align-items:center;justify-content:center;min-width:0;
+  font-family:var(--mono);font-size:10.5px;font-weight:500;color:#fff;
+  border-right:1px solid rgba(255,255,255,.35)}
+.compseg:last-child{border-right:0}
+.compseg span{padding-inline:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.complegend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:9px;font-size:11.5px;color:var(--ink-2)}
+.complegend span{display:inline-flex;align-items:center;gap:6px}
+.complegend i{width:10px;height:10px;border-radius:2px;display:inline-block;flex:none}
+.complegend em{font-style:normal;font-family:var(--mono);color:var(--ink-3);
+  font-variant-numeric:tabular-nums}
+
+/* ---------- layers ---------- */
+.layer{margin-top:26px}
+.layerhead{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:4px}
+.layerhead h2{font-family:var(--mono);font-size:13px;font-weight:600}
+.layernote{font-size:12.5px;color:var(--ink-3);max-width:74ch;margin:0 0 10px}
+.layernote code{font-family:var(--mono);font-size:11.5px;background:var(--surface-2);
+  padding:1px 4px;border-radius:2px}
+
+.rows{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.row{border-top:1px solid var(--line-soft)}
+.row:first-child{border-top:0}
+.rowbtn{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:none;
+  border:0;padding:9px 13px;font:inherit;color:inherit;cursor:pointer}
+.rowbtn:hover{background:var(--surface-2)}
+.rowtag{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--ink);
+  flex:0 0 auto;min-width:0;overflow-wrap:anywhere}
+.rowtag i{font-style:normal;color:var(--ink-3)}
+.rowspacer{flex:1 1 auto;border-bottom:1px dotted var(--line);min-width:14px;
+  transform:translateY(-2px)}
+.rowsrc{font-family:var(--mono);font-size:11px;color:var(--accent);flex:none;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:44vw}
+.rowchars{font-family:var(--mono);font-size:11px;color:var(--ink-3);flex:none;
+  font-variant-numeric:tabular-nums;min-width:58px;text-align:right}
+.chev{flex:none;color:var(--ink-3);transition:transform .14s}
+.row[data-open="true"] .chev{transform:rotate(90deg)}
+.rowbody{border-top:1px dashed var(--line);background:var(--sunk);padding:12px 13px}
+.rowmeta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:10px;align-items:center}
+pre.prompt{margin:0;font-family:var(--mono);font-size:11.5px;line-height:1.62;
+  white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);
+  max-height:460px;overflow-y:auto;padding-right:6px}
+mark{background:var(--mark);color:var(--ink);border-radius:2px;padding:0 1px}
+
+/* ---------- chips ---------- */
+.chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;
+  padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);
+  background:var(--surface-2);white-space:nowrap}
+.chip.k-hard{color:var(--hard);background:var(--hard-soft);border-color:transparent}
+.chip.k-soft{color:var(--soft);background:var(--soft-soft);border-color:transparent}
+.chip.k-procedural{color:var(--proc);background:var(--proc-soft);border-color:transparent}
+.chip.k-advisory{color:var(--adv);background:var(--adv-soft);border-color:transparent}
+.chip.k-accent{color:var(--accent-ink);background:var(--accent-soft);border-color:transparent}
+.copy{font:inherit;font-family:var(--mono);font-size:10.5px;padding:2px 8px;cursor:pointer;
+  border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink-2)}
+.copy:hover{border-color:var(--accent);color:var(--accent)}
+.tools{display:flex;flex-wrap:wrap;gap:5px;padding:13px}
+
+/* ---------- gates ---------- */
+.chain{counter-reset:step;display:flex;flex-direction:column;gap:0;
+  border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.gate{display:grid;grid-template-columns:34px minmax(0,1fr);gap:0;
+  border-top:1px solid var(--line-soft)}
+.gate:first-child{border-top:0}
+.gatenum{background:var(--surface-2);display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:11px;color:var(--ink-3);border-right:3px solid var(--line)}
+.gate[data-kind="hard"] .gatenum{border-right-color:var(--hard)}
+.gate[data-kind="soft"] .gatenum{border-right-color:var(--soft)}
+.gate[data-kind="procedural"] .gatenum{border-right-color:var(--proc)}
+.gate[data-kind="advisory"] .gatenum{border-right-color:var(--adv)}
+.gatebody{padding:11px 14px;min-width:0}
+.gatetop{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.gatetop h3{margin:0;font-size:13.5px;font-weight:600}
+.gateeffect{margin:5px 0 0;font-size:12.5px;color:var(--ink-2);max-width:72ch}
+.gatedoc{margin:8px 0 0;font-family:var(--serif);font-size:12.5px;line-height:1.6;
+  color:var(--ink-2);white-space:pre-wrap;max-width:70ch;
+  border-left:2px solid var(--line);padding-left:11px}
+.gatefoot{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:9px;align-items:center}
+.src{font-family:var(--mono);font-size:11px;color:var(--accent);overflow-wrap:anywhere}
+
+/* ---------- tables ---------- */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:12.5px;min-width:520px}
+th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:600;padding:9px 13px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 13px;border-top:1px solid var(--line-soft);vertical-align:top}
+td.m{font-family:var(--mono);font-size:11.5px}
+td.m.path{color:var(--accent)}
+
+/* ---------- search results ---------- */
+.hit{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);
+  padding:11px 13px;margin-bottom:9px}
+.hittop{display:flex;flex-wrap:wrap;gap:7px 12px;align-items:baseline;margin-bottom:6px}
+.hittop b{font-size:13px}
+.hitex{font-family:var(--mono);font-size:11.5px;line-height:1.6;color:var(--ink-2);
+  white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.empty{color:var(--ink-3);font-family:var(--serif);font-size:14px}
+
+@media (max-width:860px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+  .railnote{margin-top:8px}
+  .rowsrc{max-width:none;flex-basis:100%;order:5}
+  .rowbtn{flex-wrap:wrap}
+  .rowspacer{display:none}
+}
+</style>
+
+<div class="shell">
+  <nav class="rail">
+    <div class="brand">
+      <b>Agent's-Eye View</b>
+      <span id="stamp"></span>
+    </div>
+
+    <div class="search">
+      <input id="q" type="search" placeholder="Search all prompt text  /" autocomplete="off"
+             aria-label="Search every prompt section and gate">
+    </div>
+
+    <div class="railgroup" id="rail-roles">
+      <div class="railhead">Roles</div>
+    </div>
+
+    <div class="railgroup" id="rail-views">
+      <div class="railhead">Machinery</div>
+    </div>
+
+    <p class="railnote">
+      Generated from the live graph by<br>
+      <code>internal/tools/promptmap.py</code>
+    </p>
+  </nav>
+
+  <main class="main" id="main"></main>
+</div>
+
+<script>
+const DATA = /*__PROMPTMAP_DATA__*/null;
+
+const LAYER_COLOR = {preamble:"#4a7fa5", system:"#1e5f8f", deliverable:"#6f8f4f", catalog:"#8a6a3d"};
+const LAYER_NAME  = {preamble:"runtime preamble", system:"role instructions",
+                     deliverable:"deliverable contract", catalog:"tool catalog"};
+
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const num = n => n.toLocaleString("en-US");
+const srcOf = s => s ? `${s.file}:${s.line}` : "—";
+
+let view = {kind:"role", id:DATA.roles[0].id};
+let query = "";
+
+/* ---------------- rail ---------------- */
+function buildRail(){
+  const roles = $("#rail-roles");
+  DATA.roles.forEach(r=>{
+    const b = document.createElement("button");
+    b.className="railbtn"; b.type="button"; b.dataset.role=r.id;
+    b.innerHTML = `<span>${esc(r.id)}</span><em>${num(r.static_chars)}</em>`;
+    b.onclick = ()=>{ view={kind:"role",id:r.id}; query=""; $("#q").value=""; render(); };
+    roles.appendChild(b);
+  });
+  const views = $("#rail-views");
+  [["gates","Gates",DATA.gates.length],["config","Config knobs",DATA.switches.length],
+   ["shared","Shared blocks",DATA.shared.length]].forEach(([k,label,n])=>{
+    const b=document.createElement("button");
+    b.className="railbtn"; b.type="button"; b.dataset.view=k;
+    b.innerHTML=`<span>${label}</span><em>${n}</em>`;
+    b.onclick=()=>{ view={kind:k}; query=""; $("#q").value=""; render(); };
+    views.appendChild(b);
+  });
+  $("#stamp").textContent = `${DATA.commit} · ${DATA.generated_at}`;
+}
+
+function syncRail(){
+  document.querySelectorAll(".railbtn").forEach(b=>{
+    const on = query ? false
+      : (view.kind==="role" ? b.dataset.role===view.id : b.dataset.view===view.kind);
+    b.setAttribute("aria-current", on ? "true" : "false");
+  });
+}
+
+/* ---------------- pieces ---------------- */
+function sourceLink(s){
+  if(!s) return `<span class="src">unresolved</span>`;
+  const approx = s.match && s.match!=="exact"
+    ? ` <span class="chip" title="Located by ${s.match} match — the block is assembled from pieces, so this is the line the text starts at.">≈ ${s.match}</span>` : "";
+  return `<span class="src">${esc(srcOf(s))}</span>${approx}`;
+}
+
+function sectionRow(sec, key){
+  const preview = sec.text.trim().split("\n")[0].slice(0,90);
+  return `<div class="row" data-open="false">
+    <button class="rowbtn" type="button" data-toggle="${key}">
+      <svg class="chev" width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M2 1l4 3.5L2 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span class="rowtag">${sec.tag ? `&lt;${esc(sec.tag)}&gt;` : `<i>${esc(preview)}</i>`}</span>
+      <span class="rowspacer"></span>
+      <span class="rowsrc">${esc(srcOf(sec.source))}</span>
+      <span class="rowchars">${num(sec.chars)}</span>
+    </button>
+    <div class="rowbody" hidden>
+      <div class="rowmeta">
+        ${sourceLink(sec.source)}
+        ${sec.injects ? `<span class="chip k-accent">injected verbatim · ${esc(sec.injects.name)} @ ${esc(sec.injects.file)}:${sec.injects.line}</span>` : ""}
+        ${sec.substituted ? `<span class="chip">values substituted per run</span>` : ""}
+        ${sec.generated ? `<span class="chip">assembled by function</span>` : ""}
+        <button class="copy" type="button" data-copy="${key}">copy text</button>
+      </div>
+      <pre class="prompt" id="txt-${key}">${esc(sec.text)}</pre>
+    </div>
+  </div>`;
+}
+
+/* ---------------- role view ---------------- */
+function renderRole(r){
+  const measured = r.layers.filter(l=>l.chars);
+  const total = measured.reduce((a,l)=>a+l.chars,0);
+
+  const bar = measured.map(l=>{
+    const pct = l.chars/total*100;
+    return `<div class="compseg" style="width:${pct}%;background:${LAYER_COLOR[l.kind]}"
+      title="${esc(LAYER_NAME[l.kind])} — ${num(l.chars)} chars">
+      <span>${pct>11 ? Math.round(pct)+"%" : ""}</span></div>`;
+  }).join("");
+
+  const legend = measured.map(l=>
+    `<span><i style="background:${LAYER_COLOR[l.kind]}"></i>${esc(LAYER_NAME[l.kind])}
+     <em>${num(l.chars)}</em></span>`).join("");
+
+  const layers = r.layers.map((l,li)=>{
+    let body;
+    if(l.kind==="catalog"){
+      body = `<div class="rows"><div class="tools">${
+        l.tools.map(t=>`<span class="chip">${esc(t)}</span>`).join("")}</div></div>`;
+    } else {
+      body = `<div class="rows">${l.sections.map((s,si)=>sectionRow(s,`${r.id}-${li}-${si}`)).join("")}</div>`;
+    }
+    return `<section class="layer">
+      <div class="layerhead">
+        <h2>${esc(l.label)}</h2>
+        ${l.chars ? `<span class="chip">${num(l.chars)} chars</span>` : `<span class="chip">run-scoped</span>`}
+        ${l.switch ? `<span class="chip k-soft">knob · ${esc(l.switch)}</span>` : ""}
+      </div>
+      <p class="layernote">${esc(l.note)}
+        ${l.definition ? ` <code>${esc(l.definition.file)}:${l.definition.line}</code>` : ""}
+        ${l.assembled_at ? ` · assembled at <code>${esc(srcOf(l.assembled_at))}</code>` : ""}</p>
+      ${body}
+    </section>`;
+  }).join("");
+
+  return `<p class="eyebrow">${r.entry ? "Entry node" : "Worker node"}</p>
+    <h1>${esc(r.id)}</h1>
+    <p class="lede">Everything below is in this agent's context window before it reads a
+      single word of its task. Each row cites the file and line it comes from.</p>
+    <div class="facts">
+      <span><b>class</b> ${esc(r.class)}</span>
+      <span><b>defined</b> ${esc(r.module)}</span>
+      <span><b>tools</b> ${r.tool_count}</span>
+      <span><b>delegates to</b> ${r.delegates_to.length ? esc(r.delegates_to.join(", ")) : "—"}</span>
+    </div>
+    <div class="comp">
+      <div class="compbar">${bar}</div>
+      <div class="complegend">${legend}
+        <span><i style="background:transparent;border:1px solid var(--line)"></i>total
+        <em>${num(total)} chars ≈ ${num(Math.round(total/4))} tokens</em></span>
+      </div>
+    </div>
+    ${layers}`;
+}
+
+/* ---------------- gates ---------------- */
+function gateCard(g, n){
+  return `<article class="gate" data-kind="${esc(g.kind)}">
+    <div class="gatenum">${n ?? "·"}</div>
+    <div class="gatebody">
+      <div class="gatetop">
+        <h3>${esc(g.title)}</h3>
+        <span class="chip k-${esc(g.kind)}">${esc(g.kind)}</span>
+        <span class="chip">${esc(g.phase)}</span>
+        ${g.switch ? `<span class="chip k-soft">off via ${esc(g.switch)}</span>` : ""}
+        ${g.escape ? `<span class="chip">escape · ${esc(g.escape)}</span>` : ""}
+      </div>
+      <p class="gateeffect">${esc(g.effect)}</p>
+      ${g.doc ? `<p class="gatedoc">${esc(g.doc)}</p>` : ""}
+      <div class="gatefoot">
+        <span class="src">${esc(g.file)}:${g.line}</span>
+        <span class="chip">${esc(g.symbol)}</span>
+        ${g.policy ? `<span class="chip">policy · ${esc(g.policy[0])}::${esc(g.policy[1])}</span>` : ""}
+      </div>
+    </div>
+  </article>`;
+}
+
+function renderGates(){
+  const chain = DATA.gates.filter(g=>g.done_order).sort((a,b)=>a.done_order-b.done_order);
+  const rest  = DATA.gates.filter(g=>!g.done_order);
+  const byPhase = {};
+  rest.forEach(g=>(byPhase[g.phase] ||= []).push(g));
+
+  const counts = ["hard","soft","procedural","advisory"].map(k=>{
+    const n = DATA.gates.filter(g=>g.kind===k).length;
+    return `<span class="chip k-${k}">${n} ${k}</span>`;
+  }).join(" ");
+
+  return `<p class="eyebrow">Machinery</p>
+    <h1>What can stop the run</h1>
+    <p class="lede">Every checkpoint between an agent's intention and its effect, with the
+      symbol that implements it. A <em>hard</em> gate refuses; a <em>soft</em> one speaks and
+      lets the agent proceed.</p>
+    <div class="facts" style="gap:6px">${counts}</div>
+
+    <div class="sectionhead"><h2>The Done() sequence</h2>
+      <p>Parsed from the literal tuple in <code>feedback.py</code> — this is the source's own order,
+         not a reconstruction. A gate that holds returns immediately; nothing after it runs.</p></div>
+    <div class="chain">${chain.map(g=>gateCard(g,g.done_order)).join("")}</div>
+
+    ${Object.entries(byPhase).map(([phase,gs])=>`
+      <div class="sectionhead"><h2>${esc(phase)}</h2>
+        <p>${gs.length} checkpoint${gs.length>1?"s":""}, unordered — each fires on its own trigger.</p></div>
+      <div class="chain">${gs.map(g=>gateCard(g,null)).join("")}</div>`).join("")}`;
+}
+
+/* ---------------- config ---------------- */
+function renderConfig(){
+  return `<p class="eyebrow">Machinery</p>
+    <h1>Config knobs</h1>
+    <p class="lede">Everything a reviewer can change without editing code. Resolution order is
+      environment variable, then the study's <code>config.yaml</code> <code>runtime:</code> block,
+      then the default — and an unrecognised key is reported rather than silently ignored.</p>
+    <div class="sectionhead"><h2>${DATA.switches.length} knobs</h2>
+      <p>Read from <code>runtime/settings.py</code> and from the environment reads found in source.</p></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Key</th><th>Set via</th><th>Environment override</th><th>Read at</th></tr></thead>
+      <tbody>${DATA.switches.map(s=>`<tr>
+        <td class="m">${esc(s.key)}</td>
+        <td>${esc(s.kind)}</td>
+        <td class="m">${esc(s.env)}</td>
+        <td class="m path">${esc((s.sites||[s.file]).join("  "))}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+}
+
+/* ---------------- shared blocks ---------------- */
+function renderShared(){
+  return `<p class="eyebrow">Machinery</p>
+    <h1>Shared blocks</h1>
+    <p class="lede">Text defined once and injected verbatim into more than one role, so two agents
+      can cite the same clause number at each other without paraphrase drift.</p>
+    ${DATA.shared.map((b,i)=>{
+      const used = DATA.roles.filter(r=>r.layers.some(l=>
+        l.sections.some(s=>s.injects && s.injects.name===b.name))).map(r=>r.id);
+      return `<section class="layer">
+        <div class="layerhead"><h2>${esc(b.name)}</h2>
+          <span class="chip">${num(b.chars)} chars</span>
+          <span class="chip k-accent">in ${esc(used.join(", ")||"—")}</span></div>
+        <p class="layernote">Defined at <code>${esc(b.file)}:${b.line}</code></p>
+        <div class="rows">${sectionRow({tag:b.name,text:b.text,chars:b.chars,
+          source:{file:b.file,line:b.line,match:"exact"}}, `shared-${i}`)}</div>
+      </section>`;
+    }).join("")}`;
+}
+
+/* ---------------- search ---------------- */
+function renderSearch(q){
+  const needle = q.toLowerCase();
+  const hits = [];
+  DATA.roles.forEach(r=>r.layers.forEach(l=>l.sections.forEach(s=>{
+    const i = s.text.toLowerCase().indexOf(needle);
+    if(i<0) return;
+    hits.push({where:`${r.id} › ${s.tag ? "<"+s.tag+">" : l.label}`,
+               src:srcOf(s.source), text:s.text, i,
+               n:s.text.toLowerCase().split(needle).length-1});
+  })));
+  DATA.gates.forEach(g=>{
+    const hay = (g.title+" "+g.effect+" "+g.doc+" "+g.symbol).toLowerCase();
+    const i = hay.indexOf(needle);
+    if(i>=0) hits.push({where:`gate › ${g.title}`, src:`${g.file}:${g.line}`,
+                        text:g.effect+"\n"+g.doc, i:Math.max(0,(g.effect+"\n"+g.doc).toLowerCase().indexOf(needle)), n:1});
+  });
+  hits.sort((a,b)=>b.n-a.n);
+
+  const body = hits.length ? hits.map(h=>{
+    const from = Math.max(0, h.i-180), to = Math.min(h.text.length, h.i+needle.length+280);
+    const raw = (from?"…":"") + h.text.slice(from,to) + (to<h.text.length?"…":"");
+    const re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"), "gi");
+    const marked = esc(raw).replace(re, m=>`<mark>${m}</mark>`);
+    return `<div class="hit">
+      <div class="hittop"><b>${esc(h.where)}</b>
+        <span class="src">${esc(h.src)}</span>
+        <span class="chip">${h.n} match${h.n>1?"es":""}</span></div>
+      <p class="hitex">${marked}</p></div>`;
+  }).join("") : `<p class="empty">No prompt text or gate mentions “${esc(q)}”.</p>`;
+
+  return `<p class="eyebrow">Search</p>
+    <h1>“${esc(q)}”</h1>
+    <p class="lede">${hits.length} place${hits.length===1?"":"s"} in the assembled prompts and gate
+      definitions. Every result carries the file and line to open.</p>
+    <div class="sectionhead"><h2>Results</h2><p>Ordered by number of matches in the block.</p></div>
+    ${body}`;
+}
+
+/* ---------------- render ---------------- */
+function render(){
+  const main = $("#main");
+  if(query.trim().length>=2){ main.innerHTML = renderSearch(query.trim()); }
+  else if(view.kind==="role"){ main.innerHTML = renderRole(DATA.roles.find(r=>r.id===view.id)); }
+  else if(view.kind==="gates"){ main.innerHTML = renderGates(); }
+  else if(view.kind==="config"){ main.innerHTML = renderConfig(); }
+  else { main.innerHTML = renderShared(); }
+  syncRail();
+  main.scrollTop = 0;
+}
+
+document.addEventListener("click", e=>{
+  const t = e.target.closest("[data-toggle]");
+  if(t){
+    const row = t.closest(".row");
+    const open = row.dataset.open === "true";
+    row.dataset.open = open ? "false" : "true";
+    row.querySelector(".rowbody").hidden = open;
+    return;
+  }
+  const c = e.target.closest("[data-copy]");
+  if(c){
+    const txt = document.getElementById("txt-"+c.dataset.copy).textContent;
+    navigator.clipboard?.writeText(txt).then(()=>{
+      c.textContent = "copied"; setTimeout(()=>c.textContent="copy text", 1400);
+    });
+  }
+});
+
+$("#q").addEventListener("input", e=>{ query = e.target.value; render(); });
+document.addEventListener("keydown", e=>{
+  if(e.key==="/" && e.target.tagName!=="INPUT"){ e.preventDefault(); $("#q").focus(); }
+  if(e.key==="Escape" && e.target.id==="q"){ e.target.value=""; query=""; render(); }
+});
+
+buildRail();
+render();
+</script>

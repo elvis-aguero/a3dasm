@@ -3,7 +3,7 @@
 PACKAGEDIR := dist
 COVERAGEREPORTDIR := coverage_html_report
 
-.PHONY: help test test-html build docs lint
+.PHONY: help test test-html build docs lint promptmap
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of:"
@@ -12,6 +12,7 @@ help:
 	@echo "  build       Build the package"
 	@echo "  docs        Build the documentation with mkdocs"
 	@echo "  lint        Lint the code with ruff"
+	@echo "  promptmap   Regenerate internal/promptmap.html (prompt + gate provenance)"
 
 test:
 	uv run pytest -m "not integration and not ollama"
@@ -28,3 +29,6 @@ docs:
 
 lint:
 	ruff check
+
+promptmap:
+	uv run python internal/tools/promptmap.py
