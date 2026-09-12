@@ -263,7 +263,10 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   overlap and both write to it.
 - **Where:** `agents/literature.py` (prompt + agent), `agents/literature_tools/`
   (one module per provider: `corpus.py`, `semantic_scholar.py`, `openalex.py`,
-  `async_pool.py`, `throttle.py`), `literature/literature_corpus.py`,
+  `async_pool.py`, `throttle.py`), `literature/` (`literature_corpus.py` —
+  the on-disk corpus; `http_client.py` — the shared per-domain rate limiter,
+  circuit breaker, GET cache and `_robust_get`/`_robust_post`; `embedder.py`
+  + `_embed_worker.py` — the out-of-process dense embedder),
   `runtime/agent_runtime.py`'s `_make_adapter`. **Status:** core.
 
 ### Universal read-only corpus lookup

@@ -28,10 +28,8 @@ import numpy as np
 import pytest
 
 import a3dasm._src.literature.literature_corpus as lc_mod
-from a3dasm._src.literature.literature_corpus import (
-    LiteratureCorpus,
-    _SubprocessEmbedder,
-)
+from a3dasm._src.literature.embedder import _SubprocessEmbedder
+from a3dasm._src.literature.literature_corpus import LiteratureCorpus
 
 # ---------------------------------------------------------------------------
 # Module-level path to worker script

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 
-from ...literature.literature_corpus import SourceCooldownError, _robust_get
+from ...literature.http_client import SourceCooldownError, _robust_get
 
 log = logging.getLogger(__name__)
 

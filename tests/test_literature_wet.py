@@ -24,9 +24,9 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_ss_rate_state():
-    """Isolate literature_corpus's shared per-domain rate state and
+    """Isolate http_client's shared per-domain rate state and
     settings._config across tests — both are module globals."""
-    from a3dasm._src.literature import literature_corpus as lc_mod
+    from a3dasm._src.literature import http_client as lc_mod
     from a3dasm._src.runtime import settings as settings_mod
     domain = "api.semanticscholar.org"
     lc_mod._domain_consecutive_429.pop(domain, None)
@@ -41,7 +41,7 @@ def _reset_ss_rate_state():
 
 
 def test_ss_throttle_shares_domain_rate_limiter(monkeypatch):
-    """_throttled_ss paces itself through literature_corpus's per-domain
+    """_throttled_ss paces itself through http_client's per-domain
     limiter (the SAME one _robust_get/_robust_post use for this host) rather
     than a private, unauthenticated-tier-blind fixed interval — but with an
     interval OVERRIDE (see test_ss_uses_stricter_interval_than_domain_default
@@ -49,7 +49,7 @@ def test_ss_throttle_shares_domain_rate_limiter(monkeypatch):
     import a3dasm._src.agents.literature as lit_agent  # noqa: F401
     import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
     import a3dasm._src.agents.literature_tools.throttle as lit
-    from a3dasm._src.literature import literature_corpus as lc_mod
+    from a3dasm._src.literature import http_client as lc_mod
 
     calls = []
     monkeypatch.setattr(
@@ -75,7 +75,7 @@ def test_ss_uses_stricter_interval_than_domain_default(monkeypatch):
     import a3dasm._src.agents.literature as lit_agent  # noqa: F401
     import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
     import a3dasm._src.agents.literature_tools.throttle as lit
-    from a3dasm._src.literature import literature_corpus as lc_mod
+    from a3dasm._src.literature import http_client as lc_mod
 
     assert lit._SS_MIN_INTERVAL > lc_mod._DOMAIN_MIN_INTERVAL[lit._SS_DOMAIN], (
         "the client-library path's interval must be stricter (larger) than "
@@ -89,7 +89,7 @@ def test_ss_429_retries_with_backoff_then_succeeds(monkeypatch):
     import a3dasm._src.agents.literature as lit_agent  # noqa: F401
     import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
     import a3dasm._src.agents.literature_tools.throttle as lit
-    from a3dasm._src.literature import literature_corpus as lc_mod
+    from a3dasm._src.literature import http_client as lc_mod
 
     monkeypatch.setattr(
         lc_mod, "_rate_limit_wait", lambda domain, min_interval=None: None)
@@ -118,7 +118,7 @@ def test_ss_403_is_not_retried(monkeypatch):
     import a3dasm._src.agents.literature as lit_agent  # noqa: F401
     import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
     import a3dasm._src.agents.literature_tools.throttle as lit
-    from a3dasm._src.literature import literature_corpus as lc_mod
+    from a3dasm._src.literature import http_client as lc_mod
 
     monkeypatch.setattr(
         lc_mod, "_rate_limit_wait", lambda domain, min_interval=None: None)
@@ -136,13 +136,13 @@ def test_ss_403_is_not_retried(monkeypatch):
 
 
 def test_ss_three_consecutive_429s_trip_shared_breaker(monkeypatch):
-    """Three consecutive 429s trip literature_corpus's circuit breaker —
+    """Three consecutive 429s trip http_client's circuit breaker —
     the SAME breaker _robust_get/_robust_post use for this host — raising
     SourceCooldownError instead of a bare ConnectionRefusedError."""
     import a3dasm._src.agents.literature as lit_agent  # noqa: F401
     import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
     import a3dasm._src.agents.literature_tools.throttle as lit
-    from a3dasm._src.literature import literature_corpus as lc_mod
+    from a3dasm._src.literature import http_client as lc_mod
 
     monkeypatch.setattr(
         lc_mod, "_rate_limit_wait", lambda domain, min_interval=None: None)

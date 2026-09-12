@@ -2,7 +2,7 @@
 
 The semanticscholar client library issues its own HTTP requests, so it
 is paced here against the same per-domain rate limiter + circuit
-breaker that literature_corpus uses for its direct fetches.
+breaker that literature/http_client uses for its direct fetches.
 """
 
 from __future__ import annotations
@@ -51,10 +51,10 @@ def _call_in_fresh_thread(fn, *args, timeout=30.0, **kwargs):
 # Semantic Scholar rate throttle
 # ---------------------------------------------------------------------------
 # The semanticscholar CLIENT LIBRARY issues its own HTTP requests, bypassing
-# literature_corpus's _robust_get/_robust_post — but it hits the exact same
+# http_client's _robust_get/_robust_post — but it hits the exact same
 # remote quota as api.semanticscholar.org fetches made through those helpers
 # (get_semantic_scholar_recommendations, citation-graph lookups). Both paths
-# share ONE per-domain rate limiter + circuit breaker (literature_corpus's
+# share ONE per-domain rate limiter + circuit breaker (http_client's
 # _rate_limit_wait/_record_429/_reset_429) so a 429 seen by either path
 # counts against the same cooldown, instead of the client-library path
 # tracking nothing and hard-failing on the first 403/429 it hits.
@@ -91,7 +91,7 @@ def _cap_result(result) -> str:
 
 
 def _throttled_ss(fn, *args, **kwargs):
-    """Call fn via _call_in_fresh_thread, sharing literature_corpus's
+    """Call fn via _call_in_fresh_thread, sharing http_client's
     per-domain rate limiter + circuit breaker for api.semanticscholar.org.
 
     429 (the semanticscholar library raises ConnectionRefusedError for HTTP
@@ -113,13 +113,13 @@ def _throttled_ss(fn, *args, **kwargs):
     ConnectionRefusedError/PermissionError exactly as if retry= didn't
     exist, with no duplicated handling logic.
     """
-    # Deferred import: literature_corpus is an optional-dependency module
+    # Deferred import: literature/ is an optional-dependency package
     # (see the try/except ImportError around its import a few frames up the
     # call stack) — by the time _throttled_ss is ever actually called, that
     # import has already succeeded (the whole tool set returns {} otherwise).
     from tenacity import RetryError
 
-    from ...literature.literature_corpus import (
+    from ...literature.http_client import (
         SourceCooldownError,
         _cooldown_message,
         _rate_limit_wait,

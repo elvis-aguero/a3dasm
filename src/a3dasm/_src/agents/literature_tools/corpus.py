@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...literature.literature_corpus import SourceCooldownError, _robust_get
+from ...literature.http_client import SourceCooldownError, _robust_get
 
 
 def build_corpus_closures(corpus, cache_dir) -> dict:

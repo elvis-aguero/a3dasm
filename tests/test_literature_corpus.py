@@ -514,7 +514,7 @@ def test_embed_with_spec_has_an_upper_bound():
     'TextEmbedding' from 'fastembed' (unknown location)". Not confirmed to
     be THIS exact fix (Oscar is read-only, so it can't be reproduced there),
     but the unbounded spec must never come back unpinned."""
-    from a3dasm._src.literature.literature_corpus import _EMBED_WITH
+    from a3dasm._src.literature.embedder import _EMBED_WITH
     assert "<" in _EMBED_WITH, (
         f"_EMBED_WITH={_EMBED_WITH!r} has no upper bound — an unpinned "
         "floating spec for an ephemeral env dependency is the exact "

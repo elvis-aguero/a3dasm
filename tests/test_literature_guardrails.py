@@ -20,13 +20,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import a3dasm._src.literature.literature_corpus as lc_mod
-from a3dasm._src.literature.literature_corpus import (
-    LiteratureCorpus,
+import a3dasm._src.literature.http_client as lc_mod
+import a3dasm._src.literature.literature_corpus as corpus_mod
+from a3dasm._src.literature.http_client import (
     SourceCooldownError,
     _cache_put,
     _robust_get,
 )
+from a3dasm._src.literature.literature_corpus import LiteratureCorpus
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -439,7 +440,7 @@ class TestHttpCache:
             cache_dir, url, params, 200, '{"old": true}', "application/json"
         )
         # Backdate the ts by 2 days
-        from a3dasm._src.literature.literature_corpus import _cache_key
+        from a3dasm._src.literature.http_client import _cache_key
         key = _cache_key(url, params)
         cache_file = cache_dir / (key + ".json")
         data = json.loads(cache_file.read_text())
@@ -766,12 +767,12 @@ class TestPreflightWarnings:
     def setup_method(self):
         # Reset the subprocess-embedder tri-state cache before each test
         # so the probe path is exercised fresh.
-        lc_mod._subprocess_embedder_state = None
-        lc_mod._subprocess_embedder_warned = False
+        corpus_mod._subprocess_embedder_state = None
+        corpus_mod._subprocess_embedder_warned = False
 
     def teardown_method(self):
-        lc_mod._subprocess_embedder_state = None
-        lc_mod._subprocess_embedder_warned = False
+        corpus_mod._subprocess_embedder_state = None
+        corpus_mod._subprocess_embedder_warned = False
 
     def test_fastembed_missing_logs_warning(self, tmp_path, caplog):
         """ImportError from fastembed AND no uv → warning logged; result is None."""

@@ -1,5 +1,5 @@
 """Semantic Scholar tools — client-library calls (throttled) and the
-recommendations endpoint (via literature_corpus's _robust_post)."""
+recommendations endpoint (via http_client's _robust_post)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json as _json
 import logging
 import os
 
-from ...literature.literature_corpus import SourceCooldownError, _robust_post
+from ...literature.http_client import SourceCooldownError, _robust_post
 from .throttle import _throttled_ss
 
 log = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ def build_semantic_scholar_closures() -> dict:
         # up to 10 attempts, 5-60s exponential backoff EACH — legitimately
         # several minutes for one call) would otherwise silently absorb
         # every 429 before it ever reaches _throttled_ss, so our own
-        # pacing/backoff/circuit-breaker (literature_corpus's
+        # pacing/backoff/circuit-breaker (http_client's
         # _rate_limit_wait/_record_429, meant to be the SOLE retry
         # authority for this traffic — see _throttled_ss) never sees a
         # 429 until an entire hidden multi-minute retry storm has
