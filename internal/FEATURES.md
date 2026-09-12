@@ -309,7 +309,12 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   `commit_workspace`), initialised in `runtime/agent_runtime.py::_prepare_run`,
   committed in `nodes/tools/routing/delegation.py::WorkerSession._commit_workspace`
   from both `_finish_ok` and `_finish_error`; `workspace_sha` on
-  `infra/delegation_log.py::DelegationLog.record`. See
+  `infra/delegation_log.py::DelegationLog.record`. Retires the `### Files
+  touched` report subsection: with a mechanical record, an agent re-narrating
+  the same list could only agree (noise) or disagree (a contradiction with no
+  rule for which wins). Intent that a diff cannot express ("rewrote main.py to
+  substitute before differentiating") belongs in `### Actions taken`, which is
+  already the intent section. See
   `internal/specs/11-delegation-bounded-version-control.md`. **Status:** core
 
 ### MathExpert — verified symbolic derivation

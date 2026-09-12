@@ -205,7 +205,6 @@ class Agent:
     max_history_pairs: int = 5
     report_sections: tuple[str, ...] = (
         "### Actions taken",
-        "### Files touched",
         "### Conclusions",
         "### Numbers",
     )

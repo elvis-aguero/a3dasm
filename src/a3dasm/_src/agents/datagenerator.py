@@ -186,11 +186,11 @@ Only delegate if a literature_reviewer is listed in your available targets:
 
 ### Actions taken
 - <ordered list: literature consultation (if any), implementation steps, validation>
-
-### Files touched
-- {delegation_id}/generators/{name}.py     ← DataGenerator definition
-- {delegation_id}/generators/validate_{name}.json  ← validation record
-- {delegation_id}/generators/registration.json     ← handoff manifest
+- Name the three handoff artifacts you wrote and what each is for — this is a
+  CONTRACT with whoever consumes the generator, not a file listing:
+  {delegation_id}/generators/{name}.py     ← DataGenerator definition
+  {delegation_id}/generators/validate_{name}.json  ← validation record
+  {delegation_id}/generators/registration.json     ← handoff manifest
 
 ### Conclusions
 <What the generator produces, validated on one sample.  Include the input
@@ -266,7 +266,6 @@ class DataGeneratorAgent(Agent):
     )
     report_sections = (
         "### Actions taken",
-        "### Files touched",
         "### Conclusions",
         "### Numbers",
         "### Retrospective",

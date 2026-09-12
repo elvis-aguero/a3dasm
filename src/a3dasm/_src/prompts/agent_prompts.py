@@ -269,7 +269,7 @@ def build_report_retry_prompt(sections=None) -> str:
     literature reviewer, whose ``report_sections`` differ.
     """
     secs = list(sections) if sections else [
-        "### Actions taken", "### Files touched", "### Conclusions",
+        "### Actions taken", "### Conclusions",
         "### Numbers", "### Retrospective",
     ]
     body = "".join(f"{s}\n- <...>\n\n" for s in secs)
@@ -339,14 +339,13 @@ one or more required subsections are absent.
 
 Used by ``_classify_failed_implementer_response`` after detecting that
 ``## Report`` exists but at least one of ``### Actions taken``,
-``### Files touched``, ``### Conclusions``, or ``### Numbers`` is
-missing.
+``### Conclusions``, or ``### Numbers`` is missing.
 
 Parameters (via ``.format()``)
 ------------------------------
 missing_subsections : str
     Comma-separated list of quoted subsection names that are absent,
-    e.g. ``"'Files touched', 'Numbers'"``.
+    e.g. ``"'Conclusions', 'Numbers'"``.
 """
 
 # =============================================================================
@@ -487,10 +486,7 @@ The runtime greps for "## Report" to extract it.
 ## Report
 
 ### Actions taken
-- <concise bullet: what you did, in order>
-
-### Files touched
-- <path to every file created or modified>
+- <concise bullet: what you did, and WHY that step, in order>
 
 ### Conclusions
 <Free-form prose, <= 200 words.  State what was measured, whether the

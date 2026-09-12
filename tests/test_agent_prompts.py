@@ -308,7 +308,6 @@ def test_implementer_report_format_headings():
     required_headings = [
         "## Report",
         "### Actions taken",
-        "### Files touched",
         "### Conclusions",
         "### Numbers",
     ]
@@ -316,6 +315,10 @@ def test_implementer_report_format_headings():
         assert heading in IMPLEMENTER_SYSTEM_PROMPT, (
             f"IMPLEMENTER_SYSTEM_PROMPT missing heading '{heading}'"
         )
+    # Retired with spec 11: the workspace commit records which files a
+    # delegation changed, so asking the agent to narrate the same list can
+    # only agree (noise) or disagree (a contradiction to adjudicate).
+    assert "### Files touched" not in IMPLEMENTER_SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------
@@ -916,13 +919,13 @@ def test_implementer_report_retry_prompt_required_headings():
     )
     for subsection in (
         "### Actions taken",
-        "### Files touched",
         "### Conclusions",
         "### Numbers",
     ):
         assert subsection in IMPLEMENTER_REPORT_RETRY_PROMPT, (
             f"IMPLEMENTER_REPORT_RETRY_PROMPT missing '{subsection}'"
         )
+    assert "### Files touched" not in IMPLEMENTER_REPORT_RETRY_PROMPT
 
 
 # ---------------------------------------------------------------------------

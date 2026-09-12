@@ -18,7 +18,7 @@ Priority order (highest first) and how they compose:
 | [05](05-slurm-execution-kb.md) | SLURM execution KB (+ shared-FS invariant) | lowest | spec |
 | [07](07-duplicate-evaluation-detection.md) | Duplicate/redundant design-point evaluation detection | medium | **DONE (shipped simplified)** |
 | [10](10-math-expert-agent.md) | MathExpert: symbolic-derivation verification node | medium | spec |
-| [11](11-delegation-bounded-version-control.md) | Delegation-bounded version control of the workspace | medium | **mechanism DONE; `### Files touched` retirement remains** |
+| [11](11-delegation-bounded-version-control.md) | Delegation-bounded version control of the workspace | medium | **DONE** (workspace relocation remains) |
 
 **Dependency graph (build order matters):**
 - **01 + 02 + 06 are one cluster.** 06 *detects* a stuck/slow delegation; 02

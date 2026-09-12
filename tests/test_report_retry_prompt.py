@@ -36,9 +36,10 @@ def test_prompt_tracks_critic_sections_not_implementer():
         assert "### Files touched" not in p
 
 
-def test_default_prompt_still_has_report_and_four_headings():
+def test_default_prompt_still_has_report_and_its_headings():
     p = build_report_retry_prompt()
     assert "## Report" in p
-    for s in ("### Actions taken", "### Files touched", "### Conclusions",
-              "### Numbers"):
+    for s in ("### Actions taken", "### Conclusions", "### Numbers"):
         assert s in p
+    # Retired with spec 11 — see test_agent_prompts.
+    assert "### Files touched" not in p

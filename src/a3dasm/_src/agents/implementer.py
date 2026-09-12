@@ -404,11 +404,7 @@ The runtime greps for "## Report" to extract it.
 ## Report
 
 ### Actions taken
-- <concise bullet: what you did, in order>
-- ...
-
-### Files touched
-- <absolute path to every file created or modified>
+- <concise bullet: what you did, and WHY that step, in order>
 - ...
 
 ### Conclusions
@@ -487,10 +483,7 @@ DataGenerator from D002.
 - Sampled 500 LHS points (seed=0), evaluated via get_evaluator
 - Fitted GaussianProcessRegressor(Matern nu=2.5): CV R2 = 0.91
 - Ran 50 EI-BO steps via get_evaluator; best improved from 1.47 → 1.83
-
-### Files touched
-- /workspace/D003/results_explore.csv
-- /workspace/D003/results_exploit.csv
+  (wrote both result CSVs to D003/ so the two phases stay separable)
 
 ### Conclusions
 Initial LHS explore produced 500 evaluations; surrogate CV R2 = 0.91
@@ -558,7 +551,6 @@ class F3dasmImplementerAgent(Agent):
     )
     report_sections = (
         "### Actions taken",
-        "### Files touched",
         "### Conclusions",
         "### Numbers",
         "### Retrospective",

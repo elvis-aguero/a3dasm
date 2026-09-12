@@ -11,7 +11,6 @@ from pathlib import Path
 
 _REQUIRED_SUBSECTIONS = [
     "### Actions taken",
-    "### Files touched",
     "### Conclusions",
     "### Numbers",
 ]

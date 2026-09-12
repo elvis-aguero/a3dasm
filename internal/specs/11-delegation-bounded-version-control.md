@@ -109,12 +109,11 @@ substitute before differentiating" is a claim a diff cannot make. That is
 already what `### Actions taken` is for, so the change is a deletion plus a
 clause in the surviving section, never a renamed replacement.
 
-**Strict ordering.** `### Files touched` is today the ONLY record of what a
-delegation touched. It cannot be removed before the commits land, or the run
-has neither. Land the mechanism, confirm `workspace_sha` resolves on real
-runs, then delete the section in a separate commit — with
-`test_report_no_longer_requires_files_touched` and a check that a report
-omitting it is accepted rather than bounced.
+**Strict ordering — DONE.** The mechanism landed first (one commit per
+delegation, `workspace_sha` on every record, green end to end in
+`test_full_pipeline`), then the section was removed in its own commit.
+
+### The workspace-location change is part of this — STILL OPEN
 
 Moving the workspace under `runs/<ts>/` is not an incidental cleanup; a git
 repo shared across runs would carry prior runs' answers into a new run's

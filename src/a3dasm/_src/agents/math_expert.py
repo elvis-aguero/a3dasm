@@ -109,11 +109,9 @@ anything.
 ## Report
 
 ### Actions taken
-<What you did, in order — read/wrote which edition file(s), what steps you
-added.>
-
-### Files touched
-<Every edition `.py`/`.tex`/`summary.json` path written or read.>
+<What you did, in order — which edition file(s) you read or wrote, what steps
+you added, and WHY (a new edition vs. an edit to an existing one, and what
+premise changed).>
 
 ### Verified Derivation
 <Every check_equals/check_holds/check_dimensions call this turn, verbatim,
@@ -180,7 +178,6 @@ class MathExpertAgent(Agent):
     )
     report_sections = (
         "### Actions taken",
-        "### Files touched",
         "### Verified Derivation",
         "### Conclusions",
         "### Numbers",
