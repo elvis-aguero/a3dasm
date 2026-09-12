@@ -190,6 +190,15 @@ class Agent:
     # (the milestone gate, the eval-parallelism nudge). Every shipped agent
     # declares its own role; this default only guards future ones.
     role: str = "worker"
+    # Declared as a CLASS attribute, like its sibling `backend`, so the
+    # documented idiom above ("behavioural differences belong in class
+    # attributes") actually works for it. It previously existed only as an
+    # instance attribute assigned in __init__, so a subclass setting
+    # `model = "..."` had it silently overwritten with None while a subclass
+    # setting `backend = "..."` was honoured — the asymmetry produced the
+    # worst possible outcome, a node pinned to one backend and left on
+    # another backend's default model id.
+    model: str | None = None
     backend: str | None = None
     mcp_servers: dict = {}
     extra_allowed_tools: frozenset[str] = frozenset()
@@ -202,7 +211,11 @@ class Agent:
     )
 
     def __init__(self, model: str | None = None) -> None:
-        self.model = model
+        # Only an EXPLICIT argument overrides the class attribute; assigning
+        # unconditionally would re-introduce the silent clobber described
+        # above, since the default is indistinguishable from "not passed".
+        if model is not None:
+            self.model = model
 
     def forward(self) -> None:
         """ADAS hook — override for inspectable Python orchestration."""

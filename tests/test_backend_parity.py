@@ -390,3 +390,34 @@ def test_openai_compatible_subclasses_are_thin():
         assert not overridden, (
             f"{cls.__name__} overrides {overridden} — breaks one-implementation "
             "parity across the OpenAI-compatible backends.")
+
+
+def test_agent_model_is_overridable_as_a_class_attribute():
+    """Regression: `model` existed only as an instance attribute assigned in
+    __init__, so a subclass setting `model = "..."` had it silently replaced
+    with None — while its sibling `backend` (a real class attribute) was
+    honoured. The asymmetry produced the worst outcome available: a node
+    pinned to one backend and left on another backend's default model id.
+    The class docstring's own rule is that behavioural differences belong in
+    class attributes."""
+    from a3dasm._src.backends.base import Agent
+
+    class _Local(Agent):
+        role = "math_expert"
+        description = "derivations"
+        model = "qwen3.8-27b-256k"
+        backend = "ollama"
+
+    agent = _Local()
+    assert agent.model == "qwen3.8-27b-256k"
+    assert agent.backend == "ollama"
+
+    # an explicit constructor argument still wins
+    assert _Local(model="claude-opus-5").model == "claude-opus-5"
+
+    # and a plain Agent still defaults to None (backend's default applies)
+    class _Plain(Agent):
+        role = "worker"
+        description = "w"
+
+    assert _Plain().model is None
