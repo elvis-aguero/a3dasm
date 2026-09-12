@@ -117,6 +117,11 @@ class OrchestrationMixin:
         # Running total of delegations at the START of the current __call__
         # Used as a seed for the delegation sequence counter.
         self._state_total_delegations: int = 0
+        # Snapshot of _delegation_seq at the start of the current turn, so
+        # the terminal Command counts only THIS turn's new delegations. Set
+        # again by _absorb_state every turn; initialised here so the node's
+        # attribute set is complete before any turn has run.
+        self._seq_at_turn_start: int = 0
         # Monotonic per-node delegation counter — never reset within a
         # run.  Seeded from _state_total_delegations on first __call__
         # so checkpoint-resumed runs continue from the correct offset.
@@ -465,13 +470,32 @@ class OrchestrationMixin:
         return _wrapped
 
     def _orchestrate(self, state: AgenticState) -> Any:
-        """One orchestration turn: inject context, invoke, route the result."""
-        import time
+        """One orchestration turn, in the order it happens.
 
-        from langchain_core.messages import AIMessage, HumanMessage
-        from langgraph.graph import END
-        from langgraph.types import Command
+        Absorb the run state onto the node, work out what the agent must be
+        TOLD this turn, invoke it once, then route on what it did. Every step
+        is a method below, named for its step; a turn ends in exactly one of
+        three ways, which :meth:`_route_turn` states.
+        """
+        self._absorb_state(state)
+        budget_warnings = self._budget_warnings(state)
+        halt = self._check_unrecoverable(
+            state, self._budget_seconds, self._run_start)
+        if halt is not None:
+            return halt
+        pending_notifs = self._reset_for_turn()
+        messages = self._compose_messages(state, budget_warnings, pending_notifs)
+        ai_msg = self._invoke_turn(messages)
+        return self._route_turn(state, ai_msg)
 
+    # ── Before the turn ──────────────────────────────────────────────────────
+
+    def _absorb_state(self, state: AgenticState) -> None:
+        """Copy the run state the node's TOOLS read onto the node itself.
+
+        The closures reach their context through ``node.…``, not through
+        AgenticState, so anything a tool needs has to land here first.
+        """
         # Update notes_dir from current state run_dir
         run_dir = state.get("run_dir")
         if run_dir:
@@ -502,31 +526,59 @@ class OrchestrationMixin:
         # them (else gate-vs-tool deadlock — audit run 20260624T021359).
         self._required_deliverables = state.get("required_deliverables") or []
 
+        # Store on node so GetStatus() can compute delegation timeout
+        self._budget_seconds = state.get("budget_seconds")
+        self._run_start = state.get("start_time")
+        self._budget_usd = state.get("budget_usd")
+
         # Capture total_delegations so Delegate() can seed the counter.
         self._state_total_delegations = state.get("total_delegations", 0)
-        # Seed the monotonic counter from state on first __call__ (or
-        # after a checkpoint rebuild).  Never decremented — ensures IDs
-        # are unique even when the registry is pruned between turns.
+        # Seed the monotonic counter from state on first turn (or after a
+        # checkpoint rebuild).  Never decremented — ensures IDs are unique
+        # even when the registry is pruned between turns.
         if self._delegation_seq < self._state_total_delegations:
             self._delegation_seq = self._state_total_delegations
-        # Snapshot seq at turn start so total_new counts only THIS call.
+        # Snapshot seq at turn start so total_new counts only THIS turn.
         self._seq_at_turn_start: int = self._delegation_seq
 
-        # Time budget is a SOFT constraint — warnings only; the run is
-        # never force-terminated for exceeding it. A separate run-level
-        # backstop (RUN_BACKSTOP_MULTIPLE x budget) bounds runaway cost.
-        budget_warnings: list[dict] = []
-        budget = state.get("budget_seconds")
-        start = state.get("start_time")
-        # Store on node so GetStatus() can compute delegation timeout
-        self._budget_seconds = budget
-        self._run_start = start
-        self._budget_usd = state.get("budget_usd")
+    def _ledgered_eval_total(self, floor: int) -> int:
+        """The run's eval count, preferring the ledger over an accumulator.
+
+        The canonical ledger is the source of truth: a killed/cancelled
+        delegation flushes rows the state accumulator never sees, so the
+        accumulator undercounts. Summed across the canonical store AND every
+        design namespace — namespace evals were invisible to the run total and
+        to the soft budget. ``floor`` keeps the accumulator for lookup-direct
+        studies with no instrumented store.
+        """
+        try:
+            from ..evaluation.ledger_summary import total_ledgered_evals
+            _nd = getattr(self, "_current_notes_dir", None)
+            if _nd is not None:
+                return max(
+                    floor,
+                    int(total_ledgered_evals(
+                        _nd.parent.parent / "experiment_data")),
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return floor
+
+    def _budget_warnings(self, state: AgenticState) -> list[dict]:
+        """Advisory budget messages for this turn.
+
+        The time budget is a SOFT constraint — warnings only; the run is never
+        force-terminated for exceeding it. A separate run-level backstop
+        (RUN_BACKSTOP_MULTIPLE x budget) bounds runaway cost.
+        """
+        import time
+        warnings: list[dict] = []
+        budget, start = self._budget_seconds, self._run_start
         if budget is not None and start is not None:
             elapsed = time.time() - start
             pct = elapsed / budget
             if pct >= 1.0:
-                budget_warnings.append({
+                warnings.append({
                     "role": "user",
                     "content": (
                         f"Time budget fully consumed "
@@ -542,7 +594,7 @@ class OrchestrationMixin:
                     ),
                 })
             elif pct >= 0.95:
-                budget_warnings.append({
+                warnings.append({
                     "role": "user",
                     "content": (
                         f"Warning: time budget at {pct*100:.0f}% "
@@ -555,24 +607,9 @@ class OrchestrationMixin:
                 })
 
         eval_budget = state.get("eval_budget")
-        evals_used = state.get("evals_used", 0)
-        # The canonical ledger is the source of truth: a killed/cancelled
-        # delegation flushes rows the state accumulator never sees, so the
-        # accumulator undercounts and the budget warning never fires. Prefer the
-        # ledger count (max() keeps the accumulator for lookup-direct studies
-        # with no instrumented store).
-        try:
-            from ..evaluation.ledger_summary import total_ledgered_evals
-            _nd = getattr(self, "_current_notes_dir", None)
-            if _nd is not None:
-                # Sum across the canonical store AND every design namespace —
-                # namespace evals were invisible to the run total + soft budget.
-                _total = total_ledgered_evals(_nd.parent.parent / "experiment_data")
-                evals_used = max(evals_used, int(_total))
-        except Exception:  # noqa: BLE001
-            pass
+        evals_used = self._ledgered_eval_total(state.get("evals_used", 0))
         if eval_budget is not None and evals_used >= eval_budget:
-            budget_warnings.append({
+            warnings.append({
                 "role": "user",
                 "content": (
                     f"Warning: eval budget exceeded"
@@ -580,14 +617,14 @@ class OrchestrationMixin:
                     f" Do not run further evaluations."
                 ),
             })
+        return warnings
 
-        _halt = self._check_unrecoverable(state, budget, start)
-        if _halt is not None:
-            return _halt
+    def _reset_for_turn(self) -> list[str]:
+        """A1/A2: clear per-turn state; return the notifications to deliver.
 
-        # A1/A2: reset per-turn state so a reused node starts clean each call.
-        # Working/FollowUp entries are preserved so loopbacks don't orphan live
-        # delegations whose background threads are still running.
+        Working/FollowUp entries are preserved so loopbacks don't orphan live
+        delegations whose background threads are still running.
+        """
         self._route.clear()
         self._ask_count = 0
         self._done_warned = False
@@ -602,64 +639,84 @@ class OrchestrationMixin:
                 if d in self._registry
             }
         with self._notifications_lock:
-            _pending_notifs = list(self._notifications)
+            pending = list(self._notifications)
             self._notifications.clear()
+        return pending
 
-        # ── No-canonical-source nudge (soft, ≤3×) ─────────────────────────
-        # If this graph has a datagenerator (so a canonical ground-truth
-        # source CAN be authored) but none is registered, recommend
-        # delegating to it. Without a registered source every evaluation
-        # lands off-ledger and nothing is reproducible from the canonical
-        # store. Soft and capped — never blocks; the strategizer may ignore
-        # it for a genuinely source-free study.
-        registration_nudge: list[dict] = []
-        if (
-            self._no_source_nudges < 3
-            and self._find_datagenerator_name() is not None
-            and not self._canonical_source_registered()
-        ):
-            self._no_source_nudges += 1
-            _dg = self._find_datagenerator_name()
-            registration_nudge.append({
-                "role": "user",
-                "content": (
-                    "[SETUP] No canonical ground-truth source is registered "
-                    "for this study (no evaluator entrypoint or lookup pool). "
-                    f"A '{_dg}' agent is available — delegate to it to author "
-                    "and register the source, so evaluations flow through "
-                    "get_evaluator(), land in the canonical store, and the "
-                    "result is reproducible. If this is intentionally a "
-                    "source-free (surrogate-only) study, disregard this. "
-                    f"(notice {self._no_source_nudges}/3)"
-                ),
-            })
-            self._record_intervention(
-                "NO_SOURCE_NUDGE", self._name,
-                "No canonical source registered; recommended delegating to "
-                f"'{_dg}'.",
-                notice=self._no_source_nudges, cap=3,
-            )
+    # ── What the agent is told this turn ─────────────────────────────────────
 
-        # Announce the process backlog ONCE, at the start, as a conversation
-        # message — so the agent cannot claim it didn't know these gate the
-        # implementer. Injected the first time the strategizer is invoked.
-        backlog_announce: list = []
-        if (self._milestones is not None
-                and not getattr(self, "_backlog_announced", False)):
-            from ..epistemics.milestones import render_backlog
-            _bl = render_backlog(self._milestones)
-            if _bl:
-                backlog_announce = [{"role": "user", "content": _bl}]
-            self._backlog_announced = True
-
-        _notif_msgs = [{"role": "user", "content": n} for n in _pending_notifs]
-        messages = (
+    def _compose_messages(
+        self,
+        state: AgenticState,
+        budget_warnings: list[dict],
+        pending_notifs: list[str],
+    ) -> list[dict]:
+        """The conversation plus everything injected in-band this turn."""
+        return (
             _to_adapter_messages(state["messages"])
-            + budget_warnings + registration_nudge + backlog_announce
-            + _notif_msgs
+            + budget_warnings
+            + self._no_source_nudge()
+            + self._backlog_announcement()
+            + [{"role": "user", "content": n} for n in pending_notifs]
         )
-        # DEBUG: stream this strategizer turn's full reasoning + tool-calls
-        # to debug/transcripts/strategizer/turn_NNN.jsonl.
+
+    def _no_source_nudge(self) -> list[dict]:
+        """Recommend registering a canonical source (soft, ≤3×).
+
+        If this graph has a datagenerator (so a canonical ground-truth source
+        CAN be authored) but none is registered, recommend delegating to it.
+        Without a registered source every evaluation lands off-ledger and
+        nothing is reproducible from the canonical store. Soft and capped —
+        never blocks; the strategizer may ignore it for a genuinely
+        source-free study.
+        """
+        if (
+            self._no_source_nudges >= 3
+            or self._find_datagenerator_name() is None
+            or self._canonical_source_registered()
+        ):
+            return []
+        self._no_source_nudges += 1
+        _dg = self._find_datagenerator_name()
+        self._record_intervention(
+            "NO_SOURCE_NUDGE", self._name,
+            "No canonical source registered; recommended delegating to "
+            f"'{_dg}'.",
+            notice=self._no_source_nudges, cap=3,
+        )
+        return [{
+            "role": "user",
+            "content": (
+                "[SETUP] No canonical ground-truth source is registered "
+                "for this study (no evaluator entrypoint or lookup pool). "
+                f"A '{_dg}' agent is available — delegate to it to author "
+                "and register the source, so evaluations flow through "
+                "get_evaluator(), land in the canonical store, and the "
+                "result is reproducible. If this is intentionally a "
+                "source-free (surrogate-only) study, disregard this. "
+                f"(notice {self._no_source_nudges}/3)"
+            ),
+        }]
+
+    def _backlog_announcement(self) -> list[dict]:
+        """Announce the process backlog ONCE, at the start of the run.
+
+        As a conversation message, so the agent cannot claim it didn't know
+        these gate the implementer. Injected the first time this node runs.
+        """
+        if self._milestones is None or getattr(self, "_backlog_announced", False):
+            return []
+        from ..epistemics.milestones import render_backlog
+        _bl = render_backlog(self._milestones)
+        self._backlog_announced = True
+        return [{"role": "user", "content": _bl}] if _bl else []
+
+    def _invoke_turn(self, messages: list[dict]) -> Any:
+        """Run one model turn and account for what it spent."""
+        from langchain_core.messages import AIMessage
+
+        # DEBUG: stream this turn's full reasoning + tool-calls to
+        # debug/transcripts/strategizer/turn_NNN.jsonl.
         from ..backends.base import (
             debug_enabled as _dbg,
         )
@@ -672,7 +729,7 @@ class OrchestrationMixin:
                 self._current_notes_dir.parent / "transcripts"
                 / "strategizer" / f"turn_{self._turn_count:03d}.jsonl"))
         text = self.adapter.invoke(messages)
-        # Accumulate strategizer's own token usage.
+        # Accumulate this node's own token usage.
         self._record_usage(
             getattr(self.adapter, "last_usage", {}) or {},
             role=self._role_of(self._name),
@@ -680,182 +737,150 @@ class OrchestrationMixin:
             phase="strategizer_turn",
             delegation_id=None,
         )
-        ai_msg = AIMessage(content=text)
+        return AIMessage(content=text)
 
-        route = self._route
-        accepted = route.get("kind") == "done"
+    # ── How the turn ends ────────────────────────────────────────────────────
+
+    def _route_turn(self, state: AgenticState, ai_msg: Any) -> Any:
+        """A turn ends in exactly one of three ways.
+
+        1. Work is still in flight     → re-prompt, free (no attempt spent)
+        2. It stopped without closing  → re-prompt, bounded (3 attempts)
+        3. Otherwise                   → the run ends
+
+        Reproduction is owned entirely by the Done() gate (it runs the
+        controlled gate before any close and declares a FAILED run after a
+        bounded number of sighted attempts — see CheckDeliverable), so there is
+        no separate post-accept repro check here; this handles only deliverable
+        presence and un-accepted termination.
+        """
+        accepted = self._route.get("kind") == "done"
         missing = self._missing_deliverables(state)
-        # Reproduction is owned entirely by the Done() gate now (it runs the
-        # controlled gate before any close and declares a FAILED run after a
-        # bounded number of sighted attempts — see CheckDeliverable). So there is
-        # no separate post-accept repro check here; this branch handles only
-        # deliverable presence and un-accepted termination.
+        for router in (self._reprompt_while_working,
+                       self._reprompt_unfinished):
+            held = router(ai_msg, accepted, missing)
+            if held is not None:
+                return held
+        return self._terminate_run(state, ai_msg, accepted, missing)
 
-        # ── Transient: delegations still running ──────────────────────────────
-        # A healthy delegation still in flight is WORK IN PROGRESS, not a failed
-        # finish: the deliverables usually depend on its result, and it WILL
-        # report. Re-prompt to poll WITHOUT consuming the bounded finish-attempt
-        # budget — otherwise a slow-but-healthy delegation (run-4: D004 at ~2.5
-        # evals/s, ~100s from done, with wall budget to spare) burns 3 "finish
-        # attempts" across turns and force-terminates the run UNGATED. The run's
-        # time backstop (run_backstop_multiple x budget, checked each turn)
-        # bounds a delegation that truly hangs.
-        if not accepted:
-            with self._registry_lock:
-                _working_now = [
-                    d for d, e in self._registry.items()
-                    if e["status"] in ("Working", "FollowUp")
-                ]
-            if _working_now:
-                msg = (
-                    f"Delegations still running: {_working_now}. They are"
-                    " progressing — poll with GetStatus() and call Done() only"
-                    " once they report (then write any remaining deliverables"
-                    " from their results). Do NOT close early. This wait does"
-                    " NOT count against your finish attempts; the run's time"
-                    " budget is the backstop."
-                )
-                if missing:
-                    msg += (
-                        "\n\nStill to write AFTER they finish: "
-                        + ", ".join(missing)
-                    )
-                return Command(
-                    goto=self._name,
-                    update={"messages": [ai_msg, HumanMessage(content=msg)]},
-                )
+    def _reprompt_while_working(
+        self, ai_msg: Any, accepted: bool, missing: list
+    ) -> Any | None:
+        """Delegations still running: re-prompt WITHOUT spending an attempt.
 
-        # ── Bounded re-prompt on unaccepted termination ───────────────────────
-        if (not accepted or missing) and self._finish_attempts < 3:
-            self._finish_attempts += 1
-            problems: list[str] = []
-            if missing:
-                missing_list = "\n".join(f"- {p}" for p in missing)
-                problems.append(
-                    "Required deliverables are missing from the"
-                    f" study directory:\n{missing_list}\n"
-                    "Write them via WriteDeliverable() before"
-                    " calling Done()."
-                )
-            if not accepted:
-                with self._registry_lock:
-                    working = [
-                        d for d, e in self._registry.items()
-                        if e["status"] in ("Working", "FollowUp")
-                    ]
-                if working:
-                    problems.append(
-                        f"Delegations still running: {working}."
-                        " Poll them with GetStatus() and call Done()"
-                        " once they finish."
-                    )
-                else:
-                    problems.append(
-                        "You ended your turn without an accepted"
-                        " Done(). If Done() was refused (critic"
-                        " verdict, two-shot confirmation, or another"
-                        " gate), address the refusal and call Done()"
-                        " again. A run only closes through an"
-                        " accepted Done()."
-                    )
-            return Command(
-                goto=self._name,
-                update={
-                    "messages": [
-                        ai_msg,
-                        HumanMessage(content=(
-                            "Run cannot complete"
-                            f" (attempt {self._finish_attempts}/3):\n"
-                            + "\n\n".join(problems)
-                        )),
-                    ],
-                },
+        A healthy delegation still in flight is WORK IN PROGRESS, not a failed
+        finish: the deliverables usually depend on its result, and it WILL
+        report. Spending a bounded finish-attempt on it means a slow-but-healthy
+        delegation (run-4: D004 at ~2.5 evals/s, ~100s from done, with wall
+        budget to spare) burns 3 "finish attempts" across turns and force-
+        terminates the run UNGATED. The run's time backstop
+        (run_backstop_multiple x budget, checked each turn) bounds a delegation
+        that truly hangs.
+        """
+        from langchain_core.messages import HumanMessage
+        from langgraph.types import Command
+
+        if accepted:
+            return None
+        working = self._working_delegations()
+        if not working:
+            return None
+        msg = (
+            f"Delegations still running: {working}. They are"
+            " progressing — poll with GetStatus() and call Done() only"
+            " once they report (then write any remaining deliverables"
+            " from their results). Do NOT close early. This wait does"
+            " NOT count against your finish attempts; the run's time"
+            " budget is the backstop."
+        )
+        if missing:
+            msg += "\n\nStill to write AFTER they finish: " + ", ".join(missing)
+        return Command(
+            goto=self._name,
+            update={"messages": [ai_msg, HumanMessage(content=msg)]},
+        )
+
+    def _reprompt_unfinished(
+        self, ai_msg: Any, accepted: bool, missing: list
+    ) -> Any | None:
+        """Bounded re-prompt when the turn ended without an accepted close."""
+        from langchain_core.messages import HumanMessage
+        from langgraph.types import Command
+
+        if (accepted and not missing) or self._finish_attempts >= 3:
+            return None
+        self._finish_attempts += 1
+        problems: list[str] = []
+        if missing:
+            missing_list = "\n".join(f"- {p}" for p in missing)
+            problems.append(
+                "Required deliverables are missing from the"
+                f" study directory:\n{missing_list}\n"
+                "Write them via WriteDeliverable() before"
+                " calling Done()."
             )
+        if not accepted:
+            working = self._working_delegations()
+            if working:
+                problems.append(
+                    f"Delegations still running: {working}."
+                    " Poll them with GetStatus() and call Done()"
+                    " once they finish."
+                )
+            else:
+                problems.append(
+                    "You ended your turn without an accepted"
+                    " Done(). If Done() was refused (critic"
+                    " verdict, two-shot confirmation, or another"
+                    " gate), address the refusal and call Done()"
+                    " again. A run only closes through an"
+                    " accepted Done()."
+                )
+        return Command(
+            goto=self._name,
+            update={
+                "messages": [
+                    ai_msg,
+                    HumanMessage(content=(
+                        "Run cannot complete"
+                        f" (attempt {self._finish_attempts}/3):\n"
+                        + "\n\n".join(problems)
+                    )),
+                ],
+            },
+        )
 
-        # ── Terminal branch ───────────────────────────────────────────────────
-        # Accumulate delegation counts and evals from registry.
-        # total_new: only delegations created THIS call (seq delta vs
-        # snapshot taken at __call__ start), not Done entries from prior turns.
+    def _working_delegations(self) -> list[str]:
+        """Delegation ids still in flight right now."""
+        with self._registry_lock:
+            return [
+                d for d, e in self._registry.items()
+                if e["status"] in ("Working", "FollowUp")
+            ]
+
+    def _terminate_run(
+        self, state: AgenticState, ai_msg: Any, accepted: bool, missing: list
+    ) -> Any:
+        """Close the run: final counts, banner, ghost flush, terminal Command."""
+        from langgraph.graph import END
+        from langgraph.types import Command
+
+        # total_new: only delegations created THIS turn (seq delta vs the
+        # snapshot taken at turn start), not Done entries from prior turns.
         with self._registry_lock:
             total_new = self._delegation_seq - self._seq_at_turn_start
             evals_new = sum(e["evals"] for e in self._registry.values())
 
-        summary = route.get("summary") or text
-
-        # Prepend UNGATED banner if the run ends without an accepted Done().
-        # (A FAILED-reproduction close carries its own ⛔ banner in route summary
-        # and IS accepted=done, so it is not re-banner'd here.)
-        if not accepted or missing:
-            flags = []
-            if not accepted:
-                flags.append(
-                    "the run terminated WITHOUT an accepted Done() —"
-                    " the final conclusions did NOT pass the"
-                    " adversarial critic gate"
-                )
-            if missing:
-                flags.append(
-                    f"required deliverables missing: {missing}"
-                )
-            summary = (
-                "## ⚠ UNGATED RUN\n\n"
-                "This run is NOT validated: " + "; ".join(flags) +
-                ".\nTreat all conclusions below as unaudited.\n\n---\n\n"
-                + summary
-            )
-
-        # Flush ghost delegations: daemon threads that are still alive when the
-        # run closes are killed by the interpreter at process exit — their _run()
-        # never reaches the DONE/FAILED record write, leaving orphan RUNNING
-        # entries in the log. Write an INTERRUPTED terminal record for each so
-        # query_all() (last-wins) collapses to a closed state instead of RUNNING.
-        with self._registry_lock:
-            _live = [
-                (did, dict(entry))
-                for did, entry in self._registry.items()
-                if entry.get("status") in ("Working", "FollowUp")
-            ]
-        if _live and self._delegation_log is not None:
-            _now = datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
-            for _did, _entry in _live:
-                self._delegation_log.record(
-                    id=_did,
-                    from_node=self._name,
-                    to_node=_entry.get("target", "unknown"),
-                    task="",
-                    deliverable=(
-                        "INTERRUPTED: run closed while this delegation was "
-                        "still running (background thread killed at process exit)"
-                    ),
-                    hypothesis_ids=_entry.get("hypothesis_ids") or [],
-                    started_at=_entry.get("started_at") or "",
-                    completed_at=_now,
-                    status="INTERRUPTED",
-                    tokens_in=0,
-                    tokens_out=0,
-                    cost_usd=None,
-                    is_falsification_attempt=bool(
-                        _entry.get("is_falsification_attempt")
-                    ),
-                    evals=_entry.get("evals", 0),
-                    phase=_entry.get("phase"),
-                )
+        summary = self._banner(
+            self._route.get("summary") or ai_msg.content, accepted, missing)
+        self._flush_ghost_delegations()
 
         # The persisted (reported) eval total prefers the ledger aggregate over
-        # the accumulator: the accumulator can drop evals a namespace-blind guard
-        # mis-flagged as off-ledger, and never saw namespace stores at all. The
-        # ledger across all namespaces is the authoritative count → run_status.
-        _evals_persist = state.get("evals_used", 0) + evals_new
-        try:
-            from ..evaluation.ledger_summary import total_ledgered_evals
-            _nd = getattr(self, "_current_notes_dir", None)
-            if _nd is not None:
-                _evals_persist = max(
-                    _evals_persist,
-                    int(total_ledgered_evals(_nd.parent.parent / "experiment_data")),
-                )
-        except Exception:  # noqa: BLE001
-            pass
+        # the accumulator: the accumulator can drop evals a namespace-blind
+        # guard mis-flagged as off-ledger, and never saw namespace stores at
+        # all. The ledger across all namespaces is authoritative → run_status.
+        _evals_persist = self._ledgered_eval_total(
+            state.get("evals_used", 0) + evals_new)
         return Command(
             goto=END,
             update={
@@ -869,4 +894,68 @@ class OrchestrationMixin:
             },
         )
 
+    def _banner(self, summary: str, accepted: bool, missing: list) -> str:
+        """Prepend the UNGATED banner when the run ends without an accepted Done().
 
+        A FAILED-reproduction close carries its own ⛔ banner in the route
+        summary and IS accepted=done, so it is not re-banner'd here.
+        """
+        if accepted and not missing:
+            return summary
+        flags = []
+        if not accepted:
+            flags.append(
+                "the run terminated WITHOUT an accepted Done() —"
+                " the final conclusions did NOT pass the"
+                " adversarial critic gate"
+            )
+        if missing:
+            flags.append(f"required deliverables missing: {missing}")
+        return (
+            "## ⚠ UNGATED RUN\n\n"
+            "This run is NOT validated: " + "; ".join(flags) +
+            ".\nTreat all conclusions below as unaudited.\n\n---\n\n"
+            + summary
+        )
+
+    def _flush_ghost_delegations(self) -> None:
+        """Close out delegations whose threads die with the interpreter.
+
+        Daemon threads still alive when the run closes are killed at process
+        exit — their run() never reaches the DONE/FAILED record write, leaving
+        orphan RUNNING entries in the log. Write an INTERRUPTED terminal record
+        for each so query_all() (last-wins) collapses to a closed state instead
+        of RUNNING.
+        """
+        with self._registry_lock:
+            live = [
+                (did, dict(entry))
+                for did, entry in self._registry.items()
+                if entry.get("status") in ("Working", "FollowUp")
+            ]
+        if not live or self._delegation_log is None:
+            return
+        _now = datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+        for _did, _entry in live:
+            self._delegation_log.record(
+                id=_did,
+                from_node=self._name,
+                to_node=_entry.get("target", "unknown"),
+                task="",
+                deliverable=(
+                    "INTERRUPTED: run closed while this delegation was "
+                    "still running (background thread killed at process exit)"
+                ),
+                hypothesis_ids=_entry.get("hypothesis_ids") or [],
+                started_at=_entry.get("started_at") or "",
+                completed_at=_now,
+                status="INTERRUPTED",
+                tokens_in=0,
+                tokens_out=0,
+                cost_usd=None,
+                is_falsification_attempt=bool(
+                    _entry.get("is_falsification_attempt")
+                ),
+                evals=_entry.get("evals", 0),
+                phase=_entry.get("phase"),
+            )
