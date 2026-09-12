@@ -24,13 +24,9 @@ import a3dasm._src.literature.literature_corpus as lc_mod
 from a3dasm._src.literature.literature_corpus import (
     LiteratureCorpus,
     SourceCooldownError,
-    _cache_get,
     _cache_put,
-    _domain_key,
     _robust_get,
-    _robust_post,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -835,8 +831,8 @@ class TestPreflightWarnings:
         self, tmp_path, caplog
     ):
         """Missing semanticscholar logs a warning when building tools."""
-        import logging
         import builtins
+        import logging
 
         from a3dasm._src.agents.literature import (
             LiteratureReviewAgent,
@@ -855,7 +851,7 @@ class TestPreflightWarnings:
 
         with caplog.at_level(
             logging.WARNING,
-            logger="a3dasm._src.agents.literature",
+            logger="a3dasm._src.agents.literature_tools.semantic_scholar",
         ):
             with patch("builtins.__import__", side_effect=mock_import):
                 agent = LiteratureReviewAgent()
@@ -1339,7 +1335,8 @@ class TestS2EventLoopSafety:
         Assert the CALLER gets control back near the declared timeout, not
         after however long the hung function actually takes."""
         import time as _time
-        import a3dasm._src.agents.literature as lit_mod
+
+        import a3dasm._src.agents.literature_tools.throttle as lit_mod
 
         def hangs_forever():
             _time.sleep(5.0)  # much longer than the 0.1s timeout below
@@ -1378,7 +1375,7 @@ class TestS2EventLoopSafety:
             pytest.skip("semanticscholar not installed")
 
         # Monkey-patch _call_in_fresh_thread to use a tiny timeout.
-        import a3dasm._src.agents.literature as lit_mod
+        import a3dasm._src.agents.literature_tools.throttle as lit_mod
         orig = lit_mod._call_in_fresh_thread
 
         def _fast_timeout(fn, *args, timeout=0.05, **kwargs):

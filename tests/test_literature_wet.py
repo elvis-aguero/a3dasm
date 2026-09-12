@@ -13,12 +13,10 @@ Run with:
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Deterministic: SS throttle / circuit breaker / API key sourcing
@@ -48,7 +46,9 @@ def test_ss_throttle_shares_domain_rate_limiter(monkeypatch):
     than a private, unauthenticated-tier-blind fixed interval — but with an
     interval OVERRIDE (see test_ss_uses_stricter_interval_than_domain_default
     for why the shared domain default alone is too fast for this endpoint)."""
-    import a3dasm._src.agents.literature as lit
+    import a3dasm._src.agents.literature as lit_agent  # noqa: F401
+    import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
+    import a3dasm._src.agents.literature_tools.throttle as lit
     from a3dasm._src.literature import literature_corpus as lc_mod
 
     calls = []
@@ -72,7 +72,9 @@ def test_ss_uses_stricter_interval_than_domain_default(monkeypatch):
     session and produces real, heavy throttling even with a correctly
     configured and correctly resolved SEMANTIC_SCHOLAR_API_KEY — a key
     raises the ceiling, it does not exempt a caller from pacing under it."""
-    import a3dasm._src.agents.literature as lit
+    import a3dasm._src.agents.literature as lit_agent  # noqa: F401
+    import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
+    import a3dasm._src.agents.literature_tools.throttle as lit
     from a3dasm._src.literature import literature_corpus as lc_mod
 
     assert lit._SS_MIN_INTERVAL > lc_mod._DOMAIN_MIN_INTERVAL[lit._SS_DOMAIN], (
@@ -84,7 +86,9 @@ def test_ss_uses_stricter_interval_than_domain_default(monkeypatch):
 def test_ss_429_retries_with_backoff_then_succeeds(monkeypatch):
     """A 429 (ConnectionRefusedError) is transient — retry with backoff
     instead of hard-failing the tool call on the first attempt."""
-    import a3dasm._src.agents.literature as lit
+    import a3dasm._src.agents.literature as lit_agent  # noqa: F401
+    import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
+    import a3dasm._src.agents.literature_tools.throttle as lit
     from a3dasm._src.literature import literature_corpus as lc_mod
 
     monkeypatch.setattr(
@@ -111,7 +115,9 @@ def test_ss_403_is_not_retried(monkeypatch):
     """A 403 (PermissionError) means the shared unauthenticated quota is
     exhausted — retrying immediately cannot help, so it must propagate
     without _throttled_ss silently eating time on doomed retries."""
-    import a3dasm._src.agents.literature as lit
+    import a3dasm._src.agents.literature as lit_agent  # noqa: F401
+    import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
+    import a3dasm._src.agents.literature_tools.throttle as lit
     from a3dasm._src.literature import literature_corpus as lc_mod
 
     monkeypatch.setattr(
@@ -133,7 +139,9 @@ def test_ss_three_consecutive_429s_trip_shared_breaker(monkeypatch):
     """Three consecutive 429s trip literature_corpus's circuit breaker —
     the SAME breaker _robust_get/_robust_post use for this host — raising
     SourceCooldownError instead of a bare ConnectionRefusedError."""
-    import a3dasm._src.agents.literature as lit
+    import a3dasm._src.agents.literature as lit_agent  # noqa: F401
+    import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss  # noqa: F401
+    import a3dasm._src.agents.literature_tools.throttle as lit
     from a3dasm._src.literature import literature_corpus as lc_mod
 
     monkeypatch.setattr(
@@ -153,7 +161,9 @@ def test_ss_missing_key_warns(monkeypatch, caplog):
     """A missing semantic_scholar_api_key emits a warning, not an error."""
     import logging
     import tempfile
-    import a3dasm._src.agents.literature as lit
+
+    import a3dasm._src.agents.literature as lit_agent
+    import a3dasm._src.agents.literature_tools.semantic_scholar as lit_ss
 
     monkeypatch.delenv("SEMANTIC_SCHOLAR_API_KEY", raising=False)
 
@@ -162,8 +172,8 @@ def test_ss_missing_key_warns(monkeypatch, caplog):
         from pathlib import Path
         study = Path(td)
         (study / "runs").mkdir()
-        agent = lit.LiteratureReviewAgent()
-        with caplog.at_level(logging.WARNING, logger=lit.__name__):
+        agent = lit_agent.LiteratureReviewAgent()
+        with caplog.at_level(logging.WARNING, logger=lit_ss.__name__):
             agent.build_closure_tools(study)
 
     assert any("semantic_scholar_api_key" in r.message for r in caplog.records), (
@@ -177,7 +187,8 @@ def test_ss_key_settable_via_config_yaml(monkeypatch):
     bare SEMANTIC_SCHOLAR_API_KEY env var — matching every other run knob."""
     import tempfile
     from pathlib import Path
-    import a3dasm._src.agents.literature as lit
+
+    import a3dasm._src.agents.literature as lit_agent
     from a3dasm._src.runtime import settings as settings_mod
 
     monkeypatch.delenv("SEMANTIC_SCHOLAR_API_KEY", raising=False)
@@ -196,7 +207,7 @@ def test_ss_key_settable_via_config_yaml(monkeypatch):
     with tempfile.TemporaryDirectory() as td:
         study = Path(td)
         (study / "runs").mkdir()
-        agent = lit.LiteratureReviewAgent()
+        agent = lit_agent.LiteratureReviewAgent()
         tools = agent.build_closure_tools(study)
 
     if "search_semantic_scholar" not in tools:
@@ -208,7 +219,9 @@ def test_openalex_missing_key_warns(monkeypatch, caplog):
     """A missing OPENALEX_API_KEY emits a warning, not an error."""
     import logging
     import tempfile
-    import a3dasm._src.agents.literature as lit
+
+    import a3dasm._src.agents.literature as lit_agent
+    import a3dasm._src.agents.literature_tools.openalex as lit_oa
 
     monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
 
@@ -216,8 +229,8 @@ def test_openalex_missing_key_warns(monkeypatch, caplog):
         from pathlib import Path
         study = Path(td)
         (study / "runs").mkdir()
-        agent = lit.LiteratureReviewAgent()
-        with caplog.at_level(logging.WARNING, logger=lit.__name__):
+        agent = lit_agent.LiteratureReviewAgent()
+        with caplog.at_level(logging.WARNING, logger=lit_oa.__name__):
             agent.build_closure_tools(study)
 
     assert any("OPENALEX_API_KEY" in r.message for r in caplog.records), (
@@ -279,10 +292,9 @@ def test_arxiv_client_self_throttles():
         "review whether _build_arxiv_closures needs its own throttle"
     )
 
-from a3dasm._src.runtime.agent_runtime import AgenticRun
 from a3dasm._src.agents import LiteratureReviewAgent, StrategizerAgent
 from a3dasm._src.backends.base import Edge, Graph
-
+from a3dasm._src.runtime.agent_runtime import AgenticRun
 
 # ---------------------------------------------------------------------------
 # Research question and study setup
@@ -341,8 +353,10 @@ def test_literature_review_wet(tmp_path, capfd):
     # --- Scripted strategist -----------------------------------------------
     # Delegates once to literature_reviewer then calls Done().
     # Does NOT use two-shot Done() guard since no critic in this graph.
+    import re
+    import time as _time
+
     from tests.test_nodes import StubAdapter
-    import re, time as _time
 
     class LitReviewStrategist(StubAdapter):
         def invoke(self, messages):

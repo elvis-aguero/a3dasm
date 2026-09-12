@@ -260,8 +260,10 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   user-facing study folder; guarded by a `FileLock` (not a `threading.Lock`)
   since two runs of the same study are now real, separate processes that can
   overlap and both write to it.
-- **Where:** `agents/literature.py`, `literature_corpus.py`,
-  `agent_runtime.py`'s `_make_adapter`. **Status:** core.
+- **Where:** `agents/literature.py` (prompt + agent), `agents/literature_tools/`
+  (one module per provider: `corpus.py`, `semantic_scholar.py`, `openalex.py`,
+  `async_pool.py`, `throttle.py`), `literature/literature_corpus.py`,
+  `runtime/agent_runtime.py`'s `_make_adapter`. **Status:** core.
 
 ### Universal read-only corpus lookup
 - **What:** EVERY agent (not just the literature_reviewer) gets `CorpusSearch`

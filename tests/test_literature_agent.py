@@ -376,7 +376,7 @@ def test_cap_result_truncates_oversized_payloads():
     """A search/read payload bigger than the cap is truncated with a marker, so it
     never overflows the tool-result token limit and gets dropped whole (observed
     every run: 'exceeds maximum allowed tokens')."""
-    from a3dasm._src.agents.literature import _cap_result, _MAX_RESULT_CHARS
+    from a3dasm._src.agents.literature_tools.throttle import _MAX_RESULT_CHARS, _cap_result
     small = "ok" * 10
     assert _cap_result(small) == small               # under cap: untouched
     big = "x" * (_MAX_RESULT_CHARS + 5000)

@@ -8,7 +8,7 @@ import inspect
 import threading
 import time
 
-from a3dasm._src.agents.literature import _make_search_async_pool
+from a3dasm._src.agents.literature_tools.async_pool import _make_search_async_pool
 
 
 def _overlap_probe():
