@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ..runtime.graph_state import AgenticState
 
-from ..epistemics.delegation_log import DelegationLog
 from ..epistemics.hypothesis_ledger import HypothesisLedger
 from ..epistemics.science_monitor import ScienceMonitor
+from ..infra.delegation_log import DelegationLog
 from ._constants import run_backstop_multiple
 from .base import AgentNode
 from .critic_gate import CriticGateMixin

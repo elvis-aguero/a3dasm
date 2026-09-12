@@ -156,7 +156,7 @@ def test_optimization_agent_not_in_default_graph():
 
 def _make_log():
     tmp = Path(tempfile.mkdtemp())
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     return DelegationLog(tmp / "dl.jsonl")
 
 

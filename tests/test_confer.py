@@ -47,7 +47,7 @@ def _node(tmp_path=None):
     if tmp_path is not None:
         notes = tmp_path / "debug" / "strategizer_notes"
         notes.mkdir(parents=True)
-        from a3dasm._src.epistemics.delegation_log import DelegationLog
+        from a3dasm._src.infra.delegation_log import DelegationLog
         dlog = DelegationLog(tmp_path / "debug" / "delegation_log.jsonl")
         kwargs = {"notes_dir": notes, "delegation_log": dlog}
     return StrategizerNode(

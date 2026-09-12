@@ -477,7 +477,7 @@ def build_delegation_closures(node) -> dict:
         # the banner prepended to the worker's own task message, so what gets
         # persisted and what the agent is shown can never drift apart the way
         # four independent, partial computations of this previously did.
-        from ....epistemics.constraint_snapshot import snapshot_for_node
+        from ....runtime.constraint_snapshot import snapshot_for_node
         _snapshot = snapshot_for_node(node)
 
         # Provenance: log a RUNNING entry NOW, at dispatch — before the worker
@@ -828,7 +828,7 @@ def build_delegation_closures(node) -> dict:
                 # which only makes sense when this delegation actually wrote
                 # ledger rows), so every delegation's report is budget-aware
                 # — not just the ones that happened to evaluate something.
-                from ....epistemics.constraint_snapshot import (
+                from ....runtime.constraint_snapshot import (
                     snapshot_for_node,
                 )
                 _snapshot = snapshot_for_node(node)
@@ -1067,7 +1067,7 @@ def build_delegation_closures(node) -> dict:
                         f"[Delegation {delegation_id} Errored]"
                     )
                 if node._delegation_log is not None:
-                    from ....epistemics.constraint_snapshot import (
+                    from ....runtime.constraint_snapshot import (
                         snapshot_for_node,
                     )
                     node._delegation_log.record(

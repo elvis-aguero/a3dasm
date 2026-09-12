@@ -27,6 +27,7 @@ from ._src.agents import (
 from ._src.backends.base import Agent, Edge, Graph
 from ._src.backends.claude import ClaudeAdapter
 from ._src.backends.ollama import OllamaAdapter
+from ._src.epistemics.math_dsl import Workspace
 
 # Only get_evaluator() is agent-facing — the ONE door to the registered
 # oracle. InstrumentedDataGenerator stays internal (constructed solely inside
@@ -40,7 +41,6 @@ from ._src.nodes import (
     StrategizerNode,
     WorkerNode,
 )
-from ._src.prompts.math_dsl import Workspace
 from ._src.runtime.agent_runtime import (
     DEFAULT_MODEL,
     AgenticRun,

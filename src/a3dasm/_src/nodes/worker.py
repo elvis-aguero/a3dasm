@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ..runtime.graph_state import AgenticState
 
-from ..epistemics.delegation_log import DelegationLog
+from ..infra.delegation_log import DelegationLog
 from .base import AgentNode
 from .parsing import _classify_response, _to_adapter_messages
 

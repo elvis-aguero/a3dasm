@@ -331,7 +331,7 @@ def build_feedback_closures(node) -> dict:
             # actually spent so it judges the BEST HONEST conclusion reachable
             # within budget, rather than demanding falsification work the
             # budget no longer allows (which strands the close).
-            from ....epistemics.constraint_snapshot import snapshot_for_node
+            from ....runtime.constraint_snapshot import snapshot_for_node
             _snapshot = snapshot_for_node(node)
             # Milestones: show the critic each process milestone's resolution +
             # note/reason, so it can flag a hollow SKIP (a study that skipped a
@@ -476,7 +476,7 @@ def build_feedback_closures(node) -> dict:
             # This is a delegation like any other (strategizer -> critic) —
             # same constraint snapshot, single source of truth, see
             # constraint_snapshot.py.
-            from ....epistemics.constraint_snapshot import snapshot_for_node
+            from ....runtime.constraint_snapshot import snapshot_for_node
             _snapshot = snapshot_for_node(_node)
             task_msg = _node._build_feedback_task_msg(
                 h_ids, constraints_text=_snapshot.as_text())

@@ -20,7 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from ..epistemics.delegation_log import DelegationLog
+from ..infra.delegation_log import DelegationLog
 
 __all__ = [
     "read_runs",

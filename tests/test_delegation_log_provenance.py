@@ -13,7 +13,7 @@ terminal record supersedes it, and a killed delegation keeps its RUNNING entry
 """
 from __future__ import annotations
 
-from a3dasm._src.epistemics.delegation_log import DelegationLog
+from a3dasm._src.infra.delegation_log import DelegationLog
 
 
 def _started(log: DelegationLog, did: str, to_node: str = "implementer") -> None:

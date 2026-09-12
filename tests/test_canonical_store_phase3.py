@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from a3dasm._src.epistemics.delegation_log import DelegationLog
+from a3dasm._src.infra.delegation_log import DelegationLog
 from f3dasm._src.design.domain import Domain
 from f3dasm._src.experimentdata import ExperimentData
 from f3dasm._src.experimentsample import ExperimentSample, JobStatus
@@ -671,7 +671,7 @@ class TestNodesDelegationLogEvalsWiring:
     def test_delegation_log_record_has_evals(self, tmp_path):
         """After a delegation completes, the log record should have evals set."""
         from a3dasm._src.backends.base import Agent, Edge, Graph
-        from a3dasm._src.epistemics.delegation_log import DelegationLog
+        from a3dasm._src.infra.delegation_log import DelegationLog
         from a3dasm._src.nodes import StrategizerNode
 
         class CountingAdapter:
@@ -757,7 +757,7 @@ class TestScienceMonitorStoreDirWiring:
         from langgraph.types import Command
 
         from a3dasm._src.backends.base import Agent, Edge, Graph
-        from a3dasm._src.epistemics.delegation_log import DelegationLog
+        from a3dasm._src.infra.delegation_log import DelegationLog
         from a3dasm._src.runtime.graph_state import AgenticState
         from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
         from a3dasm._src.nodes import StrategizerNode

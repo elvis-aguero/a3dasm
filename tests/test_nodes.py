@@ -962,7 +962,7 @@ def test_delegate_rejects_unknown_hypothesis_id(tmp_path):
 def test_delegate_records_falsification_flag(tmp_path):
     """Delegate with is_falsification_attempt=True records it in DelegationLog."""
     from a3dasm._src.nodes import StrategizerNode
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     class ProposeAndFalsifyDelegate(StubAdapter):
         def invoke(self, messages):
@@ -1048,7 +1048,7 @@ def test_delegate_injects_workspace_subfolder_in_task(tmp_path):
 
 def test_delegate_writes_delegation_jsonl_on_done(tmp_path):
     """delegation_log.jsonl is written when a delegation completes."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     class DelegateAdapter(StubAdapter):
         def invoke(self, messages):
@@ -1662,7 +1662,7 @@ def test_read_note_returns_not_found_for_missing(tmp_path):
 
 def test_delegation_jsonl_contains_token_fields(tmp_path):
     """delegation_log.jsonl records tokens_in, tokens_out, cost_usd from worker usage."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     class MockWorkerAdapter(StubAdapter):
         last_usage = {"input_tokens": 77, "output_tokens": 33, "total_cost_usd": 0.005}
@@ -2000,7 +2000,7 @@ def test_ask_for_feedback_synchronous_returns_string():
 
 def test_ask_for_feedback_logged_in_jsonl(tmp_path):
     """AskForFeedback() appends a record to delegation_log.jsonl."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
     jsonl_path = tmp_path / "delegation_log.jsonl"
@@ -2027,7 +2027,7 @@ def test_ask_for_feedback_logged_in_jsonl(tmp_path):
 
 def test_ask_for_feedback_auto_injects_all_hypothesis_ids(tmp_path):
     """AskForFeedback() with no args injects all hypothesis IDs from the ledger."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
     from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
 
@@ -2071,7 +2071,7 @@ def test_ask_for_feedback_auto_injects_all_hypothesis_ids(tmp_path):
 
 def test_ask_for_feedback_respects_explicit_ids(tmp_path):
     """AskForFeedback(hypothesis_ids=['H1']) only includes H1 in the record."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
     from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
 
@@ -2540,7 +2540,7 @@ def test_strategizer_agent_tools_includes_write_deliverable():
 
 def test_recall_history_tool_present_in_strategizer_closures(tmp_path):
     """RecallHistory closure is registered on StrategizerNode when delegation_log is set."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
     delegation_log = DelegationLog(tmp_path / "delegation_log.jsonl")
@@ -2560,7 +2560,7 @@ def test_recall_history_returns_empty_when_no_prior(tmp_path):
     edges per agents/_graphs.py). The entry node has its own dedicated
     message (see test_recall_history_entry_node_gets_orchestrator_message)
     since its 'nothing found' is structural, not a transient empty log."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
     delegation_log = DelegationLog(tmp_path / "delegation_log.jsonl")
@@ -2582,7 +2582,7 @@ def test_recall_history_entry_node_gets_orchestrator_message(tmp_path):
     boundary memory bug in that run's DONE retrospective, despite 7
     delegations and 102 evals already existing). The entry node must get an
     explanatory message pointing at the right tools instead."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
     delegation_log = DelegationLog(tmp_path / "delegation_log.jsonl")
@@ -2609,7 +2609,7 @@ def test_recall_history_entry_node_gets_orchestrator_message(tmp_path):
 
 def test_recall_history_returns_formatted_pairs(tmp_path):
     """RecallHistory returns formatted (task, deliverable) pairs from delegation log."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
     jsonl_path = tmp_path / "delegation_log.jsonl"
@@ -2660,7 +2660,7 @@ def test_recall_history_returns_formatted_pairs(tmp_path):
 
 def test_worker_node_has_recall_history_closure(tmp_path):
     """WorkerNode registers RecallHistory when delegation_log is passed."""
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import WorkerNode
 
     delegation_log = DelegationLog(tmp_path / "delegation_log.jsonl")
@@ -2767,7 +2767,7 @@ def test_supported_without_attack_is_two_shot_confirm_at_boundary(tmp_path):
     a confirm.
     """
     from a3dasm._src.nodes import StrategizerNode
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     update_results: list[str] = []
 
@@ -2829,7 +2829,7 @@ def test_phantom_delegation_blocked_inline_on_update(tmp_path):
     HypothesisUpdate directly, not via the science monitor.
     """
     from a3dasm._src.nodes import StrategizerNode
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     update_results: list[str] = []
 
@@ -2883,7 +2883,7 @@ def test_boundary_errors_do_not_write_science_drift(tmp_path):
     science monitor's diagnostics writer.
     """
     from a3dasm._src.nodes import StrategizerNode
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     class BadEvidenceAdapter(StubAdapter):
         def invoke(self, messages):
@@ -2958,7 +2958,7 @@ def test_escalation_invokes_critic_and_injects_findings(tmp_path):
     assert its result contains "[SCIENCE MONITOR — ESCALATION]" and
     "REVISE", and that note_escalated was called.
     """
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
     drain_results: list[str] = []
@@ -3107,7 +3107,7 @@ def test_done_critic_gate_embeds_ledger_and_falsification_flags(tmp_path):
     (b) the substring "is_falsification_attempt"
     (c) the substring "falsification_criterion"
     """
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
     captured_critic_messages: list[str] = []
@@ -3251,7 +3251,7 @@ def test_done_gate_mode_critic_call_is_logged_as_a_delegation(tmp_path):
     GATE task message itself carries the <constraints> block (the same
     snapshot, injected in-band rather than left for the critic to go find).
     """
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
     captured_critic_messages: list[str] = []
@@ -3376,7 +3376,7 @@ def test_gate_and_feedback_critic_messages_carry_problem_statement(tmp_path):
     fix: information the critic needs to do its job must arrive in-band,
     not be left latent for it to go find.
     """
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     from a3dasm._src.nodes import StrategizerNode
 
     captured_critic_messages: list[str] = []

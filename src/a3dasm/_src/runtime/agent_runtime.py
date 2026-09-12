@@ -16,9 +16,9 @@ from langchain_core.messages import HumanMessage
 
 from ..agents import ImplementerAgent, StrategizerAgent, _default_graph
 from ..backends.base import Agent, Graph
-from ..epistemics.delegation_log import DelegationLog
 from ..evaluation._f3dasm_compat import PROTECTED_STORE_SENTINEL
 from ..infra.container_runner import ContainerRunner
+from ..infra.delegation_log import DelegationLog
 from ..prompts.agent_prompts import (
     RUN_PATHS_PREAMBLE_TEMPLATE,
     WORKSPACE_PREAMBLE_TEMPLATE,
@@ -955,7 +955,7 @@ class AgenticRun:
         # the strategizer reads already states the budgets as facts instead
         # of leaving them latent in AgenticState (present to the node's
         # Python code, never rendered into words the model actually sees).
-        from ..epistemics.constraint_snapshot import (
+        from ..runtime.constraint_snapshot import (
             compute_constraint_snapshot,
         )
         _initial_snapshot = compute_constraint_snapshot(

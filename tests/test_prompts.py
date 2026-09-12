@@ -211,7 +211,7 @@ def test_strategizer_ledger_read_tools_documented(tmp_path):
     spec = Graph(
         nodes={"strategizer": A(), "implementer": B()},
         edges=(Edge("strategizer", "implementer"),), entry="strategizer")
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
     n = StrategizerNode(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()},

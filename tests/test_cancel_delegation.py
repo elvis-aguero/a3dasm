@@ -377,7 +377,7 @@ def test_ghost_delegation_flushed_interrupted_at_run_close(tmp_path):
     import time as _t
 
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     run_dir = tmp_path / "runs" / "T0"
     (run_dir / "debug" / "strategizer_notes").mkdir(parents=True)

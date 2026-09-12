@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from a3dasm._src.runtime import settings
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.epistemics.delegation_log import DelegationLog
+from a3dasm._src.infra.delegation_log import DelegationLog
 from a3dasm._src.epistemics.milestones import MilestoneLedger
 from a3dasm._src.nodes import StrategizerNode
 

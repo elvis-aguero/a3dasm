@@ -213,7 +213,7 @@ def test_worker_node_sandboxed_write_rejects_escape(tmp_path):
 def test_worker_node_recall_history_with_delegation_log(tmp_path):
     """WorkerNode.RecallHistory returns prior delegations from the log."""
     from a3dasm._src.nodes import WorkerNode
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     log_path = tmp_path / "delegation_log.jsonl"
     log = DelegationLog(log_path)
@@ -252,7 +252,7 @@ def test_worker_node_recall_history_with_delegation_log(tmp_path):
 def test_worker_node_recall_history_empty(tmp_path):
     """WorkerNode.RecallHistory returns no-records message when log is empty."""
     from a3dasm._src.nodes import WorkerNode
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     log_path = tmp_path / "delegation_log.jsonl"
     log = DelegationLog(log_path)
@@ -444,7 +444,7 @@ def test_strategizer_recall_history_with_log(tmp_path):
     test keeps its usual Done/FollowUp tool set while genuinely being able to
     receive delegations."""
     from a3dasm._src.nodes import StrategizerNode
-    from a3dasm._src.epistemics.delegation_log import DelegationLog
+    from a3dasm._src.infra.delegation_log import DelegationLog
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     log_path = tmp_path / "delegation_log.jsonl"

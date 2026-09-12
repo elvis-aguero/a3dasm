@@ -9,7 +9,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 
 from ..backends.base import Agent, Graph
-from ..epistemics.delegation_log import DelegationLog
+from ..infra.delegation_log import DelegationLog
 from ..nodes import (  # ImplementerNode re-exported for backward compat
     ImplementerNode,  # noqa: F401
     StrategizerNode,
