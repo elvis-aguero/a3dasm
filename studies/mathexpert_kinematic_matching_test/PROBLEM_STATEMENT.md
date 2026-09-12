@@ -1,9 +1,7 @@
 # MathExpert validation: transcribe, then counterfactually extend, a published model
 
 This is a symbolic-derivation study, not a data-driven design study. There is
-no evaluator and no `ExperimentData` ledger. This run has no critic in its
-graph and will not produce `pipeline.ipynb` — that is expected, not a
-failure; the run will end `UNGATED`, and that label is fine here.
+no evaluator and no `ExperimentData` ledger.
 
 ## Source paper
 
