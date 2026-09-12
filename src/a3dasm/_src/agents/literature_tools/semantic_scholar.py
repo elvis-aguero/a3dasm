@@ -6,11 +6,37 @@ from __future__ import annotations
 import json as _json
 import logging
 import os
+import re
 
 from ...literature.http_client import SourceCooldownError, _robust_post
 from .throttle import _throttled_ss
 
 log = logging.getLogger(__name__)
+
+# arXiv ids: "2506.14097", "2506.14097v2", or the old "math.AG/0309136" form.
+_ARXIV_ID = re.compile(r"^(\d{4}\.\d{4,5}(v\d+)?|[a-z-]+(\.[A-Z]{2})?/\d{7}(v\d+)?)$")
+
+
+def _s2_paper_id(paper_id: str) -> str:
+    """Namespace a bare external id for Semantic Scholar's API.
+
+    S2 resolves a non-S2 identifier only when it carries its namespace
+    (``ARXIV:2506.14097``, ``DOI:10.1016/j.ijnonlinmec.2013.01.010``); a bare
+    arXiv id 404s with "Paper with id … not found". Our own arXiv search hands
+    the agent bare ids, so the id that identifies a paper in one tool has to be
+    accepted by the next one. Anything already namespaced, or a 40-hex S2
+    paperId, passes through untouched.
+    """
+    pid = (paper_id or "").strip()
+    if ":" in pid:  # already namespaced (ARXIV:, DOI:, CorpusId:, …)
+        return pid
+    if pid.lower().startswith("arxiv"):  # "arxiv2506.14097", "arXiv 2506.14097"
+        return "ARXIV:" + pid[5:].lstrip(": ")
+    if _ARXIV_ID.match(pid):
+        return f"ARXIV:{pid}"
+    if pid.startswith("10."):
+        return f"DOI:{pid}"
+    return pid
 
 
 def build_semantic_scholar_closures() -> dict:
@@ -125,11 +151,14 @@ def build_semantic_scholar_closures() -> dict:
         def get_semantic_scholar_paper_details(
             paper_id: str,
         ) -> str:
-            """Get details for a paper by S2/DOI/arxiv ID."""
+            """Get details for a paper. paper_id may be a bare arXiv id
+            ("2506.14097"), a bare DOI ("10.1016/j.cma.2020.113029"), an
+            already-namespaced id ("ARXIV:2506.14097") or an S2 paperId —
+            bare ids are namespaced for you."""
             try:
                 paper = _throttled_ss(
                     _sch.get_paper,
-                    paper_id,
+                    _s2_paper_id(paper_id),
                     fields=[
                         "title", "authors", "year", "abstract",
                         "venue", "citationCount",
@@ -205,11 +234,13 @@ def build_semantic_scholar_closures() -> dict:
         def get_semantic_scholar_citations_and_references(
             paper_id: str,
         ) -> str:
-            """Get citing papers and references (≤20 each)."""
+            """Get citing papers and references (≤20 each). paper_id takes
+            the same forms as get_semantic_scholar_paper_details: a bare arXiv
+            id or DOI is namespaced for you."""
             try:
                 paper = _throttled_ss(
                     _sch.get_paper,
-                    paper_id,
+                    _s2_paper_id(paper_id),
                     fields=["citations", "references"],
                 )
             except TimeoutError:
@@ -271,14 +302,15 @@ def build_recommendations_closure() -> dict:
     ) -> str:
         """Find semantically similar papers (no citation link).
 
-        paper_id: S2 paperId, DOI, or 'arXiv:XXXX.XXXXX'.
+        paper_id: an S2 paperId, or a DOI or arXiv id in either bare
+        ("2506.14097") or namespaced ("ARXIV:2506.14097") form.
         """
         import json as _j
         try:
             resp = _robust_post(
                 "https://api.semanticscholar.org"
                 "/recommendations/v1/papers/",
-                json={"positivePaperIds": [paper_id]},
+                json={"positivePaperIds": [_s2_paper_id(paper_id)]},
                 params={
                     "fields": (
                         "paperId,title,authors,year,abstract"

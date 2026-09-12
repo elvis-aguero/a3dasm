@@ -520,3 +520,30 @@ def test_embed_with_spec_has_an_upper_bound():
         "floating spec for an ephemeral env dependency is the exact "
         "footgun this pin exists to prevent."
     )
+
+
+# ---------------------------------------------------------------------------
+# Semantic Scholar id namespacing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("given", "expected"), [
+    # Regression (run 20260912T142229, D001): our arXiv search hands the agent
+    # a bare id; passing it straight to S2 404s with "Paper with id … not
+    # found". The id that names a paper in one tool must work in the next.
+    ("2506.14097", "ARXIV:2506.14097"),
+    ("2506.14097v2", "ARXIV:2506.14097v2"),
+    ("math.AG/0309136", "ARXIV:math.AG/0309136"),
+    ("10.1016/j.ijnonlinmec.2013.01.010", "DOI:10.1016/j.ijnonlinmec.2013.01.010"),
+    # already namespaced, or an S2 paperId — untouched
+    ("ARXIV:2506.14097", "ARXIV:2506.14097"),
+    ("DOI:10.1016/j.cma.2020.113029", "DOI:10.1016/j.cma.2020.113029"),
+    ("649def34f8be52c8b66281af98ae884c09aef38b",
+     "649def34f8be52c8b66281af98ae884c09aef38b"),
+    # the model's own prose spellings
+    ("arXiv:2506.14097", "arXiv:2506.14097"),
+    ("arxiv 2506.14097", "ARXIV:2506.14097"),
+    ("", ""),
+])
+def test_s2_paper_id_namespacing(given, expected):
+    from a3dasm._src.agents.literature_tools.semantic_scholar import _s2_paper_id
+    assert _s2_paper_id(given) == expected
