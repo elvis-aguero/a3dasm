@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,59 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5:1.5b"
 _EXTERNAL_STOP_SIGNATURES = {
     "org_spend_limit": "org's monthly spend limit",
 }
+
+
+
+def _gate_outcome_from(report: str) -> str:
+    """The run's TRUE terminal state, read off the final report's banner.
+
+    The orchestrating node prepends a "⚠ UNGATED RUN" / FAILED banner to
+    last_report when the run closed without an accepted (critic-PASS) Done().
+    A notebook-deliverable study has no solution.md for the ledger to read this
+    from, so without deriving it here every stamped notebook reads as GATED —
+    masking 3-strike and failed closes. (audit 20260622)
+    """
+    if ("⛔" in report) or ("FAILED RUN" in report):
+        return "FAILED"
+    if ("⚠ UNGATED RUN" in report) or ("NOT validated" in report):
+        return "UNGATED"
+    return "GATED"
+
+
+@dataclass
+class _RunContext:
+    """Everything ``AgenticRun._prepare_run`` establishes for one run.
+
+    Built once, then read by the graph invocation and the finalisation. It is
+    the answer to "what does this run consist of": where it writes, what it
+    was asked, when it started, and which conversation thread it is.
+    """
+
+    ts: str
+    run_dir: Path
+    debug_dir: Path
+    notes_dir: Path
+    workspace_dir: Path
+    problem: str
+    #: sha256 of the frozen snapshot this run actually answered
+    problem_sha256: str
+    #: sha256 of what PROBLEM_STATEMENT.md says right now
+    live_problem_sha256: str
+    resume_from: Path | None
+    start_time: float
+    thread_id: str
+    log: logging.Logger
+    log_handler: logging.Handler
+    delegation_log: DelegationLog
+    canonical_cfg: dict
+    study_cfg: dict
+    initial_state: AgenticState
+    graph_config: dict
+
+    @property
+    def resuming(self) -> bool:
+        """Whether this run continues a prior run's checkpoint."""
+        return self.resume_from is not None
 
 
 class AgenticRun:
@@ -325,20 +379,36 @@ class AgenticRun:
 
         Reads ``PROBLEM_STATEMENT.md`` from the study directory and passes it
         as the initial user message to the entry node.
+
+        Three phases, in order: establish the run (:meth:`_prepare_run` — run
+        directory, canonical store, budgets, the state the graph starts from),
+        drive it (:meth:`_invoke_graph`), then record what happened
+        (:meth:`_finalize_run` — gate outcome, provenance, KPI row).
         """
         if getattr(self, "_container", False):
-            runner = ContainerRunner(
-                self.study_dir,
-                model=self._model,
-                budget=getattr(self, "_budget", None),
-                backend=getattr(self, "_backend", "claude"),
-                image=getattr(self, "_container_image", "f3dasm-agentic:latest"),
-            )
-            exit_code = runner.run()
-            if exit_code != 0:
-                raise AgenticRunError(f"Container exited with code {exit_code}")
-            return runner._latest_solution()
+            return self._execute_in_container()
+        ctx = self._prepare_run()
+        result = self._invoke_graph(ctx)
+        return self._finalize_run(ctx, result)
 
+    def _execute_in_container(self) -> str:
+        """Hand the whole run to ContainerRunner instead of running in-process."""
+        runner = ContainerRunner(
+            self.study_dir,
+            model=self._model,
+            budget=getattr(self, "_budget", None),
+            backend=getattr(self, "_backend", "claude"),
+            image=getattr(self, "_container_image", "f3dasm-agentic:latest"),
+        )
+        exit_code = runner.run()
+        if exit_code != 0:
+            raise AgenticRunError(f"Container exited with code {exit_code}")
+        return runner._latest_solution()
+
+    # ── Phase 1: establish the run ───────────────────────────────────────────
+
+    def _prepare_run(self) -> _RunContext:
+        """Everything that must exist before the graph is invoked."""
         problem_path = self.study_dir / "PROBLEM_STATEMENT.md"
         if not problem_path.exists():
             raise AgenticRunError(
@@ -346,147 +416,40 @@ class AgenticRun:
             )
         problem = problem_path.read_text(encoding="utf-8")
 
-        # Create run directory (or reuse an existing one when resuming).
-        # getattr default: some tests build AgenticRun via __new__.
-        _resume = getattr(self, "_resume_from", None)
-        if _resume is not None:
-            run_dir = _resume.resolve()
-            if not (run_dir / "debug" / "thread_id").exists():
-                raise AgenticRunError(
-                    f"resume_from={run_dir} is not a resumable run dir "
-                    "(no debug/thread_id)"
-                )
-            ts = run_dir.name
-        else:
-            ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
-            run_dir = self.study_dir / "runs" / ts
-            _archive_prior_pipeline_notebook(self.study_dir)
+        ts, run_dir, resume = self._resolve_run_dir()
         debug_dir = run_dir / "debug"
         debug_dir.mkdir(parents=True, exist_ok=True)
-        # Snapshot the EXACT PROBLEM_STATEMENT.md this run read, verbatim —
-        # the live study_dir/PROBLEM_STATEMENT.md drifts between runs (a study
-        # is meant to be run once per statement; when it isn't, a human
-        # auditing a later run needs to see the statement THAT run actually
-        # answered, not whatever the file has since been edited to say). The
-        # notebook's Run metadata cell carries only the hash so a reader can
-        # confirm which snapshot matches; the snapshot is the recoverable copy.
-        # write-if-absent: a resumed run must keep its ORIGINAL snapshot, not
-        # overwrite it with whatever PROBLEM_STATEMENT.md says at resume time.
-        # The hash is derived from the SNAPSHOT's content, never re-read from
-        # the live file, so a resume's stamp always matches what this run
-        # actually answered even if PROBLEM_STATEMENT.md has since drifted.
-        _ps_snapshot_path = debug_dir / "PROBLEM_STATEMENT_snapshot.md"
-        if not _ps_snapshot_path.exists():
-            _ps_snapshot_path.write_text(problem, encoding="utf-8")
-        import hashlib
-        _problem_statement_sha256 = hashlib.sha256(
-            _ps_snapshot_path.read_text(encoding="utf-8").encode("utf-8")
-        ).hexdigest()
-        # Captured BEFORE the constraint-snapshot preamble (budgets, elapsed
-        # time — always different between runs) gets prepended to `problem`
-        # below, so a resume's "did PROBLEM_STATEMENT.md change" check
-        # compares the same kind of content on both sides instead of always
-        # reporting "changed" (BACKLOG #35).
-        _live_problem_sha256 = hashlib.sha256(
-            problem.encode("utf-8")
-        ).hexdigest()
+        problem_sha256, live_problem_sha256 = self._snapshot_problem_statement(
+            debug_dir, problem)
         notes_dir = debug_dir / "strategizer_notes"
         notes_dir.mkdir(parents=True, exist_ok=True)
         self._run_dir = run_dir
 
         # Canonical store: experiment_data/ + run_config.json
-        _full_cfg = _load_study_config(self.study_dir)
-        _eval_cfg = _full_cfg.get("evaluator")
+        study_cfg = _load_study_config(self.study_dir)
+        _eval_cfg = study_cfg.get("evaluator")
         canonical_cfg = _init_canonical_store(
             run_dir, self.study_dir, evaluator_config=_eval_cfg,
             eval_budget=getattr(self, "_eval_budget", None),
             mem_cap_bytes=getattr(self, "_mem_cap_bytes", None),
         )
+        ingest_note = self._ingest_pool(study_cfg, canonical_cfg)
 
-        # Ingest a precomputed pool as D000 ground-truth rows. Two sources,
-        # one ingestion path — D000 rows are never counted as evaluations
-        # (_resolve_delegation_evals runs only for real delegations D001+):
-        #   evaluator.lookup.pool  → pool IS the oracle (queried via
-        #                            LookupDataGenerator) AND training data.
-        #   training_data          → pool is ONLY training data; there is NO
-        #                            live oracle (e.g. surrogate-only studies
-        #                            where new evaluations cannot be run).
-        _lookup_cfg = (_eval_cfg or {}).get("lookup")
-        _training_data = _full_cfg.get("training_data")
-        _pool_cfg = _lookup_cfg or (
-            {"pool": _training_data} if _training_data else None
-        )
-        if _pool_cfg:
-            _store_dir = Path(canonical_cfg["store_dir"])
-            try:
-                _n_ingested = _ingest_precomputed_pool(
-                    _store_dir, self.study_dir, _pool_cfg
-                )
-                log_ingested = _n_ingested  # captured for log below
-            except Exception as _exc:  # noqa: BLE001
-                log_ingested = None
-                _exc_msg = str(_exc)
-        else:
-            log_ingested = None
-            _exc_msg = None
+        log, handler = self._open_run_log(debug_dir, ts)
+        if ingest_note is not None:
+            level, msg = ingest_note
+            log.log(level, msg)
 
-        # Set up run.log
-        log = logging.getLogger(f"a3dasm.{ts}")
-        log.setLevel(logging.INFO)
-        handler = logging.FileHandler(debug_dir / "run.log")
-        handler.setFormatter(
-            logging.Formatter(
-                "[%(asctime)s] %(levelname)s %(message)s",
-                datefmt="%H:%M:%S",
-            )
-        )
-        log.addHandler(handler)
-        log.info(f"Run starting: model={self._model}, study={self.study_dir}")
-        if log_ingested is not None:
-            log.info(
-                f"D000: ingested {log_ingested} precomputed pool rows"
-                f" from {_pool_cfg.get('pool', '?')}"
-            )
-        elif _exc_msg is not None:
-            log.warning(f"D000 pool ingest failed: {_exc_msg}")
-
-        # Wall-clock anchor, persisted in its OWN file for exactly the reason
-        # thread_id is (run_config.json is rewritten mid-run, so it cannot
-        # carry a start time). A resume MUST charge the wall time the run has
-        # already spent: re-anchoring to now makes every budget check, every
-        # constraint snapshot and the critic's run-adequacy judgement restart
-        # from zero, so a run that has been going for a day reports hours.
-        _start_path = debug_dir / "run_started_at"
-        start_time = None
-        if _resume is not None:
-            try:
-                start_time = float(_start_path.read_text().strip())
-            except (OSError, ValueError):
-                start_time = None          # unreadable: fall back to now
-        if start_time is None:
-            start_time = time.time()
-            try:
-                _start_path.write_text(repr(start_time))
-            except OSError:
-                pass                        # anchor is best-effort, never fatal
+        start_time = self._anchor_start_time(debug_dir, resume)
 
         # Create graph-wide delegation log for episodic memory.
-        delegation_log_path = debug_dir / "delegation_log.jsonl"
-        delegation_log = DelegationLog(delegation_log_path)
+        delegation_log = DelegationLog(debug_dir / "delegation_log.jsonl")
 
         # workspace_dir for worker delegations
         workspace_dir = debug_dir / "delegations"
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
-        # Stable thread_id: persisted so a crashed run can be resumed against
-        # the same LangGraph checkpoint. Resume reads it back; a fresh run
-        # mints and stores it (own file: run_config.json is rewritten).
-        _tid_path = debug_dir / "thread_id"
-        if _resume is not None:
-            thread_id = _tid_path.read_text().strip()
-        else:
-            thread_id = str(uuid.uuid4())
-            _tid_path.write_text(thread_id)
+        thread_id = self._resolve_thread_id(debug_dir, resume)
 
         # Pre-run problem-statement review (advisory; interactive-refine when
         # enabled). Fresh runs only — a resume replays the checkpoint and must
@@ -494,7 +457,7 @@ class AgenticRun:
         # (a test affordance — _run_dir is set above so _make_adapter can build
         # the ephemeral reviewer session on real runs).
         if (
-            _resume is None
+            resume is None
             and getattr(self, "_review_statement", True)
             and getattr(self, "_graph", None) is None
         ):
@@ -536,7 +499,7 @@ class AgenticRun:
             experiment_data_dir=canonical_cfg["store_dir"],
         )
 
-        config: dict[str, Any] = {
+        graph_config: dict[str, Any] = {
             "configurable": {"thread_id": thread_id},
             # 2000 ≈ hundreds of delegations; the old 500 (and the legacy 25 on
             # some branches) could crash a long multi-delegation run mid-flight
@@ -545,10 +508,177 @@ class AgenticRun:
             "recursion_limit": settings.get_int("recursion_limit", 2000),
         }
 
-        # Durable checkpoint to disk so the run survives a crash; resume passes
-        # None as input (LangGraph convention: replay from last checkpoint).
+        return _RunContext(
+            ts=ts,
+            run_dir=run_dir,
+            debug_dir=debug_dir,
+            notes_dir=notes_dir,
+            workspace_dir=workspace_dir,
+            problem=problem,
+            problem_sha256=problem_sha256,
+            live_problem_sha256=live_problem_sha256,
+            resume_from=resume,
+            start_time=start_time,
+            thread_id=thread_id,
+            log=log,
+            log_handler=handler,
+            delegation_log=delegation_log,
+            canonical_cfg=canonical_cfg,
+            study_cfg=study_cfg,
+            initial_state=initial_state,
+            graph_config=graph_config,
+        )
+
+    def _resolve_run_dir(self) -> tuple[str, Path, Path | None]:
+        """This run's directory: a fresh timestamped one, or the one resumed.
+
+        getattr default: some tests build AgenticRun via __new__.
+        """
+        _resume = getattr(self, "_resume_from", None)
+        if _resume is not None:
+            run_dir = _resume.resolve()
+            if not (run_dir / "debug" / "thread_id").exists():
+                raise AgenticRunError(
+                    f"resume_from={run_dir} is not a resumable run dir "
+                    "(no debug/thread_id)"
+                )
+            return run_dir.name, run_dir, _resume
+        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
+        run_dir = self.study_dir / "runs" / ts
+        _archive_prior_pipeline_notebook(self.study_dir)
+        return ts, run_dir, None
+
+    def _snapshot_problem_statement(
+        self, debug_dir: Path, problem: str
+    ) -> tuple[str, str]:
+        """Freeze the statement this run answered; return (snapshot, live) hashes.
+
+        The live study_dir/PROBLEM_STATEMENT.md drifts between runs (a study is
+        meant to be run once per statement; when it isn't, a human auditing a
+        later run needs to see the statement THAT run actually answered, not
+        whatever the file has since been edited to say). The notebook's Run
+        metadata cell carries only the hash so a reader can confirm which
+        snapshot matches; the snapshot is the recoverable copy.
+
+        Write-if-absent: a resumed run must keep its ORIGINAL snapshot, not
+        overwrite it with whatever PROBLEM_STATEMENT.md says at resume time.
+        The snapshot hash is derived from the SNAPSHOT's content, never re-read
+        from the live file, so a resume's stamp always matches what this run
+        actually answered even if PROBLEM_STATEMENT.md has since drifted.
+
+        The live hash is taken BEFORE the constraint-snapshot preamble
+        (budgets, elapsed time — always different between runs) is prepended to
+        `problem`, so a resume's "did PROBLEM_STATEMENT.md change" check
+        compares the same kind of content on both sides instead of always
+        reporting "changed" (BACKLOG #35).
+        """
+        import hashlib
+        _ps_snapshot_path = debug_dir / "PROBLEM_STATEMENT_snapshot.md"
+        if not _ps_snapshot_path.exists():
+            _ps_snapshot_path.write_text(problem, encoding="utf-8")
+        snapshot_sha = hashlib.sha256(
+            _ps_snapshot_path.read_text(encoding="utf-8").encode("utf-8")
+        ).hexdigest()
+        live_sha = hashlib.sha256(problem.encode("utf-8")).hexdigest()
+        return snapshot_sha, live_sha
+
+    def _ingest_pool(
+        self, study_cfg: dict, canonical_cfg: dict
+    ) -> tuple[int, str] | None:
+        """Ingest a precomputed pool as D000 ground-truth rows.
+
+        Two sources, one ingestion path — D000 rows are never counted as
+        evaluations (_resolve_delegation_evals runs only for real delegations
+        D001+):
+          evaluator.lookup.pool  → pool IS the oracle (queried via
+                                   LookupDataGenerator) AND training data.
+          training_data          → pool is ONLY training data; there is NO
+                                   live oracle (e.g. surrogate-only studies
+                                   where new evaluations cannot be run).
+
+        Returns a ``(level, message)`` pair for the run log, or None when there
+        is no pool. The log is not open yet at this point in the run.
+        """
+        _eval_cfg = study_cfg.get("evaluator")
+        _lookup_cfg = (_eval_cfg or {}).get("lookup")
+        _training_data = study_cfg.get("training_data")
+        _pool_cfg = _lookup_cfg or (
+            {"pool": _training_data} if _training_data else None
+        )
+        if not _pool_cfg:
+            return None
+        _store_dir = Path(canonical_cfg["store_dir"])
+        try:
+            _n_ingested = _ingest_precomputed_pool(
+                _store_dir, self.study_dir, _pool_cfg
+            )
+        except Exception as _exc:  # noqa: BLE001
+            return logging.WARNING, f"D000 pool ingest failed: {_exc}"
+        return logging.INFO, (
+            f"D000: ingested {_n_ingested} precomputed pool rows"
+            f" from {_pool_cfg.get('pool', '?')}"
+        )
+
+    def _open_run_log(
+        self, debug_dir: Path, ts: str
+    ) -> tuple[logging.Logger, logging.Handler]:
+        """Open debug/run.log for this run."""
+        log = logging.getLogger(f"a3dasm.{ts}")
+        log.setLevel(logging.INFO)
+        handler = logging.FileHandler(debug_dir / "run.log")
+        handler.setFormatter(
+            logging.Formatter(
+                "[%(asctime)s] %(levelname)s %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
+        log.addHandler(handler)
+        log.info(f"Run starting: model={self._model}, study={self.study_dir}")
+        return log, handler
+
+    def _anchor_start_time(self, debug_dir: Path, resume: Path | None) -> float:
+        """The run's wall-clock anchor, persisted in its OWN file.
+
+        For exactly the reason thread_id is: run_config.json is rewritten
+        mid-run, so it cannot carry a start time. A resume MUST charge the wall
+        time the run has already spent — re-anchoring to now makes every budget
+        check, every constraint snapshot and the critic's run-adequacy
+        judgement restart from zero, so a run that has been going for a day
+        reports hours.
+        """
+        _start_path = debug_dir / "run_started_at"
+        if resume is not None:
+            try:
+                return float(_start_path.read_text().strip())
+            except (OSError, ValueError):
+                pass                        # unreadable: fall back to now
+        start_time = time.time()
+        try:
+            _start_path.write_text(repr(start_time))
+        except OSError:
+            pass                            # anchor is best-effort, never fatal
+        return start_time
+
+    def _resolve_thread_id(self, debug_dir: Path, resume: Path | None) -> str:
+        """Stable thread_id, persisted so a crashed run can be resumed.
+
+        Resume reads it back; a fresh run mints and stores it. Its own file:
+        run_config.json is rewritten mid-run.
+        """
+        _tid_path = debug_dir / "thread_id"
+        if resume is not None:
+            return _tid_path.read_text().strip()
+        thread_id = str(uuid.uuid4())
+        _tid_path.write_text(thread_id)
+        return thread_id
+
+    # ── Phase 2: drive the graph ─────────────────────────────────────────────
+
+    def _invoke_graph(self, ctx: _RunContext) -> dict:
+        """Build the graph and run it to termination against a disk checkpoint."""
         from langgraph.checkpoint.sqlite import SqliteSaver
-        ckpt_path = debug_dir / "checkpoints.sqlite"
+        log = ctx.log
+        ckpt_path = ctx.debug_dir / "checkpoints.sqlite"
         log.info("Invoking graph")
         # Optionally own a vLLM server on a SLURM GPU node for this run; the
         # jobid is torn down in the finally on EVERY exit path (normal close,
@@ -557,139 +687,37 @@ class AgenticRun:
         _serve_jobid = None
         try:
             _serve_jobid = self._maybe_start_slurm_llm(
-                _full_cfg, debug_dir, log)
+                ctx.study_cfg, ctx.debug_dir, log)
             with SqliteSaver.from_conn_string(str(ckpt_path)) as saver:
                 graph = getattr(self, "_graph", None) or build_graph(
                     self._graph_spec, self._make_adapter,
                     study_dir=self.study_dir,
                     interactive=self._interactive, max_ask=self._max_ask,
-                    notes_dir=notes_dir,
-                    workspace_dir=workspace_dir,
-                    delegation_log=delegation_log,
+                    notes_dir=ctx.notes_dir,
+                    workspace_dir=ctx.workspace_dir,
+                    delegation_log=ctx.delegation_log,
                     checkpointer=saver,
                 )
-                graph_input = None if _resume is not None else initial_state
-                # A run that reached a terminal Command(goto=END) — i.e. EVERY
-                # normal close (GATED/UNGATED/FAILED all go through the same
-                # terminal branch in strategizer.py) — leaves the checkpoint
-                # with an empty `.next`. LangGraph's invoke(None, config) on
-                # such a checkpoint is a genuine no-op: no node re-runs, no
-                # new model call happens, it just hands back the stale
-                # last_report verbatim (confirmed empirically: a minimal
-                # StateGraph reproduction showed the node's own call counter
-                # never incremented on a second invoke(None) against an
-                # already-END'd thread). BACKLOG #34's resume_from guidance
-                # was silently useless for exactly the runs it targeted
-                # (externally-stopped, therefore terminal) until this fix —
-                # found because a "resumed" run replayed 19-hour-old cached
-                # text and was mistaken for a live re-test of the same stop
-                # condition (BACKLOG #35).
-                #
-                # Only a genuinely mid-flight interruption (crash, kill —
-                # `.next` non-empty, real pending tasks) should still use the
-                # plain invoke(None) replay-from-checkpoint path. A terminal
-                # checkpoint needs FRESH input to force real re-execution from
-                # the entry node (confirmed empirically too: invoke() with new
-                # non-None input on an already-terminal thread DOES re-run the
-                # node). The one case explicitly NOT worth resuming: the run
-                # already closed cleanly (GATED, an accepted Done()) and
-                # PROBLEM_STATEMENT.md hasn't changed since — there is
-                # nothing new to do, so this refuses loudly rather than
-                # silently no-op or silently redo finished work.
-                if _resume is not None and hasattr(graph, "get_state"):
-                    _resume_state = graph.get_state(config)
-                    if not _resume_state.next:  # terminal: reached END
-                        _prior_status: dict = {}
-                        try:
-                            _prior_status = json.loads(
-                                (debug_dir / "run_status.json")
-                                .read_text(encoding="utf-8")
-                            )
-                        except (OSError, json.JSONDecodeError):
-                            pass
-                        _resume_ps_changed = (
-                            _live_problem_sha256 != _problem_statement_sha256
-                        )
-                        if (
-                            _prior_status.get("status") == "GATED"
-                            and not _resume_ps_changed
-                        ):
-                            raise AgenticRunError(
-                                f"resume_from={run_dir} closed cleanly "
-                                "(GATED, an accepted Done()) and "
-                                "PROBLEM_STATEMENT.md is unchanged since — "
-                                "there is nothing new for this run to do. "
-                                "Resume is for a run that was interrupted or "
-                                "stopped short of a real close; edit "
-                                "PROBLEM_STATEMENT.md first if you want it "
-                                "reconsidered, or start a fresh run instead."
-                            )
-                        _reason_bits = []
-                        if _prior_status.get("stop_reason"):
-                            _reason_bits.append(
-                                "it was stopped by an external cause "
-                                f"({_prior_status['stop_reason']}), not by "
-                                "its own choice"
-                            )
-                        elif _prior_status.get("status", "GATED") != "GATED":
-                            _reason_bits.append(
-                                f"it closed {_prior_status['status']} "
-                                "without an accepted Done()"
-                            )
-                        if _resume_ps_changed:
-                            _reason_bits.append(
-                                "PROBLEM_STATEMENT.md has been edited since "
-                                "this run's original snapshot — the current "
-                                "text follows below"
-                            )
-                        _resume_note = (
-                            "[RESUME] This run previously closed, but "
-                            + "; and ".join(
-                                _reason_bits or ["you asked to resume it"]
-                            )
-                            + ". Continue using the accumulated conversation"
-                            " history above — do not restart from scratch."
-                        )
-                        if _resume_ps_changed:
-                            _resume_note += (
-                                f"\n\nCurrent PROBLEM_STATEMENT.md:\n\n"
-                                f"{problem}"
-                            )
-                        graph_input = {
-                            "messages": [HumanMessage(content=_resume_note)],
-                            "done": False,
-                        }
-                # On resume, the checkpointed state still carries the OLD
-                # budgets and start_time. Re-seed them from this AgenticRun so a
-                # run that halted on a budget can actually make progress after
-                # the user raises it (cumulative token_totals persist in the
-                # checkpoint, so the spend-so-far is still counted against the
-                # new ceiling).
-                if _resume is not None and hasattr(graph, "update_state"):
-                    try:
-                        graph.update_state(config, {
-                            "budget_seconds": getattr(self, "_budget", None),
-                            "budget_usd": getattr(self, "_budget_usd", None),
-                            "eval_budget": getattr(self, "_eval_budget", None),
-                            "start_time": start_time,
-                        })
-                    except Exception:  # noqa: BLE001
-                        log.warning("resume state refresh failed",
-                                    exc_info=True)
+                graph_input = (
+                    None if ctx.resuming else ctx.initial_state
+                )
+                if ctx.resuming and hasattr(graph, "get_state"):
+                    graph_input = self._resumed_graph_input(graph, ctx)
+                self._refresh_resumed_budgets(graph, ctx)
                 try:
-                    result = graph.invoke(graph_input, config=config)
+                    return graph.invoke(graph_input, config=ctx.graph_config)
                 except BaseException as _exc:  # noqa: BLE001
                     # Any unhandled crash (GraphRecursionError,
                     # KeyboardInterrupt, OOM, …): record a resumable status so
                     # resume_from is always an option after a break, then
                     # re-raise (we do not swallow).
                     self._write_run_status(
-                        debug_dir, status="crashed",
+                        ctx.debug_dir, status="crashed",
                         reason=f"{type(_exc).__name__}: {_exc}"[:500],
-                        resumable=True, thread_id=thread_id,
+                        resumable=True, thread_id=ctx.thread_id,
                         # A crashed run's duration is exactly what the next
                         # resume needs to charge, so record it here too.
-                        wall_s=round(time.time() - start_time, 1),
+                        wall_s=round(time.time() - ctx.start_time, 1),
                     )
                     raise
         finally:
@@ -700,85 +728,252 @@ class AgenticRun:
                     log.info("llm_slurm: scancel'd serve job %s", _serve_jobid)
                 except Exception:  # noqa: BLE001
                     log.warning("llm_slurm: teardown failed", exc_info=True)
+
+    def _resumed_graph_input(self, graph: Any, ctx: _RunContext) -> Any:
+        """What to feed a resumed graph: None to replay, or fresh input to re-run.
+
+        A run that reached a terminal Command(goto=END) — i.e. EVERY normal
+        close (GATED/UNGATED/FAILED all go through the same terminal branch in
+        the orchestrating node) — leaves the checkpoint with an empty ``.next``.
+        LangGraph's invoke(None, config) on such a checkpoint is a genuine
+        no-op: no node re-runs, no new model call happens, it just hands back
+        the stale last_report verbatim (confirmed empirically: a minimal
+        StateGraph reproduction showed the node's own call counter never
+        incremented on a second invoke(None) against an already-END'd thread).
+        BACKLOG #34's resume_from guidance was silently useless for exactly the
+        runs it targeted (externally-stopped, therefore terminal) until this
+        fix — found because a "resumed" run replayed 19-hour-old cached text
+        and was mistaken for a live re-test of the same stop condition
+        (BACKLOG #35).
+
+        Only a genuinely mid-flight interruption (crash, kill — ``.next``
+        non-empty, real pending tasks) should still use the plain invoke(None)
+        replay-from-checkpoint path. A terminal checkpoint needs FRESH input to
+        force real re-execution from the entry node (confirmed empirically too:
+        invoke() with new non-None input on an already-terminal thread DOES
+        re-run the node). The one case explicitly NOT worth resuming: the run
+        already closed cleanly (GATED, an accepted Done()) and
+        PROBLEM_STATEMENT.md hasn't changed since — there is nothing new to do,
+        so this refuses loudly rather than silently no-op or silently redo
+        finished work.
+        """
+        _resume_state = graph.get_state(ctx.graph_config)
+        if _resume_state.next:          # mid-flight: plain replay
+            return None
+        _prior_status: dict = {}
+        try:
+            _prior_status = json.loads(
+                (ctx.debug_dir / "run_status.json")
+                .read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            pass
+        _resume_ps_changed = ctx.live_problem_sha256 != ctx.problem_sha256
+        if (
+            _prior_status.get("status") == "GATED"
+            and not _resume_ps_changed
+        ):
+            raise AgenticRunError(
+                f"resume_from={ctx.run_dir} closed cleanly "
+                "(GATED, an accepted Done()) and "
+                "PROBLEM_STATEMENT.md is unchanged since — "
+                "there is nothing new for this run to do. "
+                "Resume is for a run that was interrupted or "
+                "stopped short of a real close; edit "
+                "PROBLEM_STATEMENT.md first if you want it "
+                "reconsidered, or start a fresh run instead."
+            )
+        _reason_bits = []
+        if _prior_status.get("stop_reason"):
+            _reason_bits.append(
+                "it was stopped by an external cause "
+                f"({_prior_status['stop_reason']}), not by "
+                "its own choice"
+            )
+        elif _prior_status.get("status", "GATED") != "GATED":
+            _reason_bits.append(
+                f"it closed {_prior_status['status']} "
+                "without an accepted Done()"
+            )
+        if _resume_ps_changed:
+            _reason_bits.append(
+                "PROBLEM_STATEMENT.md has been edited since "
+                "this run's original snapshot — the current "
+                "text follows below"
+            )
+        _resume_note = (
+            "[RESUME] This run previously closed, but "
+            + "; and ".join(
+                _reason_bits or ["you asked to resume it"]
+            )
+            + ". Continue using the accumulated conversation"
+            " history above — do not restart from scratch."
+        )
+        if _resume_ps_changed:
+            _resume_note += (
+                f"\n\nCurrent PROBLEM_STATEMENT.md:\n\n"
+                f"{ctx.problem}"
+            )
+        return {
+            "messages": [HumanMessage(content=_resume_note)],
+            "done": False,
+        }
+
+    def _refresh_resumed_budgets(self, graph: Any, ctx: _RunContext) -> None:
+        """Re-seed budgets and start_time into a resumed checkpoint.
+
+        On resume, the checkpointed state still carries the OLD budgets and
+        start_time. Re-seed them from this AgenticRun so a run that halted on a
+        budget can actually make progress after the user raises it (cumulative
+        token_totals persist in the checkpoint, so the spend-so-far is still
+        counted against the new ceiling).
+        """
+        if not ctx.resuming or not hasattr(graph, "update_state"):
+            return
+        try:
+            graph.update_state(ctx.graph_config, {
+                "budget_seconds": getattr(self, "_budget", None),
+                "budget_usd": getattr(self, "_budget_usd", None),
+                "eval_budget": getattr(self, "_eval_budget", None),
+                "start_time": ctx.start_time,
+            })
+        except Exception:  # noqa: BLE001
+            ctx.log.warning("resume state refresh failed", exc_info=True)
+
+    # ── Phase 3: record what happened ────────────────────────────────────────
+
+    def _finalize_run(self, ctx: _RunContext, result: dict) -> str:
+        """Persist the run's outcome and provenance; return the report."""
+        log = ctx.log
         # Merge per-call telemetry into an analysis-ready summary.json (additive,
         # off the decision path — a failure here must not fail the run).
         try:
             from ..infra.telemetry import Telemetry
-            Telemetry.merge(debug_dir)
+            Telemetry.merge(ctx.debug_dir)
         except Exception:  # noqa: BLE001
             log.warning("telemetry merge failed", exc_info=True)
+
         report = result.get("last_report") or ""
-        # Gate outcome, persisted so the ledger reports the TRUE terminal state.
-        # The strategizer prepends a "⚠ UNGATED RUN" / FAILED banner to
-        # last_report when the run closed without an accepted (critic-PASS)
-        # Done(); a notebook-deliverable study has no solution.md for the ledger
-        # to read this from, so without persisting it here every stamped notebook
-        # reads as GATED — masking 3-strike and failed closes. (audit 20260622)
-        if ("⛔" in report) or ("FAILED RUN" in report):
-            _gate_outcome = "FAILED"
-        elif ("⚠ UNGATED RUN" in report) or ("NOT validated" in report):
-            _gate_outcome = "UNGATED"
-        else:
-            _gate_outcome = "GATED"
-        _stop_reason = next(
+        gate_outcome = _gate_outcome_from(report)
+        stop_reason = self._warn_if_externally_stopped(report, ctx)
+        evals = self._ledgered_eval_count(ctx, result)
+        tokens = result.get("token_totals") or {}
+
+        now_ts = datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+        elapsed = time.time() - ctx.start_time
+        cost = tokens.get("total_cost_usd")
+        cost_str = f"${cost:.4f}" if cost is not None else "n/a"
+
+        meta_md = self._run_metadata_markdown(
+            ctx, result, gate_outcome, evals, tokens, now_ts, elapsed)
+        nb_path = self._stamp_notebook_provenance(
+            ctx, meta_md, gate_outcome, now_ts)
+
+        # Persist the terminal gate outcome to run_status.json on the NORMAL
+        # close too (the crash path writes its own). Without this a
+        # cleanly-closed run leaves no run_status.json and the §1 protocol's
+        # first KPI (gate outcome) is unreadable — the outcome would live only in
+        # the notebook metadata + the ledger. (audit: 3 GATED runs, none had it.)
+        self._write_run_status(
+            ctx.debug_dir, status=gate_outcome, model=self._model,
+            evals_used=evals, timestamp=now_ts, run=str(ctx.run_dir),
+            thread_id=ctx.thread_id, stop_reason=stop_reason,
+            # The §1 KPI table asks for wall clock and this file is what it
+            # reads first; without it every consumer re-derives the duration
+            # from file mtimes and gets a different answer.
+            wall_s=round(elapsed, 1),
+        )
+        self._append_kpi_ledger(ctx)
+
+        log.info(
+            f"Run complete. Evals: {evals}. "
+            f"Tokens in/out: {tokens.get('input_tokens', 0) or 0}/"
+            f"{tokens.get('output_tokens', 0) or 0}. "
+            f"Cost: {cost_str}. "
+            + ("pipeline.ipynb stamped." if nb_path.exists()
+               else "pipeline.ipynb was NEVER WRITTEN — the agent never "
+               "called WriteDeliverable().")
+        )
+        log.removeHandler(ctx.log_handler)
+        ctx.log_handler.close()
+        return report
+
+    def _warn_if_externally_stopped(
+        self, report: str, ctx: _RunContext
+    ) -> str | None:
+        """Name an external stop cause in the log, with resume guidance."""
+        stop_reason = next(
             (name for name, sig in _EXTERNAL_STOP_SIGNATURES.items()
              if sig in report),
             None,
         )
-        if _stop_reason is not None:
-            log.warning(
+        if stop_reason is not None:
+            ctx.log.warning(
                 "Run stopped by an external cause (%s), not a normal close "
                 "— resume it once the cause clears:\n"
                 "    from a3dasm import AgenticRun\n"
                 "    AgenticRun(study_dir=%r, graph=build_graph(),\n"
                 "               interactive=False,\n"
                 "               resume_from=%r).execute()",
-                _stop_reason, str(self.study_dir), str(run_dir),
+                stop_reason, str(self.study_dir), str(ctx.run_dir),
             )
-        # Authoritative eval count = provenance-stamped rows in the canonical
-        # ledger, NOT the run-state counter. evals_used is summed from a
-        # registry that clears Done entries on loop-back, so it under-reports
-        # (0) on any run that re-prompts (e.g. every UNGATED run). The ledger
-        # never loses rows — and it also captures cancelled-but-completed
-        # delegations whose evals are real.
+        return stop_reason
+
+    def _ledgered_eval_count(self, ctx: _RunContext, result: dict) -> int:
+        """Authoritative eval count = provenance-stamped rows in the ledger.
+
+        NOT the run-state counter: evals_used is summed from a registry that
+        clears Done entries on loop-back, so it under-reports (0) on any run
+        that re-prompts (e.g. every UNGATED run). The ledger never loses rows —
+        and it also captures cancelled-but-completed delegations whose evals
+        are real. Summed across the canonical store AND every design namespace
+        (Axis 3a): namespace evals live in sibling stores the canonical-only
+        count missed (run 20260627T013812 reported 100 while 200 real evals
+        ran).
+        """
         evals = result.get("evals_used", 0)
         try:
-            # Sum across the canonical store AND every design namespace (Axis 3a):
-            # namespace evals live in sibling stores the canonical-only count
-            # missed (run 20260627T013812 reported 100 while 200 real evals ran).
             from ..evaluation.ledger_summary import total_ledgered_evals
-            _total = total_ledgered_evals(debug_dir.parent / "experiment_data")
+            _total = total_ledgered_evals(
+                ctx.debug_dir.parent / "experiment_data")
             if _total:
-                evals = _total
+                return _total
         except Exception:  # noqa: BLE001
-            log.warning("ledger eval-count failed; using state counter",
-                        exc_info=True)
-        tokens = result.get("token_totals") or {}
-        error_counts = result.get("error_counts") or {}
+            ctx.log.warning("ledger eval-count failed; using state counter",
+                            exc_info=True)
+        return evals
 
-        now_ts = datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
-        elapsed = time.time() - start_time
-        h, m, s = int(elapsed // 3600), int((elapsed % 3600) // 60), int(elapsed % 60)
-
+    def _run_metadata_markdown(
+        self,
+        ctx: _RunContext,
+        result: dict,
+        gate_outcome: str,
+        evals: int,
+        tokens: dict,
+        now_ts: str,
+        elapsed: float,
+    ) -> str:
+        """Run metadata + token table — provenance appended to the deliverable."""
+        h, m, s = (
+            int(elapsed // 3600), int((elapsed % 3600) // 60), int(elapsed % 60))
         tokens_in = tokens.get("input_tokens", 0) or 0
         tokens_out = tokens.get("output_tokens", 0) or 0
         cache_read = tokens.get("cache_read_input_tokens", 0) or 0
         cache_create = tokens.get("cache_creation_input_tokens", 0) or 0
         cost = tokens.get("total_cost_usd")
         cost_str = f"${cost:.4f}" if cost is not None else "n/a"
-
-        # Run metadata + token table — provenance appended to the deliverable.
-        meta_md = (
+        error_counts = result.get("error_counts") or {}
+        return (
             f"## Run metadata\n\n"
             f"- timestamp: {now_ts}\n"
             f"- model: {self._model}\n"
-            f"- gate: {_gate_outcome}\n"
-            f"- total_delegations: {len(delegation_log.query_all())}\n"
+            f"- gate: {gate_outcome}\n"
+            f"- total_delegations: {len(ctx.delegation_log.query_all())}\n"
             f"- evals_used: {evals}\n"
-            f"- run_dir: {run_dir}\n"
+            f"- run_dir: {ctx.run_dir}\n"
             f"- time_used: {h:02d}:{m:02d}:{s:02d}\n"
-            f"- problem_statement_sha256: {_problem_statement_sha256}\n"
-            f"  (verbatim snapshot: {debug_dir}/PROBLEM_STATEMENT_snapshot.md — "
+            f"- problem_statement_sha256: {ctx.problem_sha256}\n"
+            f"  (verbatim snapshot: {ctx.debug_dir}/PROBLEM_STATEMENT_snapshot.md — "
             f"study_dir/PROBLEM_STATEMENT.md may since have been edited)\n\n"
             f"## Token usage\n\n"
             f"| Metric | Value |\n"
@@ -801,82 +996,67 @@ class AgenticRun:
             )
         )
 
-        # The agent-authored pipeline.ipynb IS the deliverable (its leading
-        # markdown cells hold the writeup). There is no solution.md — stamp run
-        # provenance as a trailing metadata cell + notebook metadata.
+    def _stamp_notebook_provenance(
+        self, ctx: _RunContext, meta_md: str, gate_outcome: str, now_ts: str
+    ) -> Path:
+        """Stamp run provenance into pipeline.ipynb; return its path.
+
+        The agent-authored pipeline.ipynb IS the deliverable (its leading
+        markdown cells hold the writeup). There is no solution.md — provenance
+        goes in as a trailing metadata cell + notebook metadata.
+        """
         nb_path = self.study_dir / "pipeline.ipynb"
-        if nb_path.exists():
-            try:
-                import nbformat
+        if not nb_path.exists():
+            return nb_path
+        try:
+            import nbformat
 
-                from ..evaluation.notebook_exec import (
-                    repair_code_cells,
-                    stamp_run_provenance,
-                )
-                nb = nbformat.read(str(nb_path), as_version=4)
-                repair_code_cells(nb)
-                # Replace (not append) the provenance cell — the notebook is
-                # study-scoped and persists across runs; appending accumulated
-                # a prior run's stale metadata cell.
-                stamp_run_provenance(nb, meta_md)
-                nb.metadata.setdefault("agentic", {}).update(
-                    {"model": self._model, "run": str(run_dir),
-                     "timestamp": now_ts, "gate_outcome": _gate_outcome,
-                     "problem_statement_sha256": _problem_statement_sha256})
-                nbformat.write(nb, str(nb_path))
-            except Exception:  # noqa: BLE001
-                log.warning("notebook provenance stamp failed", exc_info=True)
+            from ..evaluation.notebook_exec import (
+                repair_code_cells,
+                stamp_run_provenance,
+            )
+            nb = nbformat.read(str(nb_path), as_version=4)
+            repair_code_cells(nb)
+            # Replace (not append) the provenance cell — the notebook is
+            # study-scoped and persists across runs; appending accumulated
+            # a prior run's stale metadata cell.
+            stamp_run_provenance(nb, meta_md)
+            nb.metadata.setdefault("agentic", {}).update(
+                {"model": self._model, "run": str(ctx.run_dir),
+                 "timestamp": now_ts, "gate_outcome": gate_outcome,
+                 "problem_statement_sha256": ctx.problem_sha256})
+            nbformat.write(nb, str(nb_path))
+        except Exception:  # noqa: BLE001
+            ctx.log.warning("notebook provenance stamp failed", exc_info=True)
+        return nb_path
 
-        # Persist the terminal gate outcome to run_status.json on the NORMAL
-        # close too (the crash path above writes its own). Without this a
-        # cleanly-closed run leaves no run_status.json and the §1 protocol's
-        # first KPI (gate outcome) is unreadable — the outcome would live only in
-        # the notebook metadata + the ledger. (audit: 3 GATED runs, none had it.)
-        self._write_run_status(
-            debug_dir, status=_gate_outcome, model=self._model,
-            evals_used=evals, timestamp=now_ts, run=str(run_dir),
-            thread_id=thread_id, stop_reason=_stop_reason,
-            # The §1 KPI table asks for wall clock and this file is what it
-            # reads first; without it every consumer re-derives the duration
-            # from file mtimes and gets a different answer.
-            wall_s=round(elapsed, 1),
-        )
+    def _append_kpi_ledger(self, ctx: _RunContext) -> None:
+        """Append a KPI row to the longitudinal ledger (best effort).
 
-        # Append a KPI row to the longitudinal ledger automatically (best
-        # effort). The extraction logic lives in studies/run_ledger.py (the one
-        # source of truth, writing studies/run_ledger.csv); we invoke it as a
-        # subprocess when present so a run is always recorded without a manual
-        # step. Absent (e.g. a non-studies install) → silently skipped.
+        The extraction logic lives in studies/run_ledger.py (the one source of
+        truth, writing studies/run_ledger.csv); we invoke it as a subprocess
+        when present so a run is always recorded without a manual step. Absent
+        (e.g. a non-studies install) → silently skipped.
+        """
         try:
             import subprocess
             import sys as _sys
             ledger_script = self.study_dir.parent / "run_ledger.py"
-            if ledger_script.exists():
-                proc = subprocess.run(
-                    [_sys.executable, str(ledger_script), str(run_dir)],
-                    capture_output=True, text=True, timeout=60,
-                )
-                if proc.returncode == 0:
-                    log.info("KPI ledger: %s", proc.stdout.strip())
-                else:
-                    log.warning(
-                        "KPI ledger append failed (rc=%s): %s",
-                        proc.returncode, proc.stderr.strip())
+            if not ledger_script.exists():
+                return
+            proc = subprocess.run(
+                [_sys.executable, str(ledger_script), str(ctx.run_dir)],
+                capture_output=True, text=True, timeout=60,
+            )
+            if proc.returncode == 0:
+                ctx.log.info("KPI ledger: %s", proc.stdout.strip())
+            else:
+                ctx.log.warning(
+                    "KPI ledger append failed (rc=%s): %s",
+                    proc.returncode, proc.stderr.strip())
         except Exception:
-            log.warning("KPI ledger append errored", exc_info=True)
+            ctx.log.warning("KPI ledger append errored", exc_info=True)
 
-        log.info(
-            f"Run complete. Evals: {evals}. "
-            f"Tokens in/out: {tokens_in}/{tokens_out}. "
-            f"Cost: {cost_str}. "
-            + ("pipeline.ipynb stamped." if nb_path.exists()
-               else "pipeline.ipynb was NEVER WRITTEN — the agent never "
-               "called WriteDeliverable().")
-        )
-        log.removeHandler(handler)
-        handler.close()
-
-        return report
 
     def _review_problem_statement(
         self, problem: str, debug_dir: Path, *, adapter=None
