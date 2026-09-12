@@ -98,3 +98,33 @@ def test_example_evaluator_resolves_and_runs(tmp_path, monkeypatch):
     assert out._output_data["y"] == pytest.approx(0.0, abs=1e-9)
     assert out._output_data["_delegation_id"] == "D001"
 
+
+# ---------------------------------------------------------------------------
+# One duration spelling across every entry point
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("given", "expected"), [
+    ("2700", 2700.0),
+    ("00:45:00", 2700.0),
+    ("01:00:00", 3600.0),
+    ("0", 0.0),
+])
+def test_budget_flag_accepts_the_same_durations_as_config(given, expected):
+    """Regression: `python -m a3dasm --budget` was type=float while the
+    container entrypoint (_src/runtime/run.py) accepted seconds OR HH:MM:SS,
+    so the same flag on two entry points took different values and
+    `--budget 00:45:00` died with an argparse float error. Both now go through
+    run_setup._parse_budget_str, the parser config.yaml's `budget:` uses."""
+    from a3dasm.__main__ import _budget
+
+    assert _budget(given) == expected
+
+
+def test_budget_flag_rejects_nonsense_with_a_usable_message():
+    import argparse
+
+    from a3dasm.__main__ import _budget
+
+    with pytest.raises(argparse.ArgumentTypeError) as exc:
+        _budget("half an hour")
+    assert "HH:MM:SS" in str(exc.value)

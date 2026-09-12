@@ -9,7 +9,7 @@ The study directory must contain a ``PROBLEM_STATEMENT.md`` file.
 Options
 -------
 --model <id>      LLM model identifier (default: claude-haiku-4-5-20251001).
---budget SECONDS  Wall-clock time budget in seconds (default: unlimited).
+--budget DURATION Wall-clock budget: seconds or HH:MM:SS (default: unlimited).
 """
 
 from __future__ import annotations
@@ -21,6 +21,29 @@ from pathlib import Path
 __author__ = "Elvis Aguero (elvis_alexander_aguero_vera@brown.edu)"
 __credits__ = ["Elvis Aguero"]
 __status__ = "Experimental"
+
+
+def _budget(value: str) -> float:
+    """``--budget`` accepts what config.yaml's ``budget:`` accepts.
+
+    Both spellings go through the SAME parser the study config uses
+    (``run_setup._parse_budget_str``), so "45m of wall clock" is written the
+    same way wherever it is written. This entry point used to take
+    ``type=float`` while the container entrypoint
+    (``_src/runtime/run.py``) took seconds OR HH:MM:SS, so the identical flag
+    on two entry points accepted different values and ``--budget 00:45:00``
+    failed here with an argparse float error.
+    """
+    from ._src.runtime.run_setup import _parse_budget_str
+    try:
+        parsed = _parse_budget_str(value)
+    except (TypeError, ValueError):
+        parsed = None
+    if parsed is None:
+        raise argparse.ArgumentTypeError(
+            f"invalid duration {value!r}: expected seconds (e.g. 2700) "
+            "or HH:MM:SS (e.g. 00:45:00)")
+    return parsed
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -44,10 +67,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--budget",
-        type=float,
+        type=_budget,
         default=None,
-        metavar="SECONDS",
-        help="Wall-clock time budget in seconds (default: unlimited).",
+        metavar="DURATION",
+        help="Wall-clock time budget: seconds, or HH:MM:SS "
+             "(default: unlimited).",
     )
     return parser
 
