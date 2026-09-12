@@ -731,6 +731,13 @@
       display: flex; align-items: center; justify-content: center;
       font-size: 11px; font-weight: 600;
     }
+    /* The agent's inbox: the human's task and a3dasm's in-band injections.
+       Quieter than an assistant turn — it is what the agent was TOLD, not
+       what it said — but present, because a nudge the reader cannot see
+       makes the next turn look like a reaction to nothing. */
+    .turn.turn-human { opacity: .92; }
+    .turn.turn-human .bubble-text { color: var(--subtext0, inherit); }
+
     .turn-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 11px; }
     .bubble-text {
       margin: 0;

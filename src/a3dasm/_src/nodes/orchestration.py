@@ -654,14 +654,28 @@ class OrchestrationMixin:
         budget_warnings: list[dict],
         pending_notifs: list[str],
     ) -> list[dict]:
-        """The conversation plus everything injected in-band this turn."""
-        return (
-            _to_adapter_messages(state["messages"])
-            + budget_warnings
+        """The conversation plus everything injected in-band this turn.
+
+        Everything after the conversation itself is a3dasm speaking to the
+        agent — a budget warning, the no-source nudge, the milestone backlog,
+        a pushed notification — arriving in the SAME role ("user") the human's
+        own task arrives in. Marked, for the same reason tool-result notices
+        are (nodes/notices.py): unmarked, neither the agent nor a reader can
+        tell the runtime's nudge from the human's brief, and the viewer cannot
+        style it as anything else.
+        """
+        injected = (
+            budget_warnings
             + self._no_source_nudge()
             + self._backlog_announcement()
             + [{"role": "user", "content": n} for n in pending_notifs]
         )
+        return _to_adapter_messages(state["messages"]) + [
+            {**m, "content": wrap_notice(str(m.get("content", "")),
+                                         trailing="")}
+            for m in injected
+            if str(m.get("content", "")).strip()
+        ]
 
     def _no_source_nudge(self) -> list[dict]:
         """Recommend registering a canonical source (soft, ≤3×).

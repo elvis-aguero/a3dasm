@@ -173,6 +173,10 @@ _DELEGATION_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 
 _ASSISTANT_TYPES = {"assistant", "aimessage", "aimessagechunk"}
 _RESULT_TYPES = {"toolmessage", "functionmessage"}
+# The agent's inbox side of the conversation. Both backends write it: the
+# Claude backend as "user", the OpenAI-compatible one as the LangChain class
+# name. a3dasm's own in-band injections arrive on this role too, marked.
+_HUMAN_TYPES = {"user", "human", "humanmessage"}
 
 
 def _tool_input(tool: dict) -> dict:
@@ -212,6 +216,28 @@ def _bubble_html(event: dict, call_index: int = 0,
             {"results": [{"content": event.get("text") or ""}]},
             [event.get("name") or "tool"],
         )
+    if etype in _HUMAN_TYPES:
+        # The agent's INBOX: the human's task, and everything a3dasm injects
+        # in-band on the same "user" role — budget warnings, the no-source
+        # nudge, the milestone backlog, pushed notifications. Dropping these
+        # meant a reader watching a run never saw the runtime speak to the
+        # agent at all; the nudge simply was not in the transcript view, and
+        # the agent's next turn appeared to react to nothing.
+        notices, body = split_notices(event.get("text") or "")
+        if not notices and not body.strip():
+            return ""
+        notices_html = "".join(
+            f"<div class='notice'><span class='notice-glyph'>&#9432;</span>"
+            f"<div class='notice-body'>{_preview_block(n, 'notice-pre')}</div>"
+            "</div>"
+            for n in notices
+        )
+        body_html = (f"<div class='bubble-text'>{_esc(body)}</div>"
+                     if body.strip() else "")
+        return ("<div class='turn turn-human'>"
+                "<div class='turn-body'>"
+                f"{notices_html}{body_html}"
+                "</div></div>")
     if etype not in _ASSISTANT_TYPES:
         return ""
     text = event.get("text") or ""

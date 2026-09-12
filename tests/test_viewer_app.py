@@ -969,3 +969,46 @@ def test_graph_spec_cache_does_not_leak_across_runs(tmp_path):
     assert _math_model("20260912T142229") == "Qwen/Qwen3.8-27B (256k ctx)"
     # and the first run still reports its own model afterwards
     assert _math_model("20260901T000000") == "Claude Haiku 4.5"
+
+
+# ---------------------------------------------------------------------------
+# System nudges are visible, and attributed to the system
+# ---------------------------------------------------------------------------
+
+def test_injected_nudges_render_as_notices_not_as_the_humans_task(tmp_path):
+    """Regression (user report, run 20260912T142229): "I wasn't able to see the
+    nudges from the system in a different background color."
+
+    Two defects, one symptom. Turn-level injections (budget warnings, the
+    no-source nudge, the milestone backlog, pushed notifications) reach the
+    agent on the SAME "user" role as the human's brief, and the viewer
+    rendered only assistant turns and tool results — so they were not merely
+    unstyled, they were absent. Marked at the injection site, lifted here.
+    """
+    from a3dasm._src.nodes.notices import wrap_notice
+    from a3dasm._src.viewer.app import _bubble_html
+
+    html = _bubble_html({
+        "type": "HumanMessage",
+        "text": wrap_notice("[EVAL BUDGET] 180/200 evals used.",
+                            trailing="") + "\n\nPlease continue.",
+    })
+    assert "class='notice'" in html, "a marked nudge must get the notice band"
+    assert "EVAL BUDGET" in html
+    # the human's own words stay outside the band
+    assert "Please continue." in html
+    assert "Please continue." not in html.split("notice-body")[1].split("</div>")[0]
+
+
+def test_plain_human_turn_renders_without_a_notice_band(tmp_path):
+    from a3dasm._src.viewer.app import _bubble_html
+
+    html = _bubble_html({"type": "HumanMessage", "text": "Minimise the drag."})
+    assert "Minimise the drag." in html
+    assert "class='notice'" not in html
+
+
+def test_empty_human_turn_renders_nothing(tmp_path):
+    from a3dasm._src.viewer.app import _bubble_html
+
+    assert _bubble_html({"type": "HumanMessage", "text": "   "}) == ""
