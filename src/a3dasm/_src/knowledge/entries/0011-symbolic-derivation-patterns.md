@@ -118,6 +118,21 @@ in a paper: exactly one `assume()` (the choice), exactly one `check_equals()`
   applying an initial condition — (2.17)'s actual mechanism. Treating this
   as algebraic solving silently drops the data that pins down the solution.
 
+## Substitute first, then differentiate
+SymPy does not propagate a function substitution into an unevaluated
+`Derivative`: `diff(G, θ).subs(S_A, ansatz)` leaves `Derivative(S_A(θ), θ)`
+inert, so the expression never reduces and `check_equals` returns
+INCONCLUSIVE on an identity that is in fact exact. Substitute the ansatz into
+the expression first, *then* differentiate the explicit form — SymPy reduces
+that to 0 and CONFIRMs it.
+
+The reason this matters beyond the two-line fix: the first order gives you a
+numeric spot-check as the only available fallback, which answers a weaker
+question than the one you asked. A closed-form identity that SymPy reduces is
+a proof; agreement at sampled points is a sanity check. When a check comes
+back INCONCLUSIVE, ask whether the expression was ever in a form the engine
+could act on before concluding the mathematics is out of reach.
+
 ## Reading a summary another edition wrote
 `write_summary(path)` emits a self-describing document, not a bare list:
 
