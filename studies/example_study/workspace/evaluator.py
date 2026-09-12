@@ -2,7 +2,7 @@
 
 Called one kwarg per input (the names come from the run's Domain); returns the
 single output named in config.yaml's ``evaluator.output_names`` (here ``y``).
-Executed by tests/agentic/test_study_contract.py — keep it runnable.
+Executed by tests/test_study_contract.py — keep it runnable.
 """
 
 

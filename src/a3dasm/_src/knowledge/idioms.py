@@ -2,7 +2,7 @@
 
 ``F3DASM_CORE_IDIOMS`` is the ONE place these snippets live. The implementer and
 datagenerator system prompts compose it in (DRY — no hand-copied API examples to
-drift), and ``tests/agentic/test_f3dasm_idioms.py`` EXECUTES it against the
+drift), and ``tests/test_f3dasm_idioms.py`` EXECUTES it against the
 installed f3dasm on every CI run. If an f3dasm API moves, that test fails at
 build time — agents never receive a broken example, and no runtime introspection
 is needed.

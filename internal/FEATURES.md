@@ -4,7 +4,7 @@ The single place that says **what the agentic system can do, why, and where it
 lives.** Read this to get your bearings without reading code.
 
 > **Contract (enforced):** every agent tool listed in an agent's `tools` set MUST
-> appear in the "Tools" table below — `tests/agentic/test_features_documented.py`
+> appear in the "Tools" table below — `tests/test_features_documented.py`
 > fails the build otherwise. Every new *capability* (tool OR infrastructure)
 > MUST get an entry here in the same commit that adds it. The test can only
 > enumerate tools; infrastructure features rely on this written contract.

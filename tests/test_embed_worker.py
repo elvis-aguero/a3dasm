@@ -389,7 +389,7 @@ def test_embed_worker_real_uv_384_dim():
     """Real uv subprocess: embed(['hello']) → 384-dim vector.
 
     Skipped by default. May download ~100 MB of model weights on first run.
-    Run with: pytest -m integration tests/agentic/test_embed_worker.py
+    Run with: pytest -m integration tests/test_embed_worker.py
     """
     import shutil
     if shutil.which("uv") is None:

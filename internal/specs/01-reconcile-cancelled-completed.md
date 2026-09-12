@@ -65,7 +65,7 @@ this," not "this never ran." The docstrings (`CancelDelegation`, the poll/Done
 nudges) should say a cancelled delegation's *ledgered evals and report are
 preserved and reconciled* — which also reinforces spec 06's anti-over-cancel push.
 
-## TDD plan (tests first; extend `tests/agentic/test_cancel_delegation.py`)
+## TDD plan (tests first; extend `tests/test_cancel_delegation.py`)
 1. `test_cancelled_then_completed_logs_truthful_status` — spawn a delegation that
    stamps evals, cancel it, let the thread finish → `delegation_log` entry has
    `status=="CANCELLED_COMPLETED"` (NOT "DONE"), `deliverable` preserved.

@@ -2,7 +2,7 @@
 
 TDD: these tests were written BEFORE the implementation.
 Run with:
-    uv run pytest tests/agentic/test_instrumented.py -v --no-cov
+    uv run pytest tests/test_instrumented.py -v --no-cov
 """
 from __future__ import annotations
 

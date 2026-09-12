@@ -20,7 +20,7 @@
 >   required for all agentic runs (not opt-in).
 >
 > For the live contract see [`../authoring-a-study.md`](../authoring-a-study.md),
-> `notebook_exec.py`, and `tests/agentic/test_study_contract.py`. The line
+> `notebook_exec.py`, and `tests/test_study_contract.py`. The line
 > numbers and "current mechanics" below describe the pre-migration code and are
 > stale. The original write-up is kept for the record.
 

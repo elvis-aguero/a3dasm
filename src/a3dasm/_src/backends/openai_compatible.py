@@ -9,7 +9,7 @@ attributes ``DEFAULT_BASE_URL`` / ``BASE_URL_ENV`` / ``API_KEY`` /
 
 The adapter exposes the same public surface as ClaudeAdapter (a mutable
 ``closure_tools`` dict, ``invoke()``, ``last_usage``, ``copy()``,
-``select_native_tools()``, …) — enforced by tests/agentic/test_backend_parity.py.
+``select_native_tools()``, …) — enforced by tests/test_backend_parity.py.
 """
 
 from __future__ import annotations

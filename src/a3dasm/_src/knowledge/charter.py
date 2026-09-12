@@ -24,7 +24,7 @@ hypotheses are tested and labelled across the agentic system.
 ║  confirm each is produced and consumed consistently; (3) confirm no clause  ║
 ║  reintroduces a procedural artifact (a flag, a tool name) AS an epistemic   ║
 ║  criterion — adequacy is a property of a test's severity, never of a       ║
-║  label; (4) update tests/agentic/test_charter.py, which pins this wording. ║
+║  label; (4) update tests/test_charter.py, which pins this wording.         ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 
 ``FALSIFICATION_CHARTER`` is the ONE place the Popperian rules live (DRY). It is
@@ -36,7 +36,7 @@ disagreement and the other defers to the same words — no paraphrase drift, no
 multi-round negotiation over what falsification means.
 
 Do not restate these rules elsewhere; reference the clause number instead.
-``tests/agentic/test_charter.py`` pins the injection and the wording.
+``tests/test_charter.py`` pins the injection and the wording.
 """
 
 FALSIFICATION_CHARTER = """\

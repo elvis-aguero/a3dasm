@@ -263,7 +263,7 @@ JSON would break arithmetic; `build_closure_tools` already guards
 `int(citation_count or 0)` on `CorpusAdd`, so the unguarded site is probably in
 `CorpusRank` or the corpus's internal ranking, or in an OpenAlex/S2 field read.
 **Needs a real wet run with the traceback** (`uv run pytest
-tests/agentic/test_literature_wet.py -s --no-cov`) to localize before fixing —
+tests/test_literature_wet.py -s --no-cov`) to localize before fixing —
 do not guess-patch without the stack.
 
 ## 9. Orchestrator-owned live validator for HypothesisUpdate
@@ -482,7 +482,7 @@ to a GRANDCHILD in a new session that the group kill misses (the current test's
 child is a session leader pid==pgid, so the group kill happens to catch it).
 
 **Reuse.** `watchdog_cleanup.reap_process_group`, `studies/agentic_black_box_3d/run.py`
-`_watchdog`, `tests/agentic/test_watchdog_cleanup.py`.
+`_watchdog`, `tests/test_watchdog_cleanup.py`.
 
 ---
 
@@ -749,7 +749,7 @@ not topology).**
 1. **Add `WebSearch` + `WebFetch`** to the agent (general web covers Abaqus,
    Python, any tech stack — no per-tool MCP needed). FEATURES.md entry required
    in the same commit (tool catalog is enforced by
-   `tests/agentic/test_features_documented.py`).
+   `tests/test_features_documented.py`).
 2. **Flip the guidance** in `agents/datagenerator.py` (and the implementer) so
    workers may consult for tooling/API/doc questions, not just methodology.
 3. **Rename** `literature_reviewer` → `consultant` everywhere: the agent class

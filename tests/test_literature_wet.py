@@ -7,7 +7,7 @@ Research question: Gaussian Process surrogate modeling for high-dimensional
 design-of-experiments — directly relevant to f3dasm's core use case.
 
 Run with:
-    uv run pytest tests/agentic/test_literature_wet.py -v -s --no-cov
+    uv run pytest tests/test_literature_wet.py -v -s --no-cov
 """
 
 from __future__ import annotations

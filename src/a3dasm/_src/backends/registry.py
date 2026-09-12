@@ -2,7 +2,7 @@
 adapter class.
 
 Both the runtime dispatch (``AgenticRun._make_adapter``) and the interface
-parity tests (tests/agentic/test_backend_parity.py) iterate this registry, so
+parity tests (tests/test_backend_parity.py) iterate this registry, so
 registering a new backend here makes it BOTH dispatchable AND automatically
 held to interface parity — there is no second place to update.
 
