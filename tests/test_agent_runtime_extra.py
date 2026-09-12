@@ -600,3 +600,46 @@ def test_execute_with_training_data_ingests_d000_no_oracle(tmp_path):
     cfg = _json.loads((run_dir / "debug" / "run_config.json").read_text())
     assert cfg["evaluator_entrypoint"] is None
     assert cfg["evaluator_lookup"] is None
+
+
+def test_record_node_models_writes_what_make_adapter_would_resolve(tmp_path):
+    """The record must never disagree with the thing it describes: both the
+    adapter construction and the record go through resolve_node_identity."""
+    import json as _json
+
+    from a3dasm._src.backends.base import Agent, Graph
+    from a3dasm._src.runtime.agent_runtime import (
+        AgenticRun,
+        resolve_node_identity,
+    )
+
+    class _Hub(Agent):
+        role = "strategizer"
+        description = "hub"
+
+    class _Math(Agent):
+        role = "math_expert"
+        description = "derivations"
+        model = "qwen3.8-27b-256k"
+        backend = "ollama"
+
+    study = tmp_path / "study"
+    study.mkdir()
+    (study / "PROBLEM_STATEMENT.md").write_text("x\n", encoding="utf-8")
+    graph = Graph(
+        nodes={"strategizer": _Hub(), "math_expert": _Math()},
+        edges=(), entry="strategizer")
+
+    run = AgenticRun(study_dir=study, graph=graph)
+    debug = tmp_path / "debug"
+    debug.mkdir()
+    run._record_node_models(debug)
+
+    written = _json.loads((debug / "node_models.json").read_text())
+    for name, agent in graph.nodes.items():
+        model, backend = resolve_node_identity(agent, run._model, run._backend)
+        assert written[name] == {"model": model, "backend": backend}
+    # the per-agent override is what actually lands, not the run default
+    assert written["math_expert"]["model"] == "qwen3.8-27b-256k"
+    assert written["math_expert"]["backend"] == "ollama"
+    assert written["strategizer"]["model"] == run._model

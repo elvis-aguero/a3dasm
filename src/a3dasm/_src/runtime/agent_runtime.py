@@ -67,6 +67,18 @@ _EXTERNAL_STOP_SIGNATURES = {
 
 
 
+def resolve_node_identity(
+    agent: Any, default_model: str | None, default_backend: str | None
+) -> tuple[str | None, str | None]:
+    """The model and backend a node will ACTUALLY run on.
+
+    An agent may override either; otherwise the run's defaults apply. Used
+    both to build the adapter and to RECORD what was used, so the record can
+    never disagree with the thing it describes.
+    """
+    return (agent.model or default_model, agent.backend or default_backend)
+
+
 def _gate_outcome_from(report: str) -> str:
     """The run's TRUE terminal state, read off the final report's banner.
 
@@ -456,6 +468,7 @@ class AgenticRun:
         init_workspace_repo(workspace_dir)
 
         thread_id = self._resolve_thread_id(debug_dir, resume)
+        self._record_node_models(debug_dir)
 
         # Pre-run problem-statement review (advisory; interactive-refine when
         # enabled). Fresh runs only — a resume replays the checkpoint and must
@@ -664,6 +677,31 @@ class AgenticRun:
         except OSError:
             pass                            # anchor is best-effort, never fatal
         return start_time
+
+    def _record_node_models(self, debug_dir: Path) -> None:
+        """Record which model/backend each node actually runs on.
+
+        The viewer cannot re-derive this: it reconstructs the graph by
+        re-executing the study's ``build_graph()`` in its OWN process, and a
+        graph whose composition depends on runtime state (an env var naming a
+        local endpoint, say) then rebuilds DIFFERENTLY there — silently
+        reporting the study's default model for a node the run actually put on
+        another one. Same principle as the delegation log and the
+        problem-statement snapshot: what a run did is a record, not something
+        recomputed later from inputs that have since changed.
+
+        Best-effort: a run must never fail over its own bookkeeping.
+        """
+        try:
+            record = {}
+            for name, agent in self._graph_spec.nodes.items():
+                model, backend = resolve_node_identity(
+                    agent, self._model, self._backend)
+                record[name] = {"model": model, "backend": backend}
+            (debug_dir / "node_models.json").write_text(
+                json.dumps(record, indent=2), encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
 
     def _resolve_thread_id(self, debug_dir: Path, resume: Path | None) -> str:
         """Stable thread_id, persisted so a crashed run can be resumed.
@@ -1261,8 +1299,8 @@ class AgenticRun:
         ):
             system_prompt = system_prompt + notebook_deliverable_spec(_role)
 
-        model = agent.model or self._model
-        backend = agent.backend or self._backend
+        model, backend = resolve_node_identity(
+            agent, self._model, self._backend)
 
         _persistent = not agent.reset_on_checkpoint
         _max_history_pairs = getattr(agent, "max_history_pairs", 5)

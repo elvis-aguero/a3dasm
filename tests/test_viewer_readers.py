@@ -1035,3 +1035,73 @@ def test_vitals_ignore_a_corrupt_anchor(tmp_path):
 
     v = read_vitals(run)          # must not raise
     assert v["started_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# A node's model is a property of the RUN, not of the reconstructed graph
+# ---------------------------------------------------------------------------
+
+def test_graph_spec_json_prefers_the_runs_own_model_record(tmp_path):
+    """Regression: the viewer showed math_expert as "Claude Haiku 4.5" for a
+    run that put it on a locally-served Qwen.
+
+    The viewer reconstructs the graph by re-executing the study's build_graph()
+    in ITS OWN process. A study whose composition depends on runtime state — an
+    env var naming a local endpoint, say — rebuilds differently there, so the
+    re-derived model is the study default rather than what the run used. The
+    run writes down what it actually used; read that.
+    """
+    import json as _json
+
+    from a3dasm._src.backends.base import Agent, Graph
+
+    class _Hub(Agent):
+        role = "strategizer"
+        description = "hub"
+
+    class _Math(Agent):
+        role = "math_expert"
+        description = "derivations"
+
+    graph = Graph(
+        nodes={"strategizer": _Hub(), "math_expert": _Math()},
+        edges=(), entry="strategizer",
+    )
+    (tmp_path / "config.yaml").write_text(
+        "model: claude-haiku-4-5-20251001\n", encoding="utf-8")
+
+    run_dir = tmp_path / "runs" / "20260912T142229"
+    (run_dir / "debug").mkdir(parents=True)
+    (run_dir / "debug" / "node_models.json").write_text(_json.dumps({
+        "strategizer": {"model": "claude-haiku-4-5-20251001", "backend": "claude"},
+        "math_expert": {"model": "qwen3.8-27b-256k", "backend": "ollama"},
+    }), encoding="utf-8")
+
+    by_name = {n["name"]: n for n in
+               graph_spec_json(graph, tmp_path, run_dir)["nodes"]}
+    assert by_name["math_expert"]["model"] == "Qwen/Qwen3.8-27B (256k ctx)"
+    assert by_name["math_expert"]["backend"] == "ollama"
+    assert by_name["strategizer"]["model"] == "Claude Haiku 4.5"
+
+    # Without the record (a run predating it) the old re-derivation still
+    # applies — degraded, but never an error.
+    stale = {n["name"]: n for n in graph_spec_json(graph, tmp_path)["nodes"]}
+    assert stale["math_expert"]["model"] == "Claude Haiku 4.5"
+    assert stale["math_expert"]["backend"] is None
+
+
+def test_graph_spec_json_survives_a_corrupt_model_record(tmp_path):
+    """A viewer must never 500 on a malformed artifact; it degrades."""
+    from a3dasm._src.backends.base import Agent, Graph
+
+    class _Hub(Agent):
+        role = "strategizer"
+        description = "hub"
+
+    graph = Graph(nodes={"strategizer": _Hub()}, edges=(), entry="strategizer")
+    run_dir = tmp_path / "runs" / "r1"
+    (run_dir / "debug").mkdir(parents=True)
+    (run_dir / "debug" / "node_models.json").write_text("{not json", encoding="utf-8")
+
+    spec = graph_spec_json(graph, tmp_path, run_dir)
+    assert spec["nodes"][0]["model"] == "(backend default)"

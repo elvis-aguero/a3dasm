@@ -88,11 +88,23 @@ _KNOWN_TOOL_DOCS: dict[str, str] = {
 # Best-effort humanization of a model id into the name the model is
 # actually known by — matches the naming this project's own agent (Claude
 # Code) uses for itself, so the two stay consistent.
+# Display names for the model ids a run actually records. An unknown id falls
+# through to itself (_humanize_model), which is still true — so this map can
+# only ever improve a label, never invent one.
+#
+# Locally-served models are referenced by the serving tool's own tag, which is
+# not the model's name: Ollama's `qwen3.8-27b-256k` is a derived tag for a
+# Modelfile of `FROM qwen3.8:27b` with num_ctx raised. The label names the
+# upstream Hugging Face model AND keeps the variant, because a 256k-context
+# build is a different thing to run than the stock one.
 _MODEL_LABELS: dict[str, str] = {
     "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
     "claude-sonnet-5": "Claude Sonnet 5",
     "claude-opus-5": "Claude Opus 5",
     "claude-fable-5": "Claude Fable 5",
+    "qwen3.8:27b": "Qwen/Qwen3.8-27B",
+    "qwen3.8-27b-256k": "Qwen/Qwen3.8-27B (256k ctx)",
+    "Qwen/Qwen3.8-27B-FP8": "Qwen/Qwen3.8-27B (FP8)",
 }
 
 
@@ -149,6 +161,22 @@ def _routing_tool_docs() -> dict[str, str]:
             if doc and node.name not in out:
                 out[node.name] = doc.split("\n\n")[0].replace("\n", " ")
     return out
+
+
+def _read_node_models(run_dir) -> dict[str, dict]:
+    """The run's own record of each node's model/backend, or {} if absent.
+
+    Written by ``AgenticRun._record_node_models`` at run start. Absent for
+    runs that predate it, and for a study dir opened with no run selected.
+    """
+    if run_dir is None:
+        return {}
+    path = Path(run_dir) / "debug" / "node_models.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _humanize_model(model_id: str | None) -> str:
@@ -1016,7 +1044,7 @@ def list_node_transcripts(
     return keys
 
 
-def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
+def graph_spec_json(graph, study_dir=None, run_dir=None) -> dict[str, Any]:
     """Node/edge/role/tool/layer JSON for the live network diagram, plus the
     per-node metadata the hover card needs (model, system prompt) and a
     global tool-name -> docstring map for the tool-badge tooltips.
@@ -1025,16 +1053,22 @@ def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
     layer logic — the viewer only needs a layer index per node (for a simple
     CSS-grid row placement), not the static SVG's pixel-precise card layout.
 
-    ``model`` per node: an ``Agent`` instance's own ``.model`` if the study's
-    ``run.py`` set one explicitly, else the study's ``config.yaml`` top-level
-    ``model:`` (the actual, common case — a study normally sets the model
-    once for the whole run, not per-agent), else "(backend default)".
+    ``model`` per node comes from the RUN's own ``debug/node_models.json``
+    record whenever one exists — the run wrote down what it actually used.
+    Only when that is absent (a run from before the record existed) does this
+    fall back to re-deriving it from the reconstructed graph: the agent's own
+    ``.model``, else the study's ``config.yaml`` top-level ``model:``, else
+    "(backend default)". That fallback is a GUESS, and a knowably wrong one
+    for any study whose ``build_graph()`` branches on runtime state — this
+    viewer re-executes it in a different process, where an env var naming a
+    local endpoint is not set, so the node rebuilds on the study default.
     """
     from ..runtime.run_diagram import _bfs_layers
 
     layers = _bfs_layers(graph)
     config = _load_study_config(study_dir)
     run_model = config.get("model")
+    recorded = _read_node_models(run_dir)
     same_row = sum(
         1 for e in graph.edges
         if e.source in layers and e.target in layers
@@ -1059,7 +1093,9 @@ def graph_spec_json(graph, study_dir=None) -> dict[str, Any]:
             "is_entry": name == graph.entry,
             "layer": layers[name],
             "tools": tools,
-            "model": _humanize_model(agent.model or run_model),
+            "model": _humanize_model(recorded.get(name, {}).get("model")
+                                     or agent.model or run_model),
+            "backend": recorded.get(name, {}).get("backend"),
             "system_prompt": agent.system_prompt or "",
             "x": x,
             "y": y,

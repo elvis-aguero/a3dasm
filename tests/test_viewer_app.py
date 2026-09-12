@@ -919,3 +919,53 @@ def test_stream_404_for_missing_run(tmp_path):
     client = TestClient(create_app(study))
     resp = client.get("/api/runs/nonexistent/stream")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# The graph spec is cached PER RUN, not once per study
+# ---------------------------------------------------------------------------
+
+def test_graph_spec_cache_does_not_leak_across_runs(tmp_path):
+    """Regression: _spec_cache held ONE spec for the whole study, so whichever
+    run was viewed first served its models to every later run. A node's model
+    is a property of the run, so the cache key has to be too."""
+    import json as _json
+
+    from a3dasm._src.backends.base import Agent, Graph
+
+    class _Hub(Agent):
+        role = "strategizer"
+        description = "hub"
+
+    class _Math(Agent):
+        role = "math_expert"
+        description = "derivations"
+
+    study = _make_study(tmp_path)
+    graph = Graph(
+        nodes={"strategizer": _Hub(), "math_expert": _Math()},
+        edges=(), entry="strategizer",
+    )
+
+    for run_id, model in (("20260901T000000", "claude-haiku-4-5-20251001"),
+                          ("20260912T142229", "qwen3.8-27b-256k")):
+        run_dir = _make_run(study, run_id)
+        (run_dir / "debug" / "node_models.json").write_text(_json.dumps({
+            "strategizer": {"model": "claude-haiku-4-5-20251001",
+                            "backend": "claude"},
+            "math_expert": {"model": model, "backend": "claude"},
+        }), encoding="utf-8")
+
+    client = TestClient(create_app(study, graph=graph))
+
+    def _math_model(run_id: str) -> str:
+        resp = client.get(f"/api/runs/{run_id}/graph")
+        assert resp.status_code == 200
+        return next(n["model"] for n in resp.json()["nodes"]
+                    if n["name"] == "math_expert")
+
+    # Viewing the older run FIRST is what used to poison the cache.
+    assert _math_model("20260901T000000") == "Claude Haiku 4.5"
+    assert _math_model("20260912T142229") == "Qwen/Qwen3.8-27B (256k ctx)"
+    # and the first run still reports its own model afterwards
+    assert _math_model("20260901T000000") == "Claude Haiku 4.5"

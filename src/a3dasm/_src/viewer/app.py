@@ -442,20 +442,25 @@ def create_app(study_dir: Path | str, graph=None) -> Starlette:
     # __init__ mkdir()s runs/lit_reviewer_notes/ and a papers/ subdir inside
     # the study. Running that per request meant a read-only viewer wrote to
     # the study on every /graph hit — and then listed the directory it had
-    # just created back as a "shared workspace". The spec is identical for
-    # every run of one study (it comes from the Graph and config.yaml), so
-    # it is computed once, like the Graph itself.
+    # just created back as a "shared workspace". So it is still cached — but
+    # PER RUN, not once per study: the spec is NOT identical across a study's
+    # runs, because which model a node ran on is a property of the run (see
+    # readers._read_node_models), and a study's build_graph() may compose
+    # differently from one run to the next. Caching one spec for the whole
+    # study served the first run's models for every later run.
     _spec_cache: dict = {}
 
     async def get_graph(request):
         run_id = request.path_params["run_id"]
-        if _run_dir(study_dir, run_id) is None:
+        run_dir = _run_dir(study_dir, run_id)
+        if run_dir is None:
             return _not_found(f"no such run {run_id!r}")
         if graph is None:
             return JSONResponse({"nodes": [], "edges": [], "entry": None})
-        if "spec" not in _spec_cache:
-            _spec_cache["spec"] = readers.graph_spec_json(graph, study_dir)
-        return JSONResponse(_spec_cache["spec"])
+        if run_id not in _spec_cache:
+            _spec_cache[run_id] = readers.graph_spec_json(
+                graph, study_dir, run_dir)
+        return JSONResponse(_spec_cache[run_id])
 
     async def get_delegations(request):
         run_id = request.path_params["run_id"]
