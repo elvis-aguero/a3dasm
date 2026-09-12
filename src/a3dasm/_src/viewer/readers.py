@@ -123,11 +123,16 @@ def _routing_tool_docs() -> dict[str, str]:
     # tools/routing/) and the node modules that inject their own; scanned in
     # a fixed order so the same name defined twice resolves the same way on
     # every call.
+    # EVERY module under nodes/ is scanned, rather than a hand-listed few:
+    # a fixed list silently drops a tool the moment one moves file, which it
+    # did when the strategizer's ledger tools were split out. Sorted so a name
+    # defined in two places resolves the same way on every call.
     routing_dir = nodes_dir / "tools" / "routing"
-    routing_files = sorted(
-        str(p.relative_to(nodes_dir)) for p in routing_dir.glob("*.py")
+    scan = sorted(
+        str(p.relative_to(nodes_dir))
+        for p in [*routing_dir.glob("*.py"), *nodes_dir.glob("*.py")]
     )
-    for rel in [*routing_files, "strategizer.py", "ledger_tools.py", "worker.py"]:
+    for rel in scan:
         path = nodes_dir / rel
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))

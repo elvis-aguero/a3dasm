@@ -17,7 +17,7 @@ from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -69,7 +69,7 @@ def _store_dup_rows(store_dir: Path, delegation_id: str) -> None:
         project_dir=store_dir)
 
 
-def _node(run_dir: Path) -> StrategizerNode:
+def _node(run_dir: Path) -> Node:
     class S(Agent):
         role = "strategizer"
         tools = frozenset({"Done", "Wait"})
@@ -86,7 +86,7 @@ def _node(run_dir: Path) -> StrategizerNode:
     dlog = DelegationLog(run_dir / "debug" / "delegation_log.jsonl")
     notes_dir = run_dir / "debug" / "strategizer_notes"
     notes_dir.mkdir(parents=True)
-    return StrategizerNode(
+    return Node(
         _Stub(), name="strategizer", outgoing=["worker"], spec=spec,
         worker_adapters={"worker": _Stub()}, notes_dir=notes_dir,
         delegation_log=dlog,

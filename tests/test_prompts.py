@@ -187,7 +187,7 @@ def test_strategizer_ledger_read_tools_documented(tmp_path):
     assert the catalog of a real strategizer node, which is what the model
     actually receives appended to its system prompt."""
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.prompts.tool_catalog import render_tool_catalog
 
     class _Stub:
@@ -212,7 +212,7 @@ def test_strategizer_ledger_read_tools_documented(tmp_path):
         nodes={"strategizer": A(), "implementer": B()},
         edges=(Edge("strategizer", "implementer"),), entry="strategizer")
     from a3dasm._src.infra.delegation_log import DelegationLog
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()},
         delegation_log=DelegationLog(tmp_path / "dlog.jsonl"))  # → RecallHistory

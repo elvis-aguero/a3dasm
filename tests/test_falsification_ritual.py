@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -46,7 +46,7 @@ def _node(tmp_path, with_critic=False):
     notes = tmp_path / "debug" / "strategizer_notes"
     notes.mkdir(parents=True)
     dlog = DelegationLog(tmp_path / "debug" / "delegation_log.jsonl")
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()},
         notes_dir=notes, delegation_log=dlog,

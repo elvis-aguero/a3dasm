@@ -383,7 +383,7 @@ def test_last_usage_empty_when_no_result_message():
 
 
 def test_last_usage_recovered_from_assistant_message_when_route_watcher_breaks_early():
-    """route_watcher (set by StrategizerNode on every run-closing Done() call,
+    """route_watcher (set by Node on every run-closing Done() call,
     strategizer.py:200) breaks the stream on the AssistantMessage that
     triggered it, before the SDK's own ResultMessage/total_cost_usd ever
     arrives. Regression: this previously fell through to last_usage={},

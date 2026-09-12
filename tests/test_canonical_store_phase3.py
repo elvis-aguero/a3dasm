@@ -308,9 +308,9 @@ def _build_run_layout(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _make_strategizer_with_notes(tmp_path: Path, notes_dir: Path):
-    """Build a minimal StrategizerNode with _current_notes_dir set."""
+    """Build a minimal Node with _current_notes_dir set."""
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class StubAdapter:
         def __init__(self):
@@ -335,7 +335,7 @@ def _make_strategizer_with_notes(tmp_path: Path, notes_dir: Path):
     )
 
     adapter = StubAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter=adapter,
         name="strat",
         outgoing=["worker"],
@@ -383,7 +383,7 @@ class TestRecallStoreClosure:
         """RecallStore must be injected even when delegation_log is None."""
         run_dir, notes_dir = _build_run_layout(tmp_path)
         from a3dasm._src.backends.base import Agent, Edge, Graph
-        from a3dasm._src.nodes import StrategizerNode
+        from a3dasm._src.nodes import Node
 
         class StubAdapter:
             def __init__(self):
@@ -406,7 +406,7 @@ class TestRecallStoreClosure:
             edges=(Edge("s", "w"),),
             entry="s",
         )
-        node = StrategizerNode(
+        node = Node(
             adapter=StubAdapter(),
             name="s",
             outgoing=["w"],
@@ -672,7 +672,7 @@ class TestNodesDelegationLogEvalsWiring:
         """After a delegation completes, the log record should have evals set."""
         from a3dasm._src.backends.base import Agent, Edge, Graph
         from a3dasm._src.infra.delegation_log import DelegationLog
-        from a3dasm._src.nodes import StrategizerNode
+        from a3dasm._src.nodes import Node
 
         class CountingAdapter:
             """Calls ReportEvals(7) and then returns a report."""
@@ -715,7 +715,7 @@ class TestNodesDelegationLogEvalsWiring:
         worker_adapter = CountingAdapter()
         main_adapter = CountingAdapter()
 
-        node = StrategizerNode(
+        node = Node(
             adapter=main_adapter,
             name="s",
             outgoing=["w"],
@@ -744,7 +744,7 @@ class TestNodesDelegationLogEvalsWiring:
 
 
 # ===========================================================================
-# Part C — store_dir wired in StrategizerNode.__call__
+# Part C — store_dir wired in Node.__call__
 # ===========================================================================
 
 
@@ -760,7 +760,7 @@ class TestScienceMonitorStoreDirWiring:
         from a3dasm._src.infra.delegation_log import DelegationLog
         from a3dasm._src.runtime.graph_state import AgenticState
         from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
-        from a3dasm._src.nodes import StrategizerNode
+        from a3dasm._src.nodes import Node
 
         run_dir = tmp_path / "run"
         (run_dir / "debug" / "strategizer_notes").mkdir(parents=True)
@@ -796,7 +796,7 @@ class TestScienceMonitorStoreDirWiring:
         )
 
         ledger = HypothesisLedger(run_dir / "debug" / "strategizer_notes")
-        node = StrategizerNode(
+        node = Node(
             adapter=DoneAdapter(),
             name="s",
             outgoing=["w"],
@@ -888,7 +888,7 @@ def test_ledger_breakdown_tool_renders_per_experiment_split(tmp_path):
     renders a per-experiment / per-delegation split — the report-time provenance
     that prevents hardcoding stale counts (run 20260628T001710 UNGATED)."""
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from f3dasm._src.design.domain import Domain
     from f3dasm._src.experimentdata import ExperimentData
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus
@@ -933,7 +933,7 @@ def test_ledger_breakdown_tool_renders_per_experiment_split(tmp_path):
     spec = Graph(
         nodes={"strat": StratAgent(), "worker": WorkAgent()},
         edges=(Edge("strat", "worker"),), entry="strat")
-    node = StrategizerNode(
+    node = Node(
         adapter=StubAdapter(), name="strat", outgoing=["worker"],
         spec=spec, study_dir=str(tmp_path))
     node._current_notes_dir = notes_dir

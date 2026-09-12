@@ -10,11 +10,7 @@ from langgraph.graph import StateGraph
 
 from ..backends.base import Agent, Graph
 from ..infra.delegation_log import DelegationLog
-from ..nodes import (  # ImplementerNode re-exported for backward compat
-    ImplementerNode,  # noqa: F401
-    StrategizerNode,
-    WorkerNode,
-)
+from ..nodes import Node
 from .graph_state import AgenticState
 
 __all__ = ["build_graph"]
@@ -59,34 +55,25 @@ def build_graph(
         adapter = node_adapters[name]  # shared instance, NOT make_adapter() again
         outgoing = spec.outgoing(name)
 
-        if outgoing:
-            # Any node with outgoing edges becomes an orchestrating node.
-            # Entry nodes get the full closure set (Done, hypotheses, etc.);
-            # delegating workers get only delegation tools — gated inside
-            # StrategizerNode by checking name == spec.entry.
-            node = StrategizerNode(
-                adapter,
-                name=name,
-                outgoing=outgoing,
-                spec=spec,
-                study_dir=study_dir,
-                interactive=interactive,
-                max_ask=max_ask,
-                worker_adapters={n: node_adapters[n] for n in outgoing},
-                notes_dir=notes_dir if name == spec.entry else None,
-                workspace_dir=workspace_dir,
-                delegation_log=delegation_log,
-            )
-        else:
-            node = WorkerNode(
-                adapter,
-                study_dir=study_dir,
-                workspace_dir=workspace_dir,
-                delegation_log=delegation_log,
-                name=name,
-                report_sections=getattr(agent, "report_sections", None),
-                agent_tools=getattr(agent, "tools", None),
-            )
+        # ONE node class. Whether it orchestrates or answers follows from
+        # `outgoing`, and what it may DO follows from what its Agent declares
+        # in `tools` — never from its type. notes_dir is passed only to the
+        # entry node: it owns the run's hypothesis + milestone ledgers.
+        node = Node(
+            adapter,
+            name=name,
+            outgoing=outgoing,
+            spec=spec,
+            study_dir=study_dir,
+            interactive=interactive,
+            max_ask=max_ask,
+            worker_adapters={n: node_adapters[n] for n in outgoing},
+            notes_dir=notes_dir if name == spec.entry else None,
+            workspace_dir=workspace_dir,
+            delegation_log=delegation_log,
+            report_sections=getattr(agent, "report_sections", None),
+            agent_tools=getattr(agent, "tools", None),
+        )
 
         builder.add_node(name, node)
 

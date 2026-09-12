@@ -20,7 +20,7 @@ from pathlib import Path
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
 from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 from f3dasm._src.design.domain import Domain
 from f3dasm._src.experimentdata import ExperimentData
 from f3dasm._src.experimentsample import ExperimentSample, JobStatus
@@ -53,8 +53,8 @@ def _build_store(store_dir: Path, rows) -> None:
         project_dir=store_dir)
 
 
-def _worker_node(run_dir: Path) -> StrategizerNode:
-    """A StrategizerNode built the way graph_builder builds a delegating
+def _worker_node(run_dir: Path) -> Node:
+    """A Node built the way graph_builder builds a delegating
     worker: an orchestrating node (outgoing edge) with notes_dir=None."""
     class S(Agent):
         role = "strategizer"
@@ -80,7 +80,7 @@ def _worker_node(run_dir: Path) -> StrategizerNode:
         entry="strategizer",
     )
     dlog = DelegationLog(run_dir / "debug" / "delegation_log.jsonl")
-    return StrategizerNode(
+    return Node(
         _Stub(), name="implementer", outgoing=["literature_reviewer"],
         spec=spec, worker_adapters={"literature_reviewer": _Stub()},
         notes_dir=None, delegation_log=dlog,
@@ -128,13 +128,13 @@ def test_worker_hypothesislist_sees_the_ledger(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Leaf WorkerNode (e.g. the critic): declaration-gated read tools, working
+# Leaf Node (e.g. the critic): declaration-gated read tools, working
 # ---------------------------------------------------------------------------
 
 def _leaf_worker(run_dir, agent_tools, study_dir=None):
-    """A leaf WorkerNode (no outgoing edges) with a stub adapter — the critic /
+    """A leaf Node (no outgoing edges) with a stub adapter — the critic /
     lit-reviewer shape."""
-    from a3dasm._src.nodes.worker import WorkerNode
+    from a3dasm._src.nodes import Node
 
     class _A:
         def __init__(self):
@@ -147,7 +147,7 @@ def _leaf_worker(run_dir, agent_tools, study_dir=None):
             return ""
 
     dlog = DelegationLog(run_dir / "debug" / "delegation_log.jsonl")
-    return WorkerNode(_A(), name="critic", delegation_log=dlog,
+    return Node(_A(), name="critic", delegation_log=dlog,
                       agent_tools=frozenset(agent_tools),
                       study_dir=study_dir)
 
@@ -164,12 +164,12 @@ def test_leaf_worker_gets_declared_read_tools_and_they_work(tmp_path):
 
 
 def test_leaf_worker_can_read_problem_statement(tmp_path):
-    """Regression: WorkerNode.__init__ accepted study_dir but never stored it
+    """Regression: Node.__init__ accepted study_dir but never stored it
     (real run 20260816T013744, literature_reviewer/D002 retrospective:
-    "ReadProblemStatement() raised AttributeError: 'WorkerNode' object has no
+    "ReadProblemStatement() raised AttributeError: 'Node' object has no
     attribute '_study_dir'") — build_declared_shared_closures resolves
     ReadProblemStatement's path through node._study_dir the same way
-    StrategizerNode does, so EVERY leaf worker declaring the tool crashed the
+    Node does, so EVERY leaf worker declaring the tool crashed the
     moment it was called, degrading (there) to a Read() fallback.
     """
     run_dir, _ = _setup(tmp_path)

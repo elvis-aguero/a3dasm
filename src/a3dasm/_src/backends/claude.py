@@ -336,7 +336,7 @@ class ClaudeAdapter:
         self.max_history_pairs: int = max_history_pairs
         # Lock serializes concurrent delegations to the same shared adapter.
         self._lock: threading.Lock = threading.Lock()
-        # Set by StrategizerNode; when truthy, the generator is closed after
+        # Set by an orchestrating node; when truthy, the generator is closed after
         # the next AssistantMessage so the session ends on a routing decision.
         self.route_watcher: Any = None
         # Populated after each ainvoke() with token counts from ResultMessage.

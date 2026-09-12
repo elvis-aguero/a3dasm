@@ -332,7 +332,7 @@ def test_delegation_ids_distinct_across_loopback_turns(tmp_path):
     turn 2 → must NOT re-use D001.
     """
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class A(Agent):
         role = "strategizer"
@@ -371,7 +371,7 @@ def test_delegation_ids_distinct_across_loopback_turns(tmp_path):
     strat_adapter.closure_tools = {}
     strat_adapter.route_watcher = None
 
-    node = StrategizerNode(
+    node = Node(
         adapter=strat_adapter,
         name="strat",
         outgoing=["impl"],

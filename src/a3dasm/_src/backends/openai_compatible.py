@@ -648,7 +648,7 @@ class OpenAICompatibleAdapter:
         self.model = model
         self.system_prompt = system_prompt
         self.study_dir = Path(study_dir) if study_dir else None
-        # Use 'native_tools' (not '_native_tool_names') so ImplementerNode's
+        # Use 'native_tools' (not '_native_tool_names') so a leaf node's
         # sandboxed-Write setup can find it by the same attribute name as
         # ClaudeAdapter.
         self.native_tools: list[str] = list(native_tools or [])
@@ -673,9 +673,9 @@ class OpenAICompatibleAdapter:
         # invoke().  Reset to None whenever native_tools or closure_tools change
         # so the next invoke() picks up the updated tool set.
         self._agent: Any = None
-        # route_watcher is set by StrategizerNode; unused by these adapters
+        # route_watcher is set by an orchestrating node; unused by these adapters
         # (create_react_agent runs the full tool loop to completion) but must
-        # be present so StrategizerNode.__init__ doesn't raise AttributeError.
+        # be present so Node's orchestration setup doesn't raise AttributeError.
         self.route_watcher: Any = None
         # Non-blocking raw-oracle nudge, capped per delegation (= per invoke).
         from .base import OracleNudgeBudget

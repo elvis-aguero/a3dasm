@@ -98,7 +98,7 @@ def _extract_md_section(text: str, header: str) -> str:
 
 
 class CriticGateMixin:
-    """Mixin carrying the four critic-consultation helpers for StrategizerNode.
+    """Mixin carrying the four critic-consultation helpers for an orchestrating node.
 
     Relies on instance attributes and RecordingMixin methods resolved via MRO:
       self._spec, self._outgoing, self._worker_adapters, self._current_notes_dir,

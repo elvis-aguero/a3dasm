@@ -70,14 +70,14 @@ class TestReportValidationUsesAgentSections:
         assert _classify_response(self._CRITIC_REPORT) is not None
 
     def test_worker_node_stores_report_sections(self):
-        from a3dasm._src.nodes.worker import WorkerNode
+        from a3dasm._src.nodes import Node
 
         class _Adapter:
             def __init__(self):
                 self.closure_tools = {}
                 self.native_tools = []
 
-        node = WorkerNode(_Adapter(), name="critic",
+        node = Node(_Adapter(), name="critic",
                           report_sections=("### Findings", "### Verdict"))
         assert node._report_sections == ("### Findings", "### Verdict")
 
@@ -193,7 +193,7 @@ class TestNoCanonicalSourceNudge:
         )
 
     def _node(self):
-        from a3dasm._src.nodes import StrategizerNode
+        from a3dasm._src.nodes import Node
 
         class _Stub:
             def __init__(self):
@@ -205,7 +205,7 @@ class TestNoCanonicalSourceNudge:
             def invoke(self, messages):
                 return "ok"
 
-        return StrategizerNode(
+        return Node(
             _Stub(), name="strategizer", outgoing=["datagenerator"],
             spec=self._spec_with_datagenerator(),
             worker_adapters={"datagenerator": _Stub()},
@@ -296,7 +296,7 @@ class TestRetrospectiveTextCap:
         import json
 
         from a3dasm._src.backends.base import Agent, Edge, Graph
-        from a3dasm._src.nodes import StrategizerNode
+        from a3dasm._src.nodes import Node
 
         class A(Agent):
             role = "strategizer"
@@ -318,7 +318,7 @@ class TestRetrospectiveTextCap:
 
         notes = tmp_path / "debug" / "strategizer_notes"
         notes.mkdir(parents=True)
-        node = StrategizerNode(_Stub(), name="strategizer", outgoing=["implementer"],
+        node = Node(_Stub(), name="strategizer", outgoing=["implementer"],
                                spec=spec, study_dir=tmp_path)
         node._current_notes_dir = notes
 

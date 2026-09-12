@@ -1,4 +1,4 @@
-"""Tests for AgentNode, StrategizerNode, ImplementerNode."""
+"""Tests for Node, Node, Node."""
 from __future__ import annotations
 
 import threading
@@ -41,7 +41,7 @@ class StubAdapter:
 
 
 def _minimal_spec(name: str = "strategizer", target: str = "implementer") -> Graph:
-    """Return a minimal two-node Graph for StrategizerNode tests."""
+    """Return a minimal two-node Graph for Node tests."""
     class A(Agent):
         role = "strategizer"
         # GetStatus/CancelDelegation are opt-in (plug-and-play) post-audit; the
@@ -111,16 +111,16 @@ def make_state(
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode tests
+# Node tests
 # ---------------------------------------------------------------------------
 
 
 def test_strategizer_routes_done_when_done_called():
-    """StrategizerNode returns Command(goto=END) when Done closure is called twice.
+    """Node returns Command(goto=END) when Done closure is called twice.
 
     Done() is two-shot: first call issues a WARNING, second call closes the run.
     """
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class DoneCallingAdapter(StubAdapter):
         def invoke(self, messages):
@@ -130,7 +130,7 @@ def test_strategizer_routes_done_when_done_called():
 
     adapter = DoneCallingAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     cmd = node(make_state())
 
     assert cmd.goto == END
@@ -142,7 +142,7 @@ def test_strategizer_delegate_returns_task_id():
     """Delegate() returns a TASK-xxxxxxxx ID and starts a background thread."""
     import threading
     import time
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     received_ids: list[str] = []
     worker_started = threading.Event()
@@ -185,7 +185,7 @@ def test_strategizer_delegate_returns_task_id():
     adapter = DelegateCallingAdapter()
     spec = _minimal_spec()
     worker = SlowWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -199,7 +199,7 @@ def test_done_blocked_while_delegation_pending():
     """Done returns a soft 2-option nudge (not a hard error) when called while
     a delegation is still Working — it still refuses to close, but offers the
     keep-working / wait (GetStatus) paths (cancel dropped from production)."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     results: list[str] = []
 
@@ -224,7 +224,7 @@ def test_done_blocked_while_delegation_pending():
     adapter = DelegateThenDoneAdapter()
     spec = _minimal_spec()
     worker = SlowWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -240,7 +240,7 @@ def test_done_blocked_while_delegation_pending():
 def test_strategizer_increments_delegation_count():
     """total_delegations reflects all fired delegations after the run completes."""
     import time
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class FastWorkerAdapter(StubAdapter):
         def invoke(self, messages):
@@ -257,7 +257,7 @@ def test_strategizer_increments_delegation_count():
     adapter = DelegateCallingAdapter()
     spec = _minimal_spec()
     worker = FastWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -269,18 +269,18 @@ def test_strategizer_increments_delegation_count():
 
 
 def test_strategizer_no_routing_tool_defaults_to_done():
-    """StrategizerNode loops back with a re-prompt when no routing tool is called.
+    """Node loops back with a re-prompt when no routing tool is called.
 
     Adapted: the old behaviour unconditionally ended the run when no Done() was
     called.  The new route-aware behaviour re-prompts the LLM (up to 3 times)
     so that an LLM that self-acquits in prose is caught before it writes
     solution.md.  The test now asserts the loopback on the first attempt.
     """
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter(response="Final analysis complete.")
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     cmd = node(make_state())
 
     # First attempt — loops back with a diagnostic message
@@ -293,7 +293,7 @@ def test_strategizer_no_routing_tool_defaults_to_done():
 
 def test_strategizer_delegate_invalid_target_returns_error():
     """Delegate returns an error string for unknown targets."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     errors = []
 
@@ -309,23 +309,23 @@ def test_strategizer_delegate_invalid_target_returns_error():
 
     adapter = BadTargetAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     node(make_state())
 
     assert errors and "ERROR" in errors[0]
 
 
 # ---------------------------------------------------------------------------
-# ImplementerNode tests
+# Node tests
 # ---------------------------------------------------------------------------
 
 
 def test_implementer_returns_to_caller():
-    """ImplementerNode routes back to return_to from state."""
-    from a3dasm._src.nodes import ImplementerNode
+    """Node routes back to return_to from state."""
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter(response="## Report\nDone. Results: 42.")
-    node = ImplementerNode(adapter)
+    node = Node(adapter)
     cmd = node(make_state(return_to="strategizer"))
 
     assert cmd.goto == "strategizer"
@@ -333,20 +333,20 @@ def test_implementer_returns_to_caller():
 
 
 def test_implementer_stores_response_as_last_report():
-    """ImplementerNode stores full response text in last_report."""
-    from a3dasm._src.nodes import ImplementerNode
+    """Node stores full response text in last_report."""
+    from a3dasm._src.nodes import Node
 
     response = "## Report\n### Actions taken\nRan code.\n### Conclusions\nResult: 3.14"
     adapter = StubAdapter(response=response)
-    node = ImplementerNode(adapter)
+    node = Node(adapter)
     cmd = node(make_state(return_to="strategizer"))
 
     assert cmd.update["last_report"] == response
 
 
 def test_implementer_accumulates_evals_when_report_evals_called():
-    """ImplementerNode adds ReportEvals count to state evals_used."""
-    from a3dasm._src.nodes import ImplementerNode
+    """Node adds ReportEvals count to state evals_used."""
+    from a3dasm._src.nodes import Node
 
     class ReportEvalsCallingAdapter(StubAdapter):
         def invoke(self, messages):
@@ -354,7 +354,7 @@ def test_implementer_accumulates_evals_when_report_evals_called():
             return "## Report\n### Actions taken\nDone.\n### Files touched\n(none)\n### Conclusions\nOK\n### Numbers\nn: 1500"
 
     adapter = ReportEvalsCallingAdapter()
-    node = ImplementerNode(adapter)
+    node = Node(adapter)
     state = make_state(return_to="strategizer")
     state["evals_used"] = 100
     cmd = node(state)
@@ -363,11 +363,11 @@ def test_implementer_accumulates_evals_when_report_evals_called():
 
 
 def test_implementer_evals_zero_when_report_evals_not_called():
-    """ImplementerNode adds 0 to evals_used when ReportEvals is not called."""
-    from a3dasm._src.nodes import ImplementerNode
+    """Node adds 0 to evals_used when ReportEvals is not called."""
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter(response="## Report\n### Actions taken\nDone.\n### Files touched\n(none)\n### Conclusions\nOK\n### Numbers\nn: 0")
-    node = ImplementerNode(adapter)
+    node = Node(adapter)
     state = make_state(return_to="strategizer")
     state["evals_used"] = 42
     cmd = node(state)
@@ -378,7 +378,7 @@ def test_implementer_evals_zero_when_report_evals_not_called():
 def test_strategizer_delegate_includes_expected_report_in_message():
     """Delegate expected_report appears in the task message sent to the worker."""
     import time
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     received_messages: list[list] = []
 
@@ -401,7 +401,7 @@ def test_strategizer_delegate_includes_expected_report_in_message():
     adapter = DelegateCallingAdapter()
     spec = _minimal_spec()
     worker = CapturingWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -416,7 +416,7 @@ def test_strategizer_delegate_includes_expected_report_in_message():
 def test_strategizer_delegate_prepends_edge_preamble():
     """Edge preamble is prepended to the task message when the edge has one."""
     import time
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class A(Agent):
         role = "strategizer"
@@ -456,7 +456,7 @@ def test_strategizer_delegate_prepends_edge_preamble():
 
     adapter = DelegateCallingAdapter()
     worker = CapturingWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -475,7 +475,7 @@ def test_strategizer_delegate_prepends_edge_preamble():
 def test_parallel_two_delegations_both_complete():
     """Strategizer can fire two delegations concurrently; both complete and are counted."""
     import time
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     call_log: list[str] = []
 
@@ -528,7 +528,7 @@ def test_parallel_two_delegations_both_complete():
     )
 
     adapter = TwoDelegateAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer",
         outgoing=["worker_a", "worker_b"], spec=spec,
         worker_adapters={
@@ -547,7 +547,7 @@ def test_parallel_two_delegations_both_complete():
 def test_get_status_returns_working_then_done():
     """GetStatus returns 'Working' while the delegation is running, then 'Done'."""
     import time
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     status_snapshots: list[str] = []
 
@@ -581,7 +581,7 @@ def test_get_status_returns_working_then_done():
     adapter = PollAdapter()
     spec = _minimal_spec()
     worker = SlowWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -594,7 +594,7 @@ def test_get_status_returns_working_then_done():
 def test_registry_cleared_between_runs():
     """Registry and ask_count are reset on each __call__, preventing cross-run pollution."""
     import time
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     call_count = [0]
 
@@ -617,7 +617,7 @@ def test_registry_cleared_between_runs():
     adapter = OneDelegateAdapter()
     spec = _minimal_spec()
     worker = FastWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -633,7 +633,7 @@ def test_registry_cleared_between_runs():
 
 def test_get_status_unknown_id_returns_error():
     """GetStatus on an unknown ID returns a clear ERROR string."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     errors: list[str] = []
 
@@ -646,7 +646,7 @@ def test_get_status_unknown_id_returns_error():
 
     adapter = PollUnknownAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     node(make_state())
 
     assert errors and errors[0].startswith("ERROR")
@@ -657,7 +657,7 @@ def test_errored_status_contains_traceback():
     """When a worker raises, GetStatus returns 'Errored:\\n<traceback>' with enough info."""
     import re
     import time
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     status_seen: list[str] = []
     worker_done = threading.Event()
@@ -686,7 +686,7 @@ def test_errored_status_contains_traceback():
     adapter = PollErrorAdapter()
     spec = _minimal_spec()
     worker = CrashingWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -703,7 +703,7 @@ def test_errored_status_contains_traceback():
 def test_delegation_still_working_returns_working_status():
     """GetStatus returns 'Working' for a running delegation regardless of elapsed time."""
     import time
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     status_seen: list[str] = []
     worker_started = threading.Event()
@@ -741,7 +741,7 @@ def test_delegation_still_working_returns_working_status():
     adapter = PollThenReleaseAdapter()
     spec = _minimal_spec()
     worker = HeldWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -819,11 +819,11 @@ def test_delegate_id_is_sequential(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     adapter = CaptureAdapter()
     spec = _ledger_spec()
     worker = StubAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
         notes_dir=tmp_path,
@@ -848,11 +848,11 @@ def test_delegate_requires_hypothesis_ids_when_ledger_present(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     adapter = EmptyHypoAdapter()
     spec = _ledger_spec()
     worker = StubAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
         notes_dir=tmp_path,
@@ -863,7 +863,7 @@ def test_delegate_requires_hypothesis_ids_when_ledger_present(tmp_path):
 
 def test_delegate_wraps_bare_string_hypothesis_id(tmp_path):
     """hypothesis_ids='H1' must become ['H1'], never ['H','1']."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     captured = []
 
@@ -891,7 +891,7 @@ def test_delegate_wraps_bare_string_hypothesis_id(tmp_path):
     adapter = ProposeAndDelegate()
     spec = _ledger_spec()
     worker = StubAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer"],
@@ -913,7 +913,7 @@ def test_delegate_wraps_bare_string_hypothesis_id(tmp_path):
 
 def test_delegate_rejects_unknown_hypothesis_id(tmp_path):
     """Delegate with an unknown ID returns ERROR naming valid IDs."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     captured = []
 
@@ -940,7 +940,7 @@ def test_delegate_rejects_unknown_hypothesis_id(tmp_path):
     adapter = ProposeAndBadDelegate()
     spec = _ledger_spec()
     worker = StubAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer"],
@@ -961,7 +961,7 @@ def test_delegate_rejects_unknown_hypothesis_id(tmp_path):
 
 def test_delegate_records_falsification_flag(tmp_path):
     """Delegate with is_falsification_attempt=True records it in DelegationLog."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.infra.delegation_log import DelegationLog
 
     class ProposeAndFalsifyDelegate(StubAdapter):
@@ -988,7 +988,7 @@ def test_delegate_records_falsification_flag(tmp_path):
     adapter = ProposeAndFalsifyDelegate()
     spec = _ledger_spec()
     worker = StubAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer"],
@@ -1030,11 +1030,11 @@ def test_delegate_injects_workspace_subfolder_in_task(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     adapter = DelegateAdapter()
     spec = _ledger_spec()
     worker = CapturingWorker()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
         notes_dir=tmp_path,
@@ -1072,13 +1072,13 @@ def test_delegate_writes_delegation_jsonl_on_done(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     jsonl_path = tmp_path / "delegation_log.jsonl"
     delegation_log = DelegationLog(jsonl_path)
     adapter = DelegateAdapter()
     spec = _ledger_spec()
     worker = StubAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
         notes_dir=tmp_path,
@@ -1111,10 +1111,10 @@ def test_hypothesis_propose_via_strategizer_closure(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     adapter = ProposeAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": StubAdapter()},
         notes_dir=tmp_path,
@@ -1129,7 +1129,7 @@ def test_hypothesis_propose_via_strategizer_closure(tmp_path):
 
 def test_hypothesis_update_injects_triggered_by(tmp_path):
     """HypothesisUpdate injects the last completed delegation ID as triggered_by."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class UpdateAdapter(StubAdapter):
         def invoke(self, messages):
@@ -1158,7 +1158,7 @@ def test_hypothesis_update_injects_triggered_by(tmp_path):
 
     adapter = UpdateAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": StubAdapter()},
         notes_dir=tmp_path,
@@ -1176,7 +1176,7 @@ def test_max_three_open_hypothesis_guard(tmp_path):
     """HypothesisPropose returns ERROR when 3 OPEN hypotheses already exist."""
     error_seen = []
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class MaxAdapter(StubAdapter):
         def invoke(self, messages):
@@ -1195,7 +1195,7 @@ def test_max_three_open_hypothesis_guard(tmp_path):
 
     adapter = MaxAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": StubAdapter()},
         notes_dir=tmp_path,
@@ -1235,13 +1235,13 @@ def test_worker_write_rejected_outside_delegation_subfolder(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     study_tmp = tmp_path / "study"
     study_tmp.mkdir()
     adapter = DelegateAdapter()
     spec = _ledger_spec()
     worker = WritingWorker()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
         notes_dir=tmp_path,
@@ -1281,13 +1281,13 @@ def test_worker_write_allowed_inside_delegation_subfolder(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     study_tmp = tmp_path / "study"
     study_tmp.mkdir()
     adapter = DelegateAdapter()
     spec = _ledger_spec()
     worker = WritingWorker()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
         notes_dir=tmp_path,
@@ -1332,10 +1332,10 @@ def test_worker_write_strips_redundant_delegation_prefix(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     study_tmp = tmp_path / "study"
     study_tmp.mkdir()
-    node = StrategizerNode(
+    node = Node(
         DelegateAdapter(), name="strategizer", outgoing=["implementer"],
         spec=_ledger_spec(), worker_adapters={"implementer": WritingWorker()},
         notes_dir=tmp_path, study_dir=study_tmp)
@@ -1356,11 +1356,11 @@ def test_worker_write_strips_redundant_delegation_prefix(tmp_path):
 
 def test_accumulate_usage_sums_correctly(tmp_path):
     """_accumulate_usage correctly sums token counts and ignores None cost."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=tmp_path,
     )
@@ -1376,11 +1376,11 @@ def test_accumulate_usage_sums_correctly(tmp_path):
 def test_accumulate_usage_thread_safe(tmp_path):
     """_accumulate_usage is thread-safe under concurrent calls."""
     import threading as _threading
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=tmp_path,
     )
@@ -1403,7 +1403,7 @@ def test_accumulate_usage_thread_safe(tmp_path):
 
 
 def _make_sandboxed_write_node(tmp_path):
-    """Return a StrategizerNode + worker where the worker's Write is sandboxed."""
+    """Return a Node + worker where the worker's Write is sandboxed."""
     write_results = []
 
     class CapturingWorker(StubAdapter):
@@ -1454,12 +1454,12 @@ def test_worker_write_rejects_absolute_path(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     study_tmp = tmp_path / "study"
     study_tmp.mkdir()
     adapter = DelegateAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": AbsPathWorker()},
         notes_dir=tmp_path,
@@ -1503,12 +1503,12 @@ def test_worker_write_rejects_empty_path(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     study_tmp = tmp_path / "study"
     study_tmp.mkdir()
     adapter = DelegateAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": EmptyPathWorker()},
         notes_dir=tmp_path,
@@ -1557,12 +1557,12 @@ def test_worker_write_allows_nested_subdirectory(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     study_tmp = tmp_path / "study"
     study_tmp.mkdir()
     adapter = DelegateAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": NestedWriteWorker()},
         notes_dir=tmp_path,
@@ -1583,11 +1583,11 @@ def test_worker_write_allows_nested_subdirectory(tmp_path):
 
 def test_write_note_creates_file_in_notes_dir(tmp_path):
     """WriteNote closure writes .md file to _current_notes_dir."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=tmp_path,
     )
@@ -1600,11 +1600,11 @@ def test_write_note_creates_file_in_notes_dir(tmp_path):
 
 def test_write_note_rejects_non_md_extension(tmp_path):
     """WriteNote auto-appends .md when extension is not .md."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=tmp_path,
     )
@@ -1621,13 +1621,13 @@ def test_write_note_rejects_non_md_extension(tmp_path):
 
 def test_read_note_returns_content(tmp_path):
     """ReadNote closure returns file content from study_dir."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "data.txt").write_text("test content")
 
     adapter = StubAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=tmp_path,
         study_dir=tmp_path,
@@ -1640,11 +1640,11 @@ def test_read_note_returns_content(tmp_path):
 
 def test_read_note_returns_not_found_for_missing(tmp_path):
     """ReadNote returns NOT FOUND or ERROR when file does not exist."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=tmp_path,
         study_dir=tmp_path,
@@ -1690,12 +1690,12 @@ def test_delegation_jsonl_contains_token_fields(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     jsonl_path = tmp_path / "delegation_log.jsonl"
     delegation_log = DelegationLog(jsonl_path)
     adapter = DelegateAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": MockWorkerAdapter()},
         notes_dir=tmp_path,
@@ -1823,7 +1823,7 @@ def test_classify_response_allows_extra_content_after_sections():
 
 def test_done_first_call_returns_warning():
     """Done() first call (no pending delegations) returns a WARNING string."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     results: list[str] = []
 
@@ -1837,7 +1837,7 @@ def test_done_first_call_returns_warning():
 
     adapter = FirstDoneAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     node(make_state())
 
     assert results, "Done() was never called"
@@ -1854,7 +1854,7 @@ def test_done_second_call_no_critic_closes():
     first call, _done_warned will never be set and the first result will NOT
     start with WARNING — that assertion catches the current (pre-feature) state.
     """
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from langgraph.graph import END
 
     first_results: list[str] = []
@@ -1868,7 +1868,7 @@ def test_done_second_call_no_critic_closes():
 
     adapter = TwoDoneAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     cmd = node(make_state())
 
     # First call must warn, not close
@@ -1883,7 +1883,7 @@ def test_done_second_call_no_critic_closes():
 def test_done_resets_warning_after_new_delegate():
     """_done_warned resets to False when a new Delegate() fires."""
     import time as _t
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     results: list[str] = []
 
@@ -1914,7 +1914,7 @@ def test_done_resets_warning_after_new_delegate():
     adapter = ResetWarningAdapter()
     spec = _minimal_spec()
     worker = FastWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -1948,11 +1948,11 @@ def test_ask_for_feedback_absent_without_critic():
     check that the two-node spec node does NOT have _done_warned attribute
     (pre-feature) which is the new state flag introduced with two-shot Done.
     """
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _minimal_spec()  # only strategizer + implementer, no critic
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
 
     assert "AskForFeedback" not in node.adapter.closure_tools
     # The two-shot Done feature introduces _done_warned; it must exist once the feature lands
@@ -1963,11 +1963,11 @@ def test_ask_for_feedback_absent_without_critic():
 
 def test_ask_for_feedback_present_with_critic():
     """AskForFeedback closure IS registered when a critic node is in the graph."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _spec_with_critic()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer",
         outgoing=["implementer", "critic"],
         spec=spec,
@@ -1979,11 +1979,11 @@ def test_ask_for_feedback_present_with_critic():
 
 def test_ask_for_feedback_synchronous_returns_string():
     """AskForFeedback() returns a non-empty string that doesn't start with ERROR."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _spec_with_critic()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer",
         outgoing=["implementer", "critic"],
         spec=spec,
@@ -2001,13 +2001,13 @@ def test_ask_for_feedback_synchronous_returns_string():
 def test_ask_for_feedback_logged_in_jsonl(tmp_path):
     """AskForFeedback() appends a record to delegation_log.jsonl."""
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     jsonl_path = tmp_path / "delegation_log.jsonl"
     delegation_log = DelegationLog(jsonl_path)
     adapter = StubAdapter()
     spec = _spec_with_critic()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer",
         outgoing=["implementer", "critic"],
         spec=spec,
@@ -2028,7 +2028,7 @@ def test_ask_for_feedback_logged_in_jsonl(tmp_path):
 def test_ask_for_feedback_auto_injects_all_hypothesis_ids(tmp_path):
     """AskForFeedback() with no args injects all hypothesis IDs from the ledger."""
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
 
     # Pre-populate the ledger with H1 (OPEN) and H2 (FALSIFIED)
@@ -2052,7 +2052,7 @@ def test_ask_for_feedback_auto_injects_all_hypothesis_ids(tmp_path):
     delegation_log = DelegationLog(jsonl_path)
     adapter = StubAdapter()
     spec = _spec_with_critic()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer",
         outgoing=["implementer", "critic"],
         spec=spec,
@@ -2072,7 +2072,7 @@ def test_ask_for_feedback_auto_injects_all_hypothesis_ids(tmp_path):
 def test_ask_for_feedback_respects_explicit_ids(tmp_path):
     """AskForFeedback(hypothesis_ids=['H1']) only includes H1 in the record."""
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.epistemics.hypothesis_ledger import HypothesisLedger
 
     ledger = HypothesisLedger(tmp_path)
@@ -2089,7 +2089,7 @@ def test_ask_for_feedback_respects_explicit_ids(tmp_path):
     delegation_log = DelegationLog(jsonl_path)
     adapter = StubAdapter()
     spec = _spec_with_critic()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer",
         outgoing=["implementer", "critic"],
         spec=spec,
@@ -2113,7 +2113,7 @@ def test_done_second_call_with_critic_pass():
     the system, asked only after the critic accepted). The third Done(),
     carrying the retrospective, closes the run (goto=END).
     """
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from langgraph.graph import END
 
     results: list[str] = []
@@ -2131,7 +2131,7 @@ def test_done_second_call_with_critic_pass():
 
     adapter = ThreeDoneCriticPassAdapter()
     spec = _spec_with_critic()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer",
         outgoing=["implementer", "critic"],
         spec=spec,
@@ -2151,7 +2151,7 @@ def test_done_second_call_with_critic_pass():
 
 def test_done_second_call_with_critic_revise():
     """Done() second call with critic returning REVISE: does NOT close, returns ERROR."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from langgraph.graph import END
 
     second_results: list[str] = []
@@ -2169,7 +2169,7 @@ def test_done_second_call_with_critic_revise():
 
     adapter = TwoDoneCriticReviseAdapter()
     spec = _spec_with_critic()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer",
         outgoing=["implementer", "critic"],
         spec=spec,
@@ -2191,7 +2191,7 @@ def test_done_second_call_with_critic_revise():
 def test_done_closes_gracefully_ungated_after_three_revisions():
     """Bounded escape: after 3 unsatisfiable REVISE verdicts the gate closes
     UNGATED (records objections) instead of looping forever."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     results: list[str] = []
 
@@ -2205,7 +2205,7 @@ def test_done_closes_gracefully_ungated_after_three_revisions():
                     break
             return "Done."
 
-    node = StrategizerNode(
+    node = Node(
         PersistentReviseAdapter(), name="strategizer",
         outgoing=["implementer", "critic"],
         spec=_spec_with_critic(),
@@ -2259,9 +2259,9 @@ def _spec_with_write_deliverable():
 def test_invoke_critic_persists_review_to_disk(tmp_path):
     """#7: the critic's verdict/review is always written to disk (the PASS
     branch never echoes it to the strategizer, so this is the audit trail)."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
-    node = StrategizerNode(
+    node = Node(
         StubAdapter(), name="strategizer",
         outgoing=["implementer", "critic"], spec=_spec_with_critic(),
         worker_adapters={
@@ -2282,11 +2282,11 @@ def test_invoke_critic_persists_review_to_disk(tmp_path):
 def test_missing_deliverables_normalizes_workspace_prefix(tmp_path):
     """A config 'workspace/solution.md' must match the bare file WriteDeliverable
     actually writes at study_dir/ (audit Finding 1 — the resonance UNGATED bug)."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.ipynb").write_text("x")
     (tmp_path / "notes.md").write_text("y")
-    node = StrategizerNode(
+    node = Node(
         StubAdapter(), name="strategizer", outgoing=["implementer"],
         spec=_spec_with_write_deliverable(), notes_dir=tmp_path,
     )
@@ -2308,11 +2308,11 @@ def test_missing_deliverables_does_not_require_pipeline_ipynb_when_disabled(tmp_
     are already gated the same way). A study with no ledger genuinely has
     nothing to lazily reproduce."""
     from a3dasm._src.runtime import settings
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     settings.configure({"pipeline_deliverable": False})
     try:
-        node = StrategizerNode(
+        node = Node(
             StubAdapter(), name="strategizer", outgoing=["implementer"],
             spec=_spec_with_write_deliverable(), notes_dir=tmp_path,
         )
@@ -2329,10 +2329,10 @@ def test_missing_deliverables_still_requires_pipeline_ipynb_by_default(tmp_path)
     """Default (pipeline_deliverable unset -> True): unchanged from before
     #30 -- pipeline.ipynb is still required."""
     from a3dasm._src.runtime import settings
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     settings.configure(None)
-    node = StrategizerNode(
+    node = Node(
         StubAdapter(), name="strategizer", outgoing=["implementer"],
         spec=_spec_with_write_deliverable(), notes_dir=tmp_path,
     )
@@ -2342,11 +2342,11 @@ def test_missing_deliverables_still_requires_pipeline_ipynb_by_default(tmp_path)
 
 def test_write_deliverable_injected_when_in_tools(tmp_path):
     """WriteDeliverable closure is present when declared in agent tools."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _spec_with_write_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=tmp_path,
     )
@@ -2355,11 +2355,11 @@ def test_write_deliverable_injected_when_in_tools(tmp_path):
 
 def test_write_deliverable_absent_when_not_in_tools():
     """WriteDeliverable closure is NOT registered when not in agent tools."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _minimal_spec()  # tools without WriteDeliverable
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
     )
     assert "WriteDeliverable" not in node.adapter.closure_tools
@@ -2372,13 +2372,13 @@ def test_notebook_tools_stripped_when_pipeline_deliverable_false(tmp_path):
     closure once this flag is off. Done must stay available regardless
     (still needed to close a run with no notebook at all)."""
     from a3dasm._src.runtime import settings
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     settings.configure({"pipeline_deliverable": False})
     try:
         adapter = StubAdapter()
         spec = _spec_with_write_deliverable()
-        node = StrategizerNode(
+        node = Node(
             adapter, name="strategizer", outgoing=["implementer"], spec=spec,
             notes_dir=tmp_path,
         )
@@ -2392,12 +2392,12 @@ def test_notebook_tools_present_by_default(tmp_path):
     """Default (pipeline_deliverable unset -> True): unchanged from before
     #30 -- WriteDeliverable is still injected when declared."""
     from a3dasm._src.runtime import settings
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     settings.configure(None)
     adapter = StubAdapter()
     spec = _spec_with_write_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=tmp_path,
     )
@@ -2408,7 +2408,7 @@ def test_write_deliverable_writes_notebook(tmp_path):
     """WriteDeliverable writes pipeline.ipynb directly to study_dir/."""
     import nbformat
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.evaluation.notebook_exec import build_notebook
 
     study_dir = tmp_path / "study"
@@ -2418,7 +2418,7 @@ def test_write_deliverable_writes_notebook(tmp_path):
 
     adapter = StubAdapter()
     spec = _spec_with_write_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         study_dir=study_dir, notes_dir=notes_dir,
     )
@@ -2437,7 +2437,7 @@ def test_write_deliverable_writes_notebook(tmp_path):
 
 def test_write_deliverable_rejects_py_script(tmp_path):
     """WriteDeliverable REJECTS a .py script — the deliverable is a notebook."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -2446,7 +2446,7 @@ def test_write_deliverable_rejects_py_script(tmp_path):
 
     adapter = StubAdapter()
     spec = _spec_with_write_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         study_dir=study_dir, notes_dir=notes_dir,
     )
@@ -2462,7 +2462,7 @@ def test_write_deliverable_rejects_py_script(tmp_path):
 
 def test_write_deliverable_rejects_unsupported_extension(tmp_path):
     """WriteDeliverable returns ERROR for any extension other than .ipynb."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -2471,7 +2471,7 @@ def test_write_deliverable_rejects_unsupported_extension(tmp_path):
 
     adapter = StubAdapter()
     spec = _spec_with_write_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         study_dir=study_dir, notes_dir=notes_dir,
     )
@@ -2486,7 +2486,7 @@ def test_write_deliverable_rejects_unsupported_extension(tmp_path):
 
 def test_write_deliverable_rejects_path_separators(tmp_path):
     """WriteDeliverable returns ERROR when filename contains a path separator."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     run_dir = tmp_path / "run_dir"
     notes_dir = run_dir / "debug" / "strategizer_notes"
@@ -2494,7 +2494,7 @@ def test_write_deliverable_rejects_path_separators(tmp_path):
 
     adapter = StubAdapter()
     spec = _spec_with_write_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=notes_dir,
     )
@@ -2508,11 +2508,11 @@ def test_write_deliverable_rejects_path_separators(tmp_path):
 
 def test_write_deliverable_returns_error_without_notes_dir(tmp_path):
     """WriteDeliverable returns ERROR when _current_notes_dir is None."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _spec_with_write_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=tmp_path,
     )
@@ -2539,14 +2539,14 @@ def test_strategizer_agent_tools_includes_write_deliverable():
 
 
 def test_recall_history_tool_present_in_strategizer_closures(tmp_path):
-    """RecallHistory closure is registered on StrategizerNode when delegation_log is set."""
+    """RecallHistory closure is registered on Node when delegation_log is set."""
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     delegation_log = DelegationLog(tmp_path / "delegation_log.jsonl")
     adapter = StubAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         delegation_log=delegation_log,
     )
@@ -2561,12 +2561,12 @@ def test_recall_history_returns_empty_when_no_prior(tmp_path):
     message (see test_recall_history_entry_node_gets_orchestrator_message)
     since its 'nothing found' is structural, not a transient empty log."""
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     delegation_log = DelegationLog(tmp_path / "delegation_log.jsonl")
     adapter = StubAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="implementer", outgoing=["literature_reviewer"],
         spec=spec, delegation_log=delegation_log,
     )
@@ -2583,7 +2583,7 @@ def test_recall_history_entry_node_gets_orchestrator_message(tmp_path):
     delegations and 102 evals already existing). The entry node must get an
     explanatory message pointing at the right tools instead."""
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     delegation_log = DelegationLog(tmp_path / "delegation_log.jsonl")
     # Even with records that WOULD match a naive to_node="strategizer"
@@ -2597,7 +2597,7 @@ def test_recall_history_entry_node_gets_orchestrator_message(tmp_path):
     )
     adapter = StubAdapter()
     spec = _minimal_spec()  # entry="strategizer"
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         delegation_log=delegation_log,
     )
@@ -2610,7 +2610,7 @@ def test_recall_history_entry_node_gets_orchestrator_message(tmp_path):
 def test_recall_history_returns_formatted_pairs(tmp_path):
     """RecallHistory returns formatted (task, deliverable) pairs from delegation log."""
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     jsonl_path = tmp_path / "delegation_log.jsonl"
     delegation_log = DelegationLog(jsonl_path)
@@ -2637,7 +2637,7 @@ def test_recall_history_returns_formatted_pairs(tmp_path):
 
     adapter = StubAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="implementer", outgoing=["literature_reviewer"],
         spec=spec, delegation_log=delegation_log,
     )
@@ -2659,32 +2659,32 @@ def test_recall_history_returns_formatted_pairs(tmp_path):
 
 
 def test_worker_node_has_recall_history_closure(tmp_path):
-    """WorkerNode registers RecallHistory when delegation_log is passed."""
+    """Node registers RecallHistory when delegation_log is passed."""
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import WorkerNode
+    from a3dasm._src.nodes import Node
 
     delegation_log = DelegationLog(tmp_path / "delegation_log.jsonl")
     adapter = StubAdapter()
-    node = WorkerNode(adapter, delegation_log=delegation_log, name="implementer")
+    node = Node(adapter, delegation_log=delegation_log, name="implementer")
     assert "RecallHistory" in node.adapter.closure_tools
 
 
 def test_recall_history_gated_on_delegation_log_presence():
     """RecallHistory closure is NOT registered when delegation_log is None."""
-    from a3dasm._src.nodes import StrategizerNode, WorkerNode
+    from a3dasm._src.nodes import Node, Node
 
-    # StrategizerNode without delegation_log
+    # Node without delegation_log
     adapter1 = StubAdapter()
     spec = _minimal_spec()
-    node1 = StrategizerNode(
+    node1 = Node(
         adapter1, name="strategizer", outgoing=["implementer"], spec=spec,
         delegation_log=None,
     )
     assert "RecallHistory" not in node1.adapter.closure_tools
 
-    # WorkerNode without delegation_log
+    # Node without delegation_log
     adapter2 = StubAdapter()
-    node2 = WorkerNode(adapter2, delegation_log=None, name="implementer")
+    node2 = Node(adapter2, delegation_log=None, name="implementer")
     assert "RecallHistory" not in node2.adapter.closure_tools
 
 
@@ -2695,9 +2695,9 @@ def test_recall_history_gated_on_delegation_log_presence():
 
 def test_wrap_closure_coerces_string_typed_args():
     """_wrap_closure coerces str→int/float/bool when annotations say so."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
-    node = StrategizerNode(
+    node = Node(
         StubAdapter(), name="strategizer", outgoing=[],
         spec=_minimal_spec(),
     )
@@ -2713,9 +2713,9 @@ def test_wrap_closure_coerces_string_typed_args():
 
 def test_wrap_closure_leaves_uncoercible_strings():
     """Uncoercible string values pass through unchanged."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
-    node = StrategizerNode(
+    node = Node(
         StubAdapter(), name="strategizer", outgoing=[],
         spec=_minimal_spec(),
     )
@@ -2730,9 +2730,9 @@ def test_wrap_closure_leaves_uncoercible_strings():
 
 def test_wrap_closure_recall_history_regression():
     """RecallHistory-style: n='5' (str) must not TypeError on unary -."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
-    node = StrategizerNode(
+    node = Node(
         StubAdapter(), name="strategizer", outgoing=[],
         spec=_minimal_spec(),
     )
@@ -2766,7 +2766,7 @@ def test_supported_without_attack_is_two_shot_confirm_at_boundary(tmp_path):
     drain message). The short comment here is not a justification, so it stays
     a confirm.
     """
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.infra.delegation_log import DelegationLog
 
     update_results: list[str] = []
@@ -2803,7 +2803,7 @@ def test_supported_without_attack_is_two_shot_confirm_at_boundary(tmp_path):
     worker = StubAdapter(response=_GOOD_WORKER_REPORT)
     adapter = MonitorAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer"],
@@ -2828,7 +2828,7 @@ def test_phantom_delegation_blocked_inline_on_update(tmp_path):
     The check is now at the data boundary — the error is returned by
     HypothesisUpdate directly, not via the science monitor.
     """
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.infra.delegation_log import DelegationLog
 
     update_results: list[str] = []
@@ -2856,7 +2856,7 @@ def test_phantom_delegation_blocked_inline_on_update(tmp_path):
     delegation_log = DelegationLog(jsonl_path)
     adapter = BadEvidenceAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer"],
@@ -2882,7 +2882,7 @@ def test_boundary_errors_do_not_write_science_drift(tmp_path):
     at the tool level — they return an inline ERROR and do not go through the
     science monitor's diagnostics writer.
     """
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.infra.delegation_log import DelegationLog
 
     class BadEvidenceAdapter(StubAdapter):
@@ -2913,7 +2913,7 @@ def test_boundary_errors_do_not_write_science_drift(tmp_path):
     delegation_log = DelegationLog(jsonl_path)
     adapter = BadEvidenceAdapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer"],
@@ -2959,7 +2959,7 @@ def test_escalation_invokes_critic_and_injects_findings(tmp_path):
     "REVISE", and that note_escalated was called.
     """
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     drain_results: list[str] = []
     escalated_calls: list[bool] = []
@@ -3000,7 +3000,7 @@ def test_escalation_invokes_critic_and_injects_findings(tmp_path):
 
     adapter = WriteNoteAdapter()
     spec = _spec_with_critic()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer", "critic"],
@@ -3108,7 +3108,7 @@ def test_done_critic_gate_embeds_ledger_and_falsification_flags(tmp_path):
     (c) the substring "falsification_criterion"
     """
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     captured_critic_messages: list[str] = []
 
@@ -3202,7 +3202,7 @@ def test_done_critic_gate_embeds_ledger_and_falsification_flags(tmp_path):
 
     adapter = FullFlowAdapter()
     spec = _spec_with_critic_and_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer", "critic"],
@@ -3252,7 +3252,7 @@ def test_done_gate_mode_critic_call_is_logged_as_a_delegation(tmp_path):
     snapshot, injected in-band rather than left for the critic to go find).
     """
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     captured_critic_messages: list[str] = []
 
@@ -3325,7 +3325,7 @@ def test_done_gate_mode_critic_call_is_logged_as_a_delegation(tmp_path):
 
     adapter = FullFlowAdapter()
     spec = _spec_with_critic_and_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer", "critic"],
@@ -3377,7 +3377,7 @@ def test_gate_and_feedback_critic_messages_carry_problem_statement(tmp_path):
     not be left latent for it to go find.
     """
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     captured_critic_messages: list[str] = []
 
@@ -3454,7 +3454,7 @@ def test_gate_and_feedback_critic_messages_carry_problem_statement(tmp_path):
 
     adapter = FullFlowAdapter()
     spec = _spec_with_critic_and_deliverable()
-    node = StrategizerNode(
+    node = Node(
         adapter,
         name="strategizer",
         outgoing=["implementer", "critic"],
@@ -3507,10 +3507,10 @@ def test_delegate_decodes_json_and_comma_string_hypothesis_ids(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "Done."
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     adapter = Adapter()
     spec = _ledger_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"],
         spec=spec, worker_adapters={"implementer": StubAdapter()},
         notes_dir=tmp_path,
@@ -3609,7 +3609,7 @@ def test_resolve_delegation_evals_store_dir_path_resolution(tmp_path):
     and _resolve_delegation_evals correctly counts rows for a delegation.
 
     This is the deterministic unit-test of the store_dir derivation
-    path used inside StrategizerNode._run().
+    path used inside Node._run().
     """
     from a3dasm._src.nodes import _resolve_delegation_evals
     from unittest.mock import patch

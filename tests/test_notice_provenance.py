@@ -114,7 +114,7 @@ def _node(run_dir):
 
     from a3dasm._src.backends.base import Agent, Edge, Graph
     from a3dasm._src.infra.delegation_log import DelegationLog
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class _Stub:
         def __init__(self):
@@ -139,7 +139,7 @@ def _node(run_dir):
                  edges=(Edge("strategizer", "worker"),), entry="strategizer")
     notes = run_dir / "debug" / "strategizer_notes"
     notes.mkdir(parents=True)
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="strategizer", outgoing=["worker"], spec=spec,
         worker_adapters={"worker": _Stub()}, notes_dir=notes,
         delegation_log=DelegationLog(run_dir / "debug" / "delegation_log.jsonl"),

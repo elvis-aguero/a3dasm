@@ -84,7 +84,7 @@ def test_runpipelinecell_upto_name_accepts_a_custom_phase_cell(tmp_path):
     """
     from a3dasm._src.backends.base import Agent, Edge, Graph
     from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from f3dasm._src.core import DataGenerator
     from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 
@@ -124,7 +124,7 @@ def test_runpipelinecell_upto_name_accepts_a_custom_phase_cell(tmp_path):
         _input_data={"x0": 0.0}, _output_data={}, job_status=JobStatus.OPEN))
     gen.flush()
 
-    node = StrategizerNode(
+    node = Node(
         _Stub(), name="strategizer", outgoing=["implementer"],
         spec=spec, study_dir=study_dir)
     node._current_notes_dir = run_dir / "debug" / "strategizer_notes"

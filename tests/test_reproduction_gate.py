@@ -1,4 +1,4 @@
-"""Unit tests for StrategizerNode._reproduction_gate (§B of the pipeline
+"""Unit tests for Node._reproduction_gate (§B of the pipeline
 deliverable redesign).
 
 The gate EXECUTES pipeline.py lazily against the canonical ledger and PASSES
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.evaluation.instrumented import InstrumentedDataGenerator
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 from f3dasm._src.core import DataGenerator
 from f3dasm._src.experimentdata import ExperimentData
 from f3dasm._src.experimentsample import ExperimentSample, JobStatus
@@ -67,7 +67,7 @@ def _setup(tmp_path: Path):
     run_dir = tmp_path / "runs" / "T0"
     (run_dir / "debug" / "strategizer_notes").mkdir(parents=True)
     _seed_store(run_dir / "experiment_data", n=2)  # before == 2 rows
-    node = StrategizerNode(
+    node = Node(
         _StubAdapter(), name="strategizer", outgoing=["implementer"],
         spec=_spec(), study_dir=study_dir)
     node._current_notes_dir = run_dir / "debug" / "strategizer_notes"
@@ -192,7 +192,7 @@ def test_gate_survives_a_column_populated_in_some_rows_but_missing_in_others(tmp
     run_dir = tmp_path / "runs" / "T0"
     (run_dir / "debug" / "strategizer_notes").mkdir(parents=True)
     _seed_mixed_dtype_store(run_dir / "experiment_data")
-    node = StrategizerNode(
+    node = Node(
         _StubAdapter(), name="strategizer", outgoing=["implementer"],
         spec=_spec(), study_dir=study_dir)
     node._current_notes_dir = run_dir / "debug" / "strategizer_notes"
@@ -215,7 +215,7 @@ def test_empty_ledger_rejected_by_gate(tmp_path):
     run_dir = tmp_path / "runs" / "T0"
     (run_dir / "debug" / "strategizer_notes").mkdir(parents=True)
     # Deliberately do NOT seed the store — leave it absent/empty.
-    node = StrategizerNode(
+    node = Node(
         _StubAdapter(), name="strategizer", outgoing=["implementer"],
         spec=_spec(), study_dir=study_dir)
     node._current_notes_dir = run_dir / "debug" / "strategizer_notes"
@@ -257,7 +257,7 @@ def test_gate_passes_constrained_nonextremum_headline(tmp_path):
     run_dir = tmp_path / "runs" / "T0"
     (run_dir / "debug" / "strategizer_notes").mkdir(parents=True)
     _seed_store(run_dir / "experiment_data", n=3)  # f = 0.0, 1.0, 2.0
-    node = StrategizerNode(
+    node = Node(
         _StubAdapter(), name="strategizer", outgoing=["implementer"],
         spec=_spec(), study_dir=study_dir)
     node._current_notes_dir = run_dir / "debug" / "strategizer_notes"
@@ -488,7 +488,7 @@ def test_write_deliverable_accepts_ipynb(tmp_path):
 
     spec = Graph(nodes={"strategizer": A(), "implementer": B()},
                  edges=(Edge("strategizer", "implementer"),), entry="strategizer")
-    node = StrategizerNode(_StubAdapter(), name="strategizer",
+    node = Node(_StubAdapter(), name="strategizer",
                            outgoing=["implementer"], spec=spec, study_dir=study_dir)
     wd = node.adapter.closure_tools["WriteDeliverable"]
 
@@ -515,7 +515,7 @@ def test_write_deliverable_accepts_declared_required_deliverable(tmp_path):
 
     spec = Graph(nodes={"strategizer": A(), "implementer": B()},
                  edges=(Edge("strategizer", "implementer"),), entry="strategizer")
-    node = StrategizerNode(_StubAdapter(), name="strategizer",
+    node = Node(_StubAdapter(), name="strategizer",
                            outgoing=["implementer"], spec=spec, study_dir=study_dir)
     # Simulate __call__ having synced state["required_deliverables"] onto the node.
     node._required_deliverables = ["replicate.py"]

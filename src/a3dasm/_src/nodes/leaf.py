@@ -1,4 +1,12 @@
-"""WorkerNode: generic worker node for non-orchestrator agents."""
+"""The behaviour of a node with NO outgoing edges: it answers.
+
+The other of the two behaviours :class:`~.node.Node` dispatches between. A
+leaf receives one task, answers it, and returns to whoever sent it — there
+is nowhere for it to delegate to, which is the whole of the difference. It
+is the behaviour of every non-delegating agent alike (implementer, critic,
+literature reviewer); the node's NAME in the graph is what distinguishes
+them, never its type.
+"""
 
 from __future__ import annotations
 
@@ -8,22 +16,16 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ..runtime.graph_state import AgenticState
 
-from ..infra.delegation_log import DelegationLog
-from .base import AgentNode
+from ..infra.delegation_log import DelegationLog  # noqa: F401 (type hint)
 from .parsing import _classify_response, _to_adapter_messages
 
 
-class WorkerNode(AgentNode):
-    """Generic worker node: executes tasks, writes Reports, returns to caller.
+class LeafMixin:
+    """Single-turn answering behaviour, used when a node has no outgoing edges."""
 
-    Used for any non-orchestrator agent (Implementer, Debugger,
-    LiteratureReviewer, etc.).  The node name in the graph is what
-    distinguishes agents — not the node class.
-    """
-
-    def __init__(
+    def _init_leaf(
         self,
-        adapter: Any,
+        *,
         study_dir: Any = None,
         workspace_dir: Any = None,
         delegation_log: DelegationLog | None = None,
@@ -31,13 +33,13 @@ class WorkerNode(AgentNode):
         report_sections: tuple[str, ...] | None = None,
         agent_tools: frozenset[str] | None = None,
     ) -> None:
-        super().__init__(adapter)
+        """Set up this leaf's sandboxed Write and its declared read-only tools."""
         self._name = name
         # Accepted but previously never stored: build_declared_shared_closures
         # (called below) resolves ReadProblemStatement's path through
-        # node._study_dir the same way StrategizerNode does — every worker
+        # node._study_dir the same way an orchestrating node does — every leaf
         # that declares the tool crashed with AttributeError the moment it
-        # was called (WorkerNode had no such attribute at all).
+        # was called (the leaf had no such attribute at all).
         self._study_dir = study_dir
         # The agent's declared tools — the single source of truth for which
         # capability closures this leaf worker is granted (read-only ledger/
@@ -60,7 +62,7 @@ class WorkerNode(AgentNode):
         # orchestrating nodes use, so a leaf worker (e.g. the critic) gets an
         # identical, working RecallStore/QueryStore/HypothesisList/Get surface
         # whenever it declares them. Resolves the run via the shared
-        # AgentNode._resolve_run_dir (delegation-log path).
+        # Node._resolve_run_dir (delegation-log path).
         from .tools.routing import build_declared_shared_closures
         self.adapter.closure_tools.update(
             build_declared_shared_closures(self, self._agent_tools))
@@ -144,7 +146,8 @@ class WorkerNode(AgentNode):
 
         return {"ReportEvals": ReportEvals}
 
-    def __call__(self, state: AgenticState) -> Any:
+    def _respond(self, state: AgenticState) -> Any:
+        """One task, one answer, handed back to whoever delegated it."""
         from langchain_core.messages import AIMessage
         from langgraph.types import Command
 
@@ -185,8 +188,3 @@ class WorkerNode(AgentNode):
                 "evals_used": state.get("evals_used", 0) + evals_delta,
             },
         )
-
-
-# Backward-compatible alias — ImplementerNode is the WorkerNode used in the
-# canonical 2-node topology.  New code should use WorkerNode directly.
-ImplementerNode = WorkerNode

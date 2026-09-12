@@ -1,4 +1,4 @@
-"""Coverage tests for nodes.py — WorkerNode, WriteDeliverable, RecallHistory,
+"""Coverage tests for nodes.py — Node, WriteDeliverable, RecallHistory,
 hypothesis closures, budget warnings, and other uncovered lines."""
 from __future__ import annotations
 
@@ -68,13 +68,13 @@ def _minimal_spec(name: str = "strategizer", target: str = "implementer") -> Gra
 
 
 # ---------------------------------------------------------------------------
-# WorkerNode basic invocation
+# Node basic invocation
 # ---------------------------------------------------------------------------
 
 
 def test_worker_node_returns_command(tmp_path):
-    """WorkerNode.__call__ returns a Command with last_report set."""
-    from a3dasm._src.nodes import WorkerNode
+    """Node.__call__ returns a Command with last_report set."""
+    from a3dasm._src.nodes import Node
     from langgraph.types import Command
 
     (tmp_path / "pipeline.py").write_text("# r\n")
@@ -83,7 +83,7 @@ def test_worker_node_returns_command(tmp_path):
         "### Files touched\n(none)\n### Conclusions\nOK\n### Numbers\nn: 5"
     )
     adapter = StubAdapter(response=report)
-    node = WorkerNode(adapter, name="implementer")
+    node = Node(adapter, name="implementer")
     state = _make_state(study_dir=tmp_path, return_to=END)
 
     result = node(state)
@@ -93,8 +93,8 @@ def test_worker_node_returns_command(tmp_path):
 
 
 def test_worker_node_retry_on_malformed_response(tmp_path):
-    """WorkerNode retries once when response is malformed."""
-    from a3dasm._src.nodes import WorkerNode
+    """Node retries once when response is malformed."""
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     good_report = (
@@ -111,7 +111,7 @@ def test_worker_node_retry_on_malformed_response(tmp_path):
             return good_report
 
     adapter = RetryAdapter()
-    node = WorkerNode(adapter, name="implementer")
+    node = Node(adapter, name="implementer")
     state = _make_state(study_dir=tmp_path, return_to=END)
 
     result = node(state)
@@ -121,8 +121,8 @@ def test_worker_node_retry_on_malformed_response(tmp_path):
 
 
 def test_worker_node_reports_evals(tmp_path):
-    """WorkerNode.ReportEvals closure records evaluation count."""
-    from a3dasm._src.nodes import WorkerNode
+    """Node.ReportEvals closure records evaluation count."""
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     good_report = (
@@ -136,7 +136,7 @@ def test_worker_node_reports_evals(tmp_path):
             return good_report
 
     adapter = EvalAdapter()
-    node = WorkerNode(adapter, name="implementer")
+    node = Node(adapter, name="implementer")
     state = _make_state(study_dir=tmp_path, return_to=END)
 
     result = node(state)
@@ -145,13 +145,13 @@ def test_worker_node_reports_evals(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# WorkerNode sandboxed Write
+# Node sandboxed Write
 # ---------------------------------------------------------------------------
 
 
 def test_worker_node_sandboxed_write_allows_workspace(tmp_path):
-    """WorkerNode Write closure allows writes inside workspace_dir."""
-    from a3dasm._src.nodes import WorkerNode
+    """Node Write closure allows writes inside workspace_dir."""
+    from a3dasm._src.nodes import Node
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
@@ -168,7 +168,7 @@ def test_worker_node_sandboxed_write_allows_workspace(tmp_path):
             )
 
     adapter = WriteAdapter()
-    node = WorkerNode(adapter, name="implementer", workspace_dir=workspace)
+    node = Node(adapter, name="implementer", workspace_dir=workspace)
     state = _make_state(study_dir=tmp_path, return_to=END)
     node(state)
 
@@ -178,8 +178,8 @@ def test_worker_node_sandboxed_write_allows_workspace(tmp_path):
 
 
 def test_worker_node_sandboxed_write_rejects_escape(tmp_path):
-    """WorkerNode Write closure rejects paths outside workspace_dir."""
-    from a3dasm._src.nodes import WorkerNode
+    """Node Write closure rejects paths outside workspace_dir."""
+    from a3dasm._src.nodes import Node
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
@@ -196,7 +196,7 @@ def test_worker_node_sandboxed_write_rejects_escape(tmp_path):
             )
 
     adapter = EscapeAdapter()
-    node = WorkerNode(adapter, name="implementer", workspace_dir=workspace)
+    node = Node(adapter, name="implementer", workspace_dir=workspace)
     state = _make_state(study_dir=tmp_path, return_to=END)
     node(state)
 
@@ -206,13 +206,13 @@ def test_worker_node_sandboxed_write_rejects_escape(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# WorkerNode RecallHistory
+# Node RecallHistory
 # ---------------------------------------------------------------------------
 
 
 def test_worker_node_recall_history_with_delegation_log(tmp_path):
-    """WorkerNode.RecallHistory returns prior delegations from the log."""
-    from a3dasm._src.nodes import WorkerNode
+    """Node.RecallHistory returns prior delegations from the log."""
+    from a3dasm._src.nodes import Node
     from a3dasm._src.infra.delegation_log import DelegationLog
 
     log_path = tmp_path / "delegation_log.jsonl"
@@ -241,7 +241,7 @@ def test_worker_node_recall_history_with_delegation_log(tmp_path):
             )
 
     adapter = RecallAdapter()
-    node = WorkerNode(adapter, name="implementer", delegation_log=log)
+    node = Node(adapter, name="implementer", delegation_log=log)
     state = _make_state(study_dir=tmp_path, return_to=END)
     node(state)
 
@@ -250,8 +250,8 @@ def test_worker_node_recall_history_with_delegation_log(tmp_path):
 
 
 def test_worker_node_recall_history_empty(tmp_path):
-    """WorkerNode.RecallHistory returns no-records message when log is empty."""
-    from a3dasm._src.nodes import WorkerNode
+    """Node.RecallHistory returns no-records message when log is empty."""
+    from a3dasm._src.nodes import Node
     from a3dasm._src.infra.delegation_log import DelegationLog
 
     log_path = tmp_path / "delegation_log.jsonl"
@@ -269,7 +269,7 @@ def test_worker_node_recall_history_empty(tmp_path):
             )
 
     adapter = RecallAdapter()
-    node = WorkerNode(adapter, name="implementer", delegation_log=log)
+    node = Node(adapter, name="implementer", delegation_log=log)
     state = _make_state(study_dir=tmp_path, return_to=END)
     node(state)
 
@@ -278,7 +278,7 @@ def test_worker_node_recall_history_empty(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode: WriteDeliverable
+# Node: WriteDeliverable
 # ---------------------------------------------------------------------------
 
 
@@ -286,7 +286,7 @@ def test_write_deliverable_creates_file(tmp_path):
     """WriteDeliverable writes pipeline.ipynb to study_dir."""
     import nbformat
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.evaluation.notebook_exec import build_notebook
 
     nb_json = nbformat.writes(build_notebook(
@@ -305,7 +305,7 @@ def test_write_deliverable_creates_file(tmp_path):
 
     adapter = DeliverableAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         study_dir=str(tmp_path),
     )
@@ -326,7 +326,7 @@ def test_write_deliverable_repairs_code_cell_missing_outputs(tmp_path):
     writing to disk."""
     import json
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     malformed_nb = json.dumps({
         "cells": [
@@ -350,7 +350,7 @@ def test_write_deliverable_repairs_code_cell_missing_outputs(tmp_path):
 
     adapter = DeliverableAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         study_dir=str(tmp_path),
     )
@@ -370,7 +370,7 @@ def test_write_deliverable_repairs_code_cell_missing_outputs(tmp_path):
 
 def test_write_deliverable_rejects_bad_extension(tmp_path):
     """WriteDeliverable rejects any file that doesn't end in .ipynb."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.ipynb").write_text("# r\n")
 
@@ -388,7 +388,7 @@ def test_write_deliverable_rejects_bad_extension(tmp_path):
 
     adapter = DeliverableAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         study_dir=str(tmp_path),
     )
@@ -401,7 +401,7 @@ def test_write_deliverable_rejects_bad_extension(tmp_path):
 
 def test_write_deliverable_rejects_path_separators(tmp_path):
     """WriteDeliverable rejects filenames with path separators."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
 
@@ -419,7 +419,7 @@ def test_write_deliverable_rejects_path_separators(tmp_path):
 
     adapter = DeliverableAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         study_dir=str(tmp_path),
     )
@@ -431,19 +431,19 @@ def test_write_deliverable_rejects_path_separators(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode: RecallHistory
+# Node: RecallHistory
 # ---------------------------------------------------------------------------
 
 
 def test_strategizer_recall_history_with_log(tmp_path):
-    """StrategizerNode.RecallHistory returns entries received by a node that
+    """Node.RecallHistory returns entries received by a node that
     is NOT the graph's entry (the entry node is always the from_node, never
     the to_node — see test_recall_history_entry_node_gets_orchestrator_message
     in test_nodes.py for that dedicated, structurally-always-empty case).
     Uses a custom spec with entry="hub" so the "strategizer"-named node under
     test keeps its usual Done/FollowUp tool set while genuinely being able to
     receive delegations."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
     from a3dasm._src.infra.delegation_log import DelegationLog
 
     (tmp_path / "pipeline.py").write_text("# r\n")
@@ -481,14 +481,24 @@ def test_strategizer_recall_history_with_log(tmp_path):
                             "WriteDeliverable"})
         description = "Test strategizer, not the graph entry."
 
+    class _Leaf(Agent):
+        role = "implementer"
+        description = "something for the mid-tier node to delegate to"
+
+    # A MID-TIER node: it receives delegations from the hub AND has an
+    # outgoing edge of its own, which is what earns it the orchestrating
+    # toolset (Done/FollowUp/...). A node with no outgoing edge is a leaf and
+    # has no Done to call — see nodes/node.py.
     spec = Graph(
-        nodes={"hub": _Hub(), "strategizer": _Strategizer()},
-        edges=(Edge("hub", "strategizer"),), entry="hub")
+        nodes={"hub": _Hub(), "strategizer": _Strategizer(), "leaf": _Leaf()},
+        edges=(Edge("hub", "strategizer"), Edge("strategizer", "leaf")),
+        entry="hub")
 
     adapter = RecallAdapter()
-    node = StrategizerNode(
-        adapter, name="strategizer", outgoing=[], spec=spec,
+    node = Node(
+        adapter, name="strategizer", outgoing=["leaf"], spec=spec,
         study_dir=str(tmp_path),
+        worker_adapters={"leaf": StubAdapter()},
         delegation_log=log,
     )
     state = _make_state(study_dir=tmp_path)
@@ -499,13 +509,13 @@ def test_strategizer_recall_history_with_log(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode: HypothesisPropose/Update/List/Get closures
+# Node: HypothesisPropose/Update/List/Get closures
 # ---------------------------------------------------------------------------
 
 
 def test_hypothesis_propose_without_ledger():
     """HypothesisPropose returns ERROR when no ledger is set."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     results = []
 
@@ -524,7 +534,7 @@ def test_hypothesis_propose_without_ledger():
 
     adapter = HypAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     node(_make_state())
 
     assert results
@@ -533,7 +543,7 @@ def test_hypothesis_propose_without_ledger():
 
 def test_hypothesis_list_without_ledger():
     """HypothesisList returns ERROR when no ledger is set."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     results = []
 
@@ -547,7 +557,7 @@ def test_hypothesis_list_without_ledger():
 
     adapter = HypAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     node(_make_state())
 
     assert results
@@ -556,7 +566,7 @@ def test_hypothesis_list_without_ledger():
 
 def test_hypothesis_propose_with_ledger(tmp_path):
     """HypothesisPropose returns H-id when ledger is active."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     notes_dir = tmp_path / "notes"
@@ -579,7 +589,7 @@ def test_hypothesis_propose_with_ledger(tmp_path):
 
     adapter = HypAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=notes_dir,
     )
@@ -593,7 +603,7 @@ def test_hypothesis_propose_with_ledger(tmp_path):
 
 def test_hypothesis_list_with_entries(tmp_path):
     """HypothesisList returns hypothesis entries when ledger has items."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     notes_dir = tmp_path / "notes"
@@ -621,7 +631,7 @@ def test_hypothesis_list_with_entries(tmp_path):
 
     adapter = HypListAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=notes_dir,
     )
@@ -642,7 +652,7 @@ def test_hypothesis_list_with_entries(tmp_path):
 
 def test_hypothesis_update_coerces_json_string_evidence(tmp_path):
     """Backends may pass evidence as a JSON string; closure coerces."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     notes_dir = tmp_path / "notes"
@@ -671,7 +681,7 @@ def test_hypothesis_update_coerces_json_string_evidence(tmp_path):
 
     adapter = Adapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=notes_dir,
     )
@@ -684,7 +694,7 @@ def test_hypothesis_update_coerces_json_string_evidence(tmp_path):
 
 def test_hypothesis_get_not_found(tmp_path):
     """HypothesisGet returns ERROR for unknown hypothesis id."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     notes_dir = tmp_path / "notes"
@@ -702,7 +712,7 @@ def test_hypothesis_get_not_found(tmp_path):
 
     adapter = HypGetAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         notes_dir=notes_dir,
     )
@@ -714,13 +724,13 @@ def test_hypothesis_get_not_found(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode: budget warnings in __call__
+# Node: budget warnings in __call__
 # ---------------------------------------------------------------------------
 
 
 def test_budget_95_percent_warning_in_context():
     """At 95% budget, a budget warning is injected into the context."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     received_messages = []
 
@@ -733,7 +743,7 @@ def test_budget_95_percent_warning_in_context():
 
     adapter = BudgetAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
 
     state = _make_state()
     # 95% elapsed of a 100s budget
@@ -748,7 +758,7 @@ def test_budget_95_percent_warning_in_context():
 
 def test_eval_budget_exceeded_warning():
     """When eval_budget is exceeded, a warning is injected into context."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     received_messages = []
 
@@ -761,7 +771,7 @@ def test_eval_budget_exceeded_warning():
 
     adapter = EvalBudgetAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
 
     state = _make_state()
     state["eval_budget"] = 10
@@ -776,13 +786,13 @@ def test_eval_budget_exceeded_warning():
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode: _record_tool_error / _wrap_closure (lines 981-1059)
+# Node: _record_tool_error / _wrap_closure (lines 981-1059)
 # ---------------------------------------------------------------------------
 
 
 def test_wrap_closure_counts_error_returns(tmp_path):
     """_wrap_closure increments error_counts when closure returns ERROR:."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
 
@@ -796,7 +806,7 @@ def test_wrap_closure_counts_error_returns(tmp_path):
 
     adapter = ErrorClosureAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
     )
     state = _make_state(study_dir=tmp_path)
@@ -807,13 +817,13 @@ def test_wrap_closure_counts_error_returns(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode: Delegate to unknown target returns ERROR
+# Node: Delegate to unknown target returns ERROR
 # ---------------------------------------------------------------------------
 
 
 def test_delegate_unknown_target_returns_error():
     """Delegate to a non-existent target returns ERROR."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     results = []
 
@@ -831,7 +841,7 @@ def test_delegate_unknown_target_returns_error():
 
     adapter = BadDelegateAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     node(_make_state())
 
     assert results
@@ -839,13 +849,13 @@ def test_delegate_unknown_target_returns_error():
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode: Delegate with no worker adapter returns ERROR
+# Node: Delegate with no worker adapter returns ERROR
 # ---------------------------------------------------------------------------
 
 
 def test_delegate_no_worker_adapter_returns_error():
     """Delegate to a valid target with no worker_adapters returns ERROR."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     results = []
 
@@ -864,7 +874,7 @@ def test_delegate_no_worker_adapter_returns_error():
     adapter = NoWorkerAdapter()
     spec = _minimal_spec()
     # No worker_adapters provided — "implementer" has no adapter
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={},
     )
@@ -875,29 +885,29 @@ def test_delegate_no_worker_adapter_returns_error():
 
 
 # ---------------------------------------------------------------------------
-# WorkerNode: _make_recall_history with None delegation_log
+# Node: _make_recall_history with None delegation_log
 # ---------------------------------------------------------------------------
 
 
 def test_worker_node_recall_history_none_log(tmp_path):
-    """WorkerNode RecallHistory when delegation_log is None is not added."""
-    from a3dasm._src.nodes import WorkerNode
+    """Node RecallHistory when delegation_log is None is not added."""
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
-    node = WorkerNode(adapter, name="implementer", delegation_log=None)
+    node = Node(adapter, name="implementer", delegation_log=None)
 
     # RecallHistory should NOT be injected when delegation_log is None
     assert "RecallHistory" not in adapter.closure_tools
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode: Done() with pending delegations returns ERROR
+# Node: Done() with pending delegations returns ERROR
 # ---------------------------------------------------------------------------
 
 
 def test_done_with_pending_delegations_returns_error(tmp_path):
     """Done() is refused when delegations are still Working."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
 
@@ -933,7 +943,7 @@ def test_done_with_pending_delegations_returns_error(tmp_path):
     adapter = EagerDoneAdapter()
     spec = _minimal_spec()
     worker = SlowWorker()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -949,17 +959,17 @@ def test_done_with_pending_delegations_returns_error(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# StrategizerNode: _accumulate_usage
+# Node: _accumulate_usage
 # ---------------------------------------------------------------------------
 
 
 def test_accumulate_usage_sums_token_counts():
     """_accumulate_usage correctly sums token counts across multiple calls."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
 
     node._accumulate_usage({"input_tokens": 10, "output_tokens": 5})
     node._accumulate_usage({"input_tokens": 20, "output_tokens": 15})
@@ -970,11 +980,11 @@ def test_accumulate_usage_sums_token_counts():
 
 def test_accumulate_usage_handles_none_values():
     """_accumulate_usage treats None values as 0."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
 
     node._accumulate_usage({"input_tokens": None, "output_tokens": None})
 
@@ -984,11 +994,11 @@ def test_accumulate_usage_handles_none_values():
 
 def test_accumulate_usage_adds_cost():
     """_accumulate_usage sums total_cost_usd."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     adapter = StubAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
 
     node._accumulate_usage({"total_cost_usd": 0.01})
     node._accumulate_usage({"total_cost_usd": 0.02})

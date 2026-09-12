@@ -11,7 +11,7 @@ from pathlib import Path
 import nbformat
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -51,7 +51,7 @@ def _node(tmp_path):
         edges=(Edge("strategizer", "implementer"),),
         entry="strategizer",
     )
-    return StrategizerNode(
+    return Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()}, study_dir=str(tmp_path),
     )

@@ -11,7 +11,7 @@ from a3dasm._src.runtime import settings
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
 from a3dasm._src.epistemics.milestones import MilestoneLedger
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -63,7 +63,7 @@ def _node(tmp_path):
         edges=(Edge("strategizer", "implementer"),), entry="strategizer")
     notes = tmp_path / "debug" / "strategizer_notes"
     notes.mkdir(parents=True)
-    return StrategizerNode(
+    return Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()},
         study_dir=tmp_path, notes_dir=notes,

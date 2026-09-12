@@ -1,7 +1,11 @@
-"""Agentic graph nodes. Public surface for the nodes package."""
+"""Agentic graph nodes. Public surface for the nodes package.
+
+One class: :class:`~.node.Node`. A node has outgoing edges or it does not, and
+nothing else about the node layer varies by agent — see ``node.py``.
+"""
 
 # Intentionally re-exports private helpers (_*) needed by tests and internal callers.
-from .base import AgentNode
+from .node import Node
 from .parsing import (  # noqa: F401
     _classify_response,
     _consult_handbook,
@@ -12,17 +16,12 @@ from .parsing import (  # noqa: F401
     _stamped_eval_count,
     _to_adapter_messages,
 )
-from .strategizer import StrategizerNode
 from .tools.routing import (
-    _EXIT_INTERVIEW,  # noqa: F401 – canonical def in routing.py
+    _EXIT_INTERVIEW,  # noqa: F401 – canonical def in routing/feedback.py
 )
-from .worker import ImplementerNode, WorkerNode
 
 __all__ = [
-    "AgentNode",
-    "StrategizerNode",
-    "WorkerNode",
-    "ImplementerNode",
+    "Node",
     "_EXIT_INTERVIEW",
     "_classify_response",
     "_consult_handbook",

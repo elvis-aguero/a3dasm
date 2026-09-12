@@ -81,12 +81,12 @@ def _make_state(study_dir=None, messages=None, **kwargs):
 
 def test_unaccepted_termination_reprompts():
     """When adapter doesn't call Done(), node loops back with diagnostic message."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     # Adapter never calls Done
     adapter = StubAdapter(response="Final analysis complete.")
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
     )
 
@@ -112,7 +112,7 @@ def test_unaccepted_termination_reprompts():
 
 def test_ungated_finish_after_three_attempts():
     """After 3 loopbacks, 4th call terminates with UNGATED banner."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     # Adapter never calls Done; pipeline.py present so only Done is missing
     study_dir = Path(tempfile.mkdtemp(prefix="f3dasm_rat_"))
@@ -120,7 +120,7 @@ def test_ungated_finish_after_three_attempts():
 
     adapter = StubAdapter(response="Final analysis complete.")
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
     )
 
@@ -150,7 +150,7 @@ def test_ungated_finish_after_three_attempts():
 
 def test_accepted_done_no_banner():
     """Full Done() dance → END with no UNGATED banner; _finish_attempts stays 0."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     study_dir = Path(tempfile.mkdtemp(prefix="f3dasm_rat_"))
     (study_dir / "pipeline.ipynb").write_text("# test\n")
@@ -164,7 +164,7 @@ def test_accepted_done_no_banner():
 
     adapter = DoneCallingAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
     )
     state = _make_state(study_dir=study_dir)
@@ -188,7 +188,7 @@ def test_run_backstop_halts_resumable_past_multiple(tmp_path):
     """Past RUN_BACKSTOP_MULTIPLE x budget: invoke skipped, the run HALTS
     cleanly and resumably — a HALTED banner is prefixed (conclusion kept
     below it) and debug/run_status.json marks it resumable."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -199,7 +199,7 @@ def test_run_backstop_halts_resumable_past_multiple(tmp_path):
 
     adapter = StubAdapter(response="Should not be called.")
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
     )
 
@@ -233,7 +233,7 @@ def test_run_backstop_halts_resumable_past_multiple(tmp_path):
 
 def test_usd_budget_exhausted_halts_resumable(tmp_path):
     """When accrued cost reaches budget_usd, the run halts resumably."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
@@ -243,7 +243,7 @@ def test_usd_budget_exhausted_halts_resumable(tmp_path):
     (run_dir / "debug" / "thread_id").write_text("tid-usd")
 
     adapter = StubAdapter(response="Should not be called.")
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"],
         spec=_minimal_spec(),
     )
@@ -268,14 +268,14 @@ def test_usd_budget_exhausted_halts_resumable(tmp_path):
 def test_usd_budget_inactive_under_ollama_does_not_halt(tmp_path):
     """No per-call cost (ollama) → the USD ceiling is inactive: the run is
     NOT halted even with a budget_usd set, and the strategizer runs."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     study_dir = tmp_path / "study"
     study_dir.mkdir()
     (study_dir / "pipeline.ipynb").write_text("# test\n")
 
     adapter = StubAdapter(response="ollama answer")
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"],
         spec=_minimal_spec(),
     )
@@ -295,7 +295,7 @@ def test_usd_budget_inactive_under_ollama_does_not_halt(tmp_path):
 
 def test_repeated_errors_halt_resumable(tmp_path, monkeypatch):
     """N consecutive Errored delegations from one target → resumable halt."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     monkeypatch.setenv("F3DASM_MAX_CONSECUTIVE_ERRORS", "3")
     study_dir = tmp_path / "study"
@@ -306,7 +306,7 @@ def test_repeated_errors_halt_resumable(tmp_path, monkeypatch):
     (run_dir / "debug" / "thread_id").write_text("tid-err")
 
     adapter = StubAdapter(response="Should not be called.")
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"],
         spec=_minimal_spec(),
     )
@@ -324,14 +324,14 @@ def test_repeated_errors_halt_resumable(tmp_path, monkeypatch):
 def test_soft_budget_does_not_terminate_below_backstop():
     """Time budget is SOFT: past 100% but below the backstop, the run
     CONTINUES (adapter.invoke is called) — warning only, no force-end."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     study_dir = Path(tempfile.mkdtemp(prefix="f3dasm_rat_"))
     (study_dir / "pipeline.ipynb").write_text("# test\n")
 
     adapter = StubAdapter(response="Continuing despite soft warning.")
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
     )
 
@@ -354,7 +354,7 @@ def test_soft_budget_does_not_terminate_below_backstop():
 
 def test_working_delegations_survive_loopback():
     """A Working registry entry is not cleared by the A1/A2 reset on loopback."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     study_dir = Path(tempfile.mkdtemp(prefix="f3dasm_rat_"))
     (study_dir / "pipeline.ipynb").write_text("# test\n")
@@ -362,7 +362,7 @@ def test_working_delegations_survive_loopback():
     # Adapter does NOT call Done → triggers loopback
     adapter = StubAdapter(response="Still thinking.")
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
     )
 
@@ -402,12 +402,12 @@ def test_running_delegation_does_not_burn_finish_attempts():
     bounded finish-attempt budget. Waiting it out is work, not a failed finish —
     otherwise a slow-but-healthy delegation force-terminates the run UNGATED with
     wall budget to spare. The run's time backstop bounds a true hang instead."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     study_dir = Path(tempfile.mkdtemp(prefix="f3dasm_rat_"))
     (study_dir / "pipeline.ipynb").write_text("# test\n")
     adapter = StubAdapter(response="Polling D004.")
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"],
         spec=_minimal_spec())
 
@@ -510,7 +510,7 @@ def test_propose_rejects_duplicate_case_whitespace(tmp_path):
 def test_readnote_directory_returns_listing(tmp_path):
     """ReadNote on a directory returns a file LISTING (not an error) so the agent
     can discover and reuse the implementers' delegation code."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# test\n")
     # Create a subdirectory with a file to pass as the ReadNote path
@@ -531,7 +531,7 @@ def test_readnote_directory_returns_listing(tmp_path):
 
     adapter = ReadNoteAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         study_dir=str(tmp_path),
     )
@@ -552,7 +552,7 @@ def test_readnote_rejects_paths_escaping_study_dir(tmp_path):
     (Path(study)/'/' == Path('/')) and rglob('*') walked the WHOLE filesystem,
     hanging the run. ReadNote must contain to the study dir and reject escapes
     fast — never walk outside it."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# test\n")
     results: list[str] = []
@@ -567,7 +567,7 @@ def test_readnote_rejects_paths_escaping_study_dir(tmp_path):
             self.closure_tools["Done"](summary="done")
             return "done"
 
-    node = StrategizerNode(
+    node = Node(
         EscapeAdapter(), name="strategizer", outgoing=["implementer"],
         spec=_minimal_spec(), study_dir=str(tmp_path))
     node(_make_state(study_dir=tmp_path))

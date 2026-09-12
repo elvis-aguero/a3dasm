@@ -79,7 +79,7 @@ def test_catalog_fixes_observed_drift_on_a_real_strategizer():
     the prose said 'Read' not 'ReadNote'. The generated catalog uses the live
     closure keys, so they're present and correctly named."""
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class _Stub:
         def __init__(self):
@@ -104,7 +104,7 @@ def test_catalog_fixes_observed_drift_on_a_real_strategizer():
     spec = Graph(
         nodes={"strategizer": A(), "implementer": B()},
         edges=(Edge("strategizer", "implementer"),), entry="strategizer")
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()})
 

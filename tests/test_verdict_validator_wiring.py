@@ -10,7 +10,7 @@ import json
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -65,7 +65,7 @@ def _node(tmp_path, critic_reply: str = "", critic_raises: bool = False):
     notes.mkdir(parents=True)
     dlog = DelegationLog(tmp_path / "debug" / "delegation_log.jsonl")
     critic = _CriticStub(critic_reply, raises=critic_raises)
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="strategizer", outgoing=["implementer", "critic"], spec=spec,
         worker_adapters={"implementer": _Stub(), "critic": critic},
         notes_dir=notes, delegation_log=dlog,

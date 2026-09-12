@@ -1,7 +1,7 @@
-"""The strategizer's tool closures (Delegate/Parallel/GetStatus/Done/FollowUp/
+"""The tool closures an orchestrating node is handed (Delegate/Parallel/GetStatus/Done/FollowUp/
 WriteNote/ReadNote/WriteDeliverable/RecallStore/QueryStore/AskForFeedback +
 hypothesis tools). Built per-node; the node is passed in so closures reach its
-state. Extracted verbatim from StrategizerNode._build_routing_closures.
+state. Built by an orchestrating node via Node._build_routing_closures.
 
 This package assembles the final tool dict from the family-specific builders
 in its sibling modules — delegation.py, notes.py, notebook.py, feedback.py,
@@ -43,8 +43,8 @@ def build_routing_tools(node) -> dict:
     _dele = build_delegation_closures(node)
 
     # Topology-injected tools: granted to every orchestrating node because the
-    # ability to delegate/recall derives from having outgoing edges, not from a
-    # static class declaration. Capability tools (RecallStore/QueryStore/
+    # ability to delegate/recall derives from having outgoing edges — the only
+    # structural fact about a node (see nodes/node.py). Capability tools (RecallStore/QueryStore/
     # Hypothesis*/Milestone*/...) are declaration-gated below, NOT here.
     closures: dict = {
         "Delegate": _dele["Delegate"],
@@ -126,7 +126,7 @@ def build_routing_tools(node) -> dict:
     # Capability closures are DECLARATION-GATED (single source of truth = the
     # Agent's `tools`), exactly like the notebook/Done/notes tools above.
     # Hypothesis MUTATE tools go only to agents that declare them (the
-    # strategizer); a stateless worker must never mutate the shared ledger.
+    # strategizer); a stateless leaf must never mutate the shared ledger.
     _hyp = node._build_hypothesis_closures()
     for _t in ("HypothesisPropose", "HypothesisUpdate",
                "LinkFalsificationAttempt"):
@@ -138,7 +138,7 @@ def build_routing_tools(node) -> dict:
             if _t in _agent_tools:
                 closures[_t] = _fn
     # Read-only ledger/store tools — declaration-gated and shared verbatim with
-    # leaf WorkerNodes (see WorkerNode.__init__), so the exposure surface is
+    # leaf nodes (see nodes/leaf.py), so the exposure surface is
     # identical across node types.
     closures.update(build_declared_shared_closures(node, _agent_tools))
 

@@ -1,10 +1,12 @@
-"""StrategizerNode: orchestrator node for the f3dasm agentic runtime.
+"""The behaviour of a node that HAS outgoing edges: it delegates.
 
-``inspect.getsource(StrategizerNode.__call__)`` reads the full routing logic.
-The node is assembled from mixins, each one concern: ``recording`` (notes,
-retrospectives), ``critic_gate`` (the adversarial review), ``lifecycle``
-(budget/backstop halts), ``ledger_tools`` (hypothesis + milestone closures),
-``reproduction_gate`` (the notebook's lazy-reproduction check).
+One of the two behaviours :class:`~.node.Node` dispatches between, and the
+only one that runs a multi-turn loop: it reads Reports, decides the next
+delegation, and owns the run's gates (budget, critic, reproduction). A node
+has this behaviour because of its TOPOLOGY, not its role — any node with an
+outgoing edge orchestrates, whatever it is called.
+
+``inspect.getsource(Node._orchestrate)`` reads the full routing logic.
 """
 
 from __future__ import annotations
@@ -22,29 +24,16 @@ from ..epistemics.hypothesis_ledger import HypothesisLedger
 from ..epistemics.science_monitor import ScienceMonitor
 from ..infra.delegation_log import DelegationLog
 from ._constants import run_backstop_multiple
-from .base import AgentNode
-from .critic_gate import CriticGateMixin
-from .ledger_tools import LedgerToolsMixin
-from .lifecycle import LifecycleMixin
 from .notices import wrap_notice
 from .parsing import _to_adapter_messages
-from .recording import RecordingMixin
-from .reproduction_gate import ReproductionGateMixin
 
 
-class StrategizerNode(
-    RecordingMixin,
-    CriticGateMixin,
-    LifecycleMixin,
-    LedgerToolsMixin,
-    ReproductionGateMixin,
-    AgentNode,
-):
-    """Orchestrator: reads Reports, decides next Delegation or Done/Ask."""
+class OrchestrationMixin:
+    """Delegating behaviour, engaged when a node has outgoing edges."""
 
-    def __init__(
+    def _init_orchestration(
         self,
-        adapter: Any,
+        *,
         name: str,
         outgoing: list[str],
         spec: Any,
@@ -56,10 +45,7 @@ class StrategizerNode(
         workspace_dir: Any = None,
         delegation_log: DelegationLog | None = None,
     ) -> None:
-        super().__init__(adapter)
-        self._name = name
-        self._outgoing = list(outgoing)
-        self._spec = spec
+        """Set up the delegation registry, the ledgers and the routing tools."""
         self._route: dict = {}
         self._study_dir = study_dir
         self._workspace_dir = Path(workspace_dir) if workspace_dir is not None else None
@@ -478,7 +464,8 @@ class StrategizerNode(
 
         return _wrapped
 
-    def __call__(self, state: AgenticState) -> Any:
+    def _orchestrate(self, state: AgenticState) -> Any:
+        """One orchestration turn: inject context, invoke, route the result."""
         import time
 
         from langchain_core.messages import AIMessage, HumanMessage

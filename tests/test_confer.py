@@ -8,7 +8,7 @@ from __future__ import annotations
 import threading
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -50,7 +50,7 @@ def _node(tmp_path=None):
         from a3dasm._src.infra.delegation_log import DelegationLog
         dlog = DelegationLog(tmp_path / "debug" / "delegation_log.jsonl")
         kwargs = {"notes_dir": notes, "delegation_log": dlog}
-    return StrategizerNode(
+    return Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()},
         **kwargs,
@@ -130,7 +130,7 @@ def _run_with_worker(worker_adapter, strategizer_adapter=None):
                 return "done"
         strategizer_adapter = _Delegate()
 
-    n = StrategizerNode(
+    n = Node(
         strategizer_adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker_adapter},
     )

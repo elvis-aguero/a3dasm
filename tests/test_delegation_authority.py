@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -42,7 +42,7 @@ def _spec():
 
 def _node(tmp_path):
     log = DelegationLog(tmp_path / "delegation_log.jsonl")
-    node = StrategizerNode(
+    node = Node(
         _Stub(), name="strategizer", outgoing=["implementer"],
         spec=_spec(), worker_adapters={"implementer": _Stub()},
         delegation_log=log,
@@ -103,7 +103,7 @@ def test_log_status_none_for_truly_unknown(tmp_path):
 def test_no_log_falls_back_to_cache_only(tmp_path):
     """With no persistent log, _pending_delegations uses the cache as-is (no
     crash); existence queries simply return None."""
-    node = StrategizerNode(
+    node = Node(
         _Stub(), name="strategizer", outgoing=["implementer"],
         spec=_spec(), worker_adapters={"implementer": _Stub()},
         delegation_log=None,

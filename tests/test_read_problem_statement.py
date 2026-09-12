@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -38,7 +38,7 @@ def _read_problem_statement(tmp_path, study_dir):
         edges=(Edge("strategizer", "implementer"),),
         entry="strategizer")
     dlog = DelegationLog(run_dir / "debug" / "delegation_log.jsonl")
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="implementer", outgoing=[],
         spec=spec, worker_adapters={},
         notes_dir=None, delegation_log=dlog,

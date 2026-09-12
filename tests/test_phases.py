@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 from a3dasm._src.runtime.phases import Phase, resolve_phase
 
 
@@ -42,7 +42,7 @@ def _node(tmp_path):
     spec = Graph(
         nodes={"strategizer": A(), "implementer": B()},
         edges=(Edge("strategizer", "implementer"),), entry="strategizer")
-    return StrategizerNode(
+    return Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()},
         delegation_log=DelegationLog(tmp_path / "dlog.jsonl"))

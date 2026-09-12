@@ -8,7 +8,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.runtime.graph_builder import build_graph
 from a3dasm._src.runtime.graph_state import AgenticState
-from a3dasm._src.nodes import ImplementerNode, StrategizerNode
+from a3dasm._src.nodes import Node, Node
 
 
 class StubAdapter:
@@ -73,13 +73,13 @@ def test_build_graph_creates_compiledgraph():
 
 
 def test_build_graph_strategizer_role_creates_strategizer_node():
-    """Agent with role='strategizer' is built as StrategizerNode."""
+    """Agent with role='strategizer' is built as Node."""
     built_nodes = {}
 
-    class TrackingStrategizerNode(StrategizerNode):
+    class TrackingStrategizerNode(Node):
         pass
 
-    class TrackingImplementerNode(ImplementerNode):
+    class TrackingImplementerNode(Node):
         pass
 
     spec = Graph(
@@ -89,11 +89,11 @@ def test_build_graph_strategizer_role_creates_strategizer_node():
     )
 
     import a3dasm._src.runtime.graph_builder as gb
-    original_strat = gb.StrategizerNode
-    original_impl = gb.ImplementerNode
+    original_strat = gb.Node
+    original_impl = gb.Node
     try:
-        gb.StrategizerNode = TrackingStrategizerNode
-        gb.ImplementerNode = TrackingImplementerNode
+        gb.Node = TrackingStrategizerNode
+        gb.Node = TrackingImplementerNode
 
         adapters = {}
 
@@ -104,8 +104,8 @@ def test_build_graph_strategizer_role_creates_strategizer_node():
 
         build_graph(spec, make_adapter)
     finally:
-        gb.StrategizerNode = original_strat
-        gb.ImplementerNode = original_impl
+        gb.Node = original_strat
+        gb.Node = original_impl
 
 
 def test_build_graph_entry_node_receives_initial_message():
@@ -140,7 +140,7 @@ def test_build_graph_entry_node_receives_initial_message():
 
 
 def test_build_graph_routes_delegate_to_implementer():
-    """StrategizerNode delegates to ImplementerNode when Delegate closure is called."""
+    """Node delegates to Node when Delegate closure is called."""
     strat_call_count = [0]
     impl_call_count = [0]
 

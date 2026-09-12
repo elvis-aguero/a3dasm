@@ -229,7 +229,7 @@ def test_per_node_fallback_monotonic_without_log():
     from pathlib import Path as _Path
 
     class _FakeNode:
-        """Minimal stub that mimics StrategizerNode counter logic."""
+        """Minimal stub that mimics Node counter logic."""
         def __init__(self):
             self._delegation_log = None
             self._delegation_seq = 0

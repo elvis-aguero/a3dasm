@@ -37,7 +37,7 @@ _TOKEN_FIELDS = (
 
 
 class Telemetry:
-    """Per-run telemetry writer.  One instance per :class:`StrategizerNode`."""
+    """Per-run telemetry writer.  One instance per orchestrating node."""
 
     def __init__(self, debug_dir: Any) -> None:
         self._dir = Path(debug_dir) / "telemetry"

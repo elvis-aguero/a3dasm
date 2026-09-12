@@ -4,7 +4,7 @@ it stops blocking Done() (instead of bouncing on "wait for all delegations")."""
 from __future__ import annotations
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -35,7 +35,7 @@ def _node():
         nodes={"strategizer": A(), "implementer": B()},
         edges=(Edge("strategizer", "implementer"),), entry="strategizer",
     )
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()},
     )
@@ -289,7 +289,7 @@ def test_readnote_lists_a_directory_so_delegation_code_is_discoverable(tmp_path)
     d = tmp_path / "debug" / "delegations" / "D005"
     d.mkdir(parents=True)
     (d / "local_search.py").write_text("# the local search that found the optimum\n")
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()}, study_dir=str(tmp_path),
     )
@@ -413,7 +413,7 @@ def test_ghost_delegation_flushed_interrupted_at_run_close(tmp_path):
             return "Done."
 
     adapter = _BypassDoneAdapter()
-    n = StrategizerNode(
+    n = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()},
         delegation_log=dlog, study_dir=str(tmp_path),

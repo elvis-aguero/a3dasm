@@ -8,7 +8,7 @@ from a3dasm._src.epistemics.milestones import (
     implementer_block,
     render_backlog,
 )
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -100,7 +100,7 @@ def _node(tmp_path):
                Edge("strategizer", "implementer")), entry="strategizer")
     notes = tmp_path / "debug" / "strategizer_notes"
     notes.mkdir(parents=True)
-    return StrategizerNode(
+    return Node(
         _Stub(), name="strategizer",
         outgoing=["literature_reviewer", "implementer"], spec=spec,
         worker_adapters={"literature_reviewer": _Stub(), "implementer": _Stub()},

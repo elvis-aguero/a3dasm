@@ -36,12 +36,7 @@ from ._src.evaluation.lookup import LookupDataGenerator
 # get_evaluator); it is deliberately not re-exported so agents cannot build a
 # store-redirected evaluator. See KB 0001.
 from ._src.evaluation.oracle_resolution import get_evaluator
-from ._src.nodes import (
-    AgentNode,
-    ImplementerNode,
-    StrategizerNode,
-    WorkerNode,
-)
+from ._src.nodes import Node
 from ._src.runtime.agent_runtime import (
     DEFAULT_MODEL,
     AgenticRun,
@@ -61,7 +56,6 @@ __status__ = "Experimental"
 
 __all__ = [
     "Agent",
-    "AgentNode",
     "get_evaluator",
     "load_experiments",
     "AgenticOptimizerAdapter",
@@ -79,14 +73,12 @@ __all__ = [
     "DebuggerAgent",
     "ImplementerAgent",
     "LiteratureReviewAgent",
-    "ImplementerNode",
-    "WorkerNode",
     "LookupDataGenerator",
+    "Node",
     "MathExpertAgent",
     "OllamaAdapter",
     "Report",
     "StrategizerAgent",
-    "StrategizerNode",
     "StudyConfig",
     "Task",
     "Workspace",

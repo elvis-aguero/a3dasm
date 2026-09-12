@@ -78,7 +78,7 @@ def _make_state(study_dir=None, **kwargs):
 
 def test_reply_unknown_delegation_returns_error():
     """Reply() for an unknown delegation ID returns an ERROR string."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     replies: list[str] = []
 
@@ -92,7 +92,7 @@ def test_reply_unknown_delegation_returns_error():
 
     adapter = ReplyCallingAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     node(_make_state())
 
     assert replies and "ERROR" in replies[0]
@@ -106,7 +106,7 @@ def test_reply_unknown_delegation_returns_error():
 
 def test_followup_reply_roundtrip():
     """Worker FollowUp blocks until Reply is called; returns the answer."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     followup_answers: list[str] = []
     delegation_id_box: list[str] = []
@@ -146,7 +146,7 @@ def test_followup_reply_roundtrip():
     adapter = OrchestratorAdapter()
     spec = _minimal_spec()
     worker = FollowUpWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -163,7 +163,7 @@ def test_followup_reply_roundtrip():
 
 def test_ask_for_feedback_calls_critic_synchronously():
     """AskForFeedback() invokes the critic adapter synchronously and returns its output."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     feedback_calls: list[str] = []
 
@@ -201,7 +201,7 @@ def test_ask_for_feedback_calls_critic_synchronously():
 
     adapter = FeedbackCallingAdapter()
     critic = CriticAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["critic"], spec=spec,
         worker_adapters={"critic": critic},
     )
@@ -219,7 +219,7 @@ def test_ask_for_feedback_calls_critic_synchronously():
 
 def test_ask_for_feedback_absent_without_critic():
     """AskForFeedback is NOT in closure_tools when the graph has no critic node."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     tool_names: list[set] = []
 
@@ -232,7 +232,7 @@ def test_ask_for_feedback_absent_without_critic():
 
     adapter = InspectAdapter()
     spec = _minimal_spec()  # no critic
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     node(_make_state())
 
     assert tool_names
@@ -246,7 +246,7 @@ def test_ask_for_feedback_absent_without_critic():
 
 def test_getstatus_includes_budget_warning_when_over_80_pct():
     """GetStatus() on a Working delegation surfaces BUDGET when >80% elapsed."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     getstatus_results: list[str] = []
     delegation_started = threading.Event()
@@ -276,7 +276,7 @@ def test_getstatus_includes_budget_warning_when_over_80_pct():
     adapter = PollCallingAdapter()
     spec = _minimal_spec()
     worker = SlowWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -300,7 +300,7 @@ def test_getstatus_includes_budget_warning_when_over_80_pct():
 
 def test_delegate_wait_true_returns_report_directly():
     """Delegate(wait=True) blocks and returns Done\\n\\n<report> without polling."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     delegate_results: list[str] = []
 
@@ -327,7 +327,7 @@ def test_delegate_wait_true_returns_report_directly():
     adapter = WaitDelegateAdapter()
     spec = _minimal_spec()
     worker = FastWorkerAdapter()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": worker},
     )
@@ -346,7 +346,7 @@ def test_delegate_wait_true_returns_report_directly():
 
 def test_writenote_and_readnote(tmp_path):
     """WriteNote writes a file to strategizer_notes/; the file should be created."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     (tmp_path / "pipeline.py").write_text("# r\n")
     # run_dir/debug/strategizer_notes is where WriteNote will write
@@ -366,7 +366,7 @@ def test_writenote_and_readnote(tmp_path):
 
     adapter = NoteAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(
+    node = Node(
         adapter, name="strategizer", outgoing=["implementer"], spec=spec,
         study_dir=str(tmp_path),
         notes_dir=notes_dir,
@@ -391,7 +391,7 @@ def test_writenote_and_readnote(tmp_path):
 
 def test_getstatus_unknown_id_returns_error():
     """GetStatus for an unknown ID returns ERROR."""
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     results: list[str] = []
 
@@ -405,7 +405,7 @@ def test_getstatus_unknown_id_returns_error():
 
     adapter = GetStatusAdapter()
     spec = _minimal_spec()
-    node = StrategizerNode(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
+    node = Node(adapter, name="strategizer", outgoing=["implementer"], spec=spec)
     node(_make_state())
 
     assert results and "ERROR" in results[0]
@@ -425,7 +425,7 @@ def test_delegate_task_msg_includes_budget_banner():
     """
     import time as _time
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     captured_msgs: list[list[dict]] = []
 
@@ -467,7 +467,7 @@ def test_delegate_task_msg_includes_budget_banner():
     main_adapter = DelegatingAdapter()
     spec = _minimal_spec()
 
-    node = StrategizerNode(
+    node = Node(
         adapter=main_adapter,
         name="strategizer",
         outgoing=["implementer"],
@@ -501,7 +501,7 @@ def test_delegate_no_budget_banner_when_budget_unset():
     way."""
     import time as _time
 
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     captured_msgs: list[list[dict]] = []
 
@@ -541,7 +541,7 @@ def test_delegate_no_budget_banner_when_budget_unset():
     main_adapter = DelegatingAdapter()
     spec = _minimal_spec()
 
-    node = StrategizerNode(
+    node = Node(
         adapter=main_adapter,
         name="strategizer",
         outgoing=["implementer"],

@@ -150,7 +150,7 @@ def test_critic_consult_usage_recorded(tmp_path):
     import json
 
     from a3dasm._src.backends.base import Agent, Edge, Graph
-    from a3dasm._src.nodes import StrategizerNode
+    from a3dasm._src.nodes import Node
 
     class _Strat(Agent):
         role = "strategizer"
@@ -194,7 +194,7 @@ def test_critic_consult_usage_recorded(tmp_path):
 
     notes = tmp_path / "debug" / "strategizer_notes"
     notes.mkdir(parents=True)
-    node = StrategizerNode(
+    node = Node(
         _StratStub(), name="strategizer", outgoing=["critic"], spec=spec,
         worker_adapters={"critic": _CriticStub()}, notes_dir=notes,
     )

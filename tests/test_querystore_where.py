@@ -16,7 +16,7 @@ from f3dasm._src.experimentsample import ExperimentSample, JobStatus
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 
 class _Stub:
@@ -80,7 +80,7 @@ def _querystore(tmp_path):
                Edge("implementer", "literature_reviewer")),
         entry="strategizer")
     dlog = DelegationLog(run_dir / "debug" / "delegation_log.jsonl")
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="implementer", outgoing=["literature_reviewer"],
         spec=spec, worker_adapters={"literature_reviewer": _Stub()},
         notes_dir=None, delegation_log=dlog)
@@ -259,7 +259,7 @@ def _querystore_with_namespace(tmp_path):
                Edge("implementer", "literature_reviewer")),
         entry="strategizer")
     dlog = DelegationLog(run_dir / "debug" / "delegation_log.jsonl")
-    n = StrategizerNode(
+    n = Node(
         _Stub(), name="implementer", outgoing=["literature_reviewer"],
         spec=spec, worker_adapters={"literature_reviewer": _Stub()},
         notes_dir=None, delegation_log=dlog)

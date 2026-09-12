@@ -124,7 +124,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
 ### Delegation + inter-agent messaging
 - **What:** the strategizer delegates work to specialist agents and they report back;
   agents can ask one clarifying question, send async messages, and report progress.
-- **Where:** `nodes/tools/routing/`, `nodes/strategizer.py`.
+- **Where:** `nodes/tools/routing/`, `nodes/orchestration.py`.
 - **Tools:** `Delegate`*, `GetStatus`, `Wait`, `FollowUp`, `Confer`, `ReportEvals`.
   (*Delegate is injected dynamically, not in a static `tools` set.)
 - **Fan-out harvesting:** `Wait()` takes an OPTIONAL delegation id. Bare
@@ -568,7 +568,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   result and renders them in their own band (`--surface0`, peach left rule)
   above the tool's own output (`--crust`).
 - **Where:** `nodes/notices.py` (`wrap_notice` / `split_notices` and the
-  marker); seven injection sites in `nodes/strategizer.py`
+  marker); seven injection sites in `nodes/orchestration.py`
   (`_drain_notifications`) and `nodes/tools/routing/` (worker-message
   drains in `ReportEvals`/`FollowUp`/`GetStatus`, the `GetStatus` poll hints,
   and the science-monitor drains in both `Wait` branches);
@@ -610,7 +610,7 @@ Format per feature: **what** (plain language) · **why** · **where** (files) ·
   `Delegate(wait=True)` will not route a nudge until it returns.
 - **Where:** `src/a3dasm/_src/operator_channel.py` (`ask_question`,
   `answer_question`, `queue_note`, `drain_note_rows`, `touch_watch`,
-  `is_watched`); routing in `nodes/strategizer.py`'s `_drain_notifications`;
+  `is_watched`); routing in `nodes/orchestration.py`'s `_drain_notifications`;
   HTTP surface in `viewer/app.py` (`/answer`, `/note`); composers in
   `viewer/templates/graph.html`. **Status:** done.
 

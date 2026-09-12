@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 from tests.test_evaluator_resolution import _write_run_config
 
@@ -64,7 +64,7 @@ def _build(tmp_path, target_name, target_agent):
     strat_adapter.closure_tools = {}
     strat_adapter.route_watcher = None
     worker = _Worker()
-    node = StrategizerNode(
+    node = Node(
         adapter=strat_adapter,
         name="strat",
         outgoing=[target_name],

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from a3dasm._src.backends.base import Agent, Edge, Graph
 from a3dasm._src.infra.delegation_log import DelegationLog
-from a3dasm._src.nodes import StrategizerNode
+from a3dasm._src.nodes import Node
 
 CRITERION = (
     "A 50-iteration constrained BO campaign in the high-Ixx region returns a "
@@ -50,7 +50,7 @@ class _Stub:
         return "## Report\n\n### Conclusions\ndone\n"
 
 
-def _node(run_dir: Path) -> StrategizerNode:
+def _node(run_dir: Path) -> Node:
     class S(Agent):
         role = "strategizer"
         tools = frozenset({"Done", "Wait", "GetStatus"})
@@ -66,7 +66,7 @@ def _node(run_dir: Path) -> StrategizerNode:
     )
     notes = run_dir / "debug" / "strategizer_notes"
     notes.mkdir(parents=True)
-    return StrategizerNode(
+    return Node(
         _Stub(), name="strategizer", outgoing=["implementer"], spec=spec,
         worker_adapters={"implementer": _Stub()}, notes_dir=notes,
         delegation_log=DelegationLog(run_dir / "debug" / "delegation_log.jsonl"),
