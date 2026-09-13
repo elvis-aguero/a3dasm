@@ -157,7 +157,7 @@ your own, rather than treating it as a black box.
   <span class="dim"><i></i>delegate, report, retry</span>
   <span class="trail-key"><i></i>the evidence trail</span>
 </div>
-<figcaption>Every specialist reports back to the strategizer the same way; only the evidence trail is checked before the notebook is allowed out.</figcaption>
+<figcaption>Every specialist reports back to the strategizer the same way; only the evidence trail is checked before the notebook is allowed out. The diagram shows one gate where the run applies several in sequence — see <a href="../how-a-run-is-kept-honest/">How a run is kept honest</a> for the full ladder.</figcaption>
 </figure>
 
 ## The graph and the open loop
@@ -218,6 +218,11 @@ gate**: it is executed end to end in a clean sandbox, and the number it produces
 is checked against the number the run claims. A run that cannot reproduce its own
 headline does not pass. This is why the notebook you get back runs as-is.
 
+The reproduction gate is one of several checks between a decision and its
+counting — some of which refuse outright, and some of which only speak up.
+[How a run is kept honest](how-a-run-is-kept-honest.md) is the full inventory,
+including which ones you can switch off.
+
 ## Backends
 
 The agents are driven by a language model through a **backend**. a3dasm ships
@@ -245,5 +250,6 @@ You provide one file: `PROBLEM_STATEMENT.md` in a study directory (plus a
 `config.yaml` if you want to set the backend, budgets, or the evaluator). You get
 back `pipeline.ipynb` (the reproducible answer) alongside the run's evaluation
 record and logs. See [Authoring a study](authoring-a-study.md) to set one up,
-[Understanding a run's output](reading-a-run.md) for what comes back, and the
-[Quickstart](notebooks/quickstart.ipynb) to run one.
+[Watching a run](watching-a-run.md) to follow it live (and answer it, if it
+asks), [Understanding a run's output](reading-a-run.md) for what comes back, and
+the [Quickstart](notebooks/quickstart.ipynb) to run one.

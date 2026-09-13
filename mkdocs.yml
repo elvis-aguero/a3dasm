@@ -81,11 +81,16 @@ nav:
         - 'concepts.md'
     - Guides:
         - 'Authoring a study': 'authoring-a-study.md'
+        - 'Watching a run': 'watching-a-run.md'
         - "Understanding a run's output": 'reading-a-run.md'
+        - 'How a run is kept honest': 'how-a-run-is-kept-honest.md'
         - 'Customizing a run': 'customizing-a-run.md'
+        - 'Troubleshooting': 'troubleshooting.md'
     - API reference:
         - 'api/run.md'
         - 'api/agents.md'
         - 'api/graph.md'
         - 'api/evaluator.md'
+        - 'api/backends.md'
+        - 'api/math.md'
     - License: 'license.md'

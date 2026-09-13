@@ -37,6 +37,9 @@ also drives Ollama, any OpenAI-compatible endpoint, and vLLM: see
 
 ## Optional extras
 
+- `a3dasm[viewer]` adds the read-only live run viewer
+  (`python -m a3dasm.viewer <study-dir>`), for watching a run as it works.
+  See [Watching a run](watching-a-run.md).
 - `a3dasm[extra]` adds `docling` for layout-aware PDF parsing in the literature
   reviewer (pulls torch; excluded on Intel macOS).
 - `a3dasm[docs]` installs the documentation toolchain.

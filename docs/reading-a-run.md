@@ -3,6 +3,9 @@
 When a run finishes, look in the study folder. Two things tell you almost
 everything: the deliverable, and whether it passed review.
 
+(To watch a run *while* it works instead, see
+[Watching a run](watching-a-run.md).)
+
 ## The deliverable: `pipeline.ipynb`
 
 `pipeline.ipynb`, at the study root, is the result. Open it: the opening cells
@@ -20,7 +23,10 @@ notebook's metadata):
 - **GATED**: passed. The result held up to the critic and reproduces.
 - **UNGATED** / **FAILED**: did not pass. Treat the result as unaudited.
 
-If you only check one thing, check this.
+If you only check one thing, check this. For what the critic and the
+reproduction check are actually testing — and everything else a run has to
+clear before it can close — see
+[How a run is kept honest](how-a-run-is-kept-honest.md).
 
 ## The run folder
 
@@ -41,7 +47,8 @@ evaluation budget is counted against.
 ## When a result looks off
 
 If a run came back UNGATED, or the answer surprises you, `runs/<timestamp>/debug/`
-holds the detail, in rough order of usefulness:
+holds the detail, in rough order of usefulness. ([Troubleshooting](troubleshooting.md)
+walks through the common causes.)
 
 - **`retrospectives.jsonl`**: each agent's own end-of-run notes, the call it was
   least sure about, and anything that tripped it up. Usually the fastest way to

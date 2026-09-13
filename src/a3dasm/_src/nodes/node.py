@@ -50,6 +50,8 @@ class Node(
 ):
     """One node in the agent graph.
 
+    ``inspect.getsource(Node.__call__)`` reads the routing topology.
+
     Parameters
     ----------
     adapter
@@ -68,8 +70,6 @@ class Node(
         This agent's own declared report contract and toolset, used to
         validate its reports and to gate which capability closures it is
         granted.
-
-    ``inspect.getsource(Node.__call__)`` reads the routing topology.
     """
 
     def __init__(
