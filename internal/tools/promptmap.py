@@ -196,6 +196,82 @@ def assign_span(module_rel: str, name: str) -> dict:
     )
 
 
+def _render_message(node: ast.AST) -> str | None:
+    """What a returned expression actually READS as, with its variable bits marked.
+
+    A gate's refusal is the text the agent sees, so it belongs in a map of what
+    the agent sees. In source it is rarely one string: it is a name plus an
+    f-string plus three adjacent literals. Python's own parse gives the pieces,
+    and this renders them the way the model will receive them — a ``{...}``
+    where a value is formatted in, ``<...>`` where a whole variable is
+    concatenated — the same convention the run-paths preamble already uses for
+    text resolved per run.
+    """
+    if isinstance(node, ast.Constant):
+        return node.value if isinstance(node.value, str) else None
+    if isinstance(node, ast.JoinedStr):
+        out = []
+        for part in node.values:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                out.append(part.value)
+            elif isinstance(part, ast.FormattedValue):
+                out.append("{" + ast.unparse(part.value) + "}")
+        return "".join(out)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _render_message(node.left), _render_message(node.right)
+        if left is None or right is None:
+            return None
+        return left + right
+    if isinstance(node, (ast.Name, ast.Attribute, ast.Call, ast.Subscript)):
+        return "<" + ast.unparse(node) + ">"
+    return None
+
+
+def gate_messages(module_rel: str, qualname: str) -> list[dict]:
+    """Every text a gate can hand back to the agent, with where it is written.
+
+    A nudge and a refusal are prompt: they arrive in the agent's context and
+    steer what it does next. A map that shows a gate's docstring but not its
+    message shows the reader the explanation and hides the thing itself.
+
+    Only returns that carry text count — ``return None`` is the gate passing,
+    which the agent never sees. The span is the returned expression's own, so
+    an edit rewrites that expression and nothing else in the function.
+    """
+    path = PKG / module_rel
+    tree = ast.parse(_read(path))
+    parts = qualname.split(".")
+
+    def walk(body, remaining):
+        head, rest = remaining[0], remaining[1:]
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name != head:
+                    continue
+                return node if not rest else walk(node.body, rest)
+        return None
+
+    fn = walk(tree.body, parts)
+    if fn is None:
+        return []
+    out: list[dict] = []
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Return) or node.value is None:
+            continue
+        text = _render_message(node.value)
+        if not text or len(text.strip()) < 24:
+            continue
+        out.append({
+            "text": text,
+            "file": _rel(path),
+            "line": node.value.lineno,
+            "line_end": node.value.end_lineno,
+            "source_expr": ast.get_source_segment(_read(path), node.value) or "",
+        })
+    out.sort(key=lambda m: m["line"])
+    return out
+
+
 def containing_literal(text: str, prefer: list[Path] | None = None) -> dict | None:
     """The string literal that HOLDS *text*, and where that literal is written.
 
@@ -967,6 +1043,15 @@ def build_gates() -> list[dict]:
         # A gate's docstring is the one part of it this page can offer to
         # change: the gate's BEHAVIOUR is its code, and its `effect` line is
         # this map's own summary, not text from the repo.
+        entry["messages"] = [
+            dict(m, edit={
+                "ok": True, "mode": "message",
+                "key": "{}:{}-{}".format(m["file"].replace("/", "~"),
+                                         m["line"], m["line_end"]),
+                "file": m["file"], "line": m["line"], "line_end": m["line_end"],
+            })
+            for m in gate_messages(spec["module"], spec["symbol"])
+        ]
         entry["edit"] = (
             {"ok": True, "mode": "docstring",
              "key": "{}:{}-{}".format(resolved["file"].replace("/", "~"),

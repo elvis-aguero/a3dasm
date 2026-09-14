@@ -158,6 +158,9 @@ h2{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
 .editor textarea{font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--ink);
   background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
   padding:10px;width:100%;min-height:220px;resize:vertical;box-sizing:border-box}
+.whofield{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--ink-3)}
+.whofield input{font:inherit;font-size:12px;padding:3px 7px;border:1px solid var(--line);
+  border-radius:var(--r);background:var(--surface);color:var(--ink);width:15ch}
 .editor input[type=text]{font:inherit;font-size:12.5px;color:var(--ink);background:var(--surface);
   border:1px solid var(--line);border-radius:var(--r);padding:7px 9px;width:100%;box-sizing:border-box}
 .editor .erow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;color:var(--ink-3)}
@@ -185,6 +188,12 @@ h2{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
 .egroup h3{margin:0 0 8px;font-size:13px;font-family:var(--mono);font-weight:600;
   display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .editcard.stale{border-color:var(--soft)}
+.msgs{margin:10px 0 0;border-top:1px solid var(--line-soft);padding-top:10px}
+.msghead{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);
+  margin:0 0 8px;font-weight:600}
+.msg{margin:0 0 12px}
+.msg .prompt{margin:0 0 6px;font-size:11.5px}
+.nomsg{font-size:12px;color:var(--ink-3);margin:10px 0 0;font-style:italic}
 .editcard .meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 0 8px}
 .editcard .why{font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6;max-width:78ch}
 .chip.k-open{color:var(--soft);border-color:var(--soft);background:transparent}
@@ -311,6 +320,7 @@ const MATCH_NOTE = {
   line:   "An ANCHOR, not a span: only one line of this block could be matched verbatim, and this is where that line sits.",
   tag:    "An ANCHOR: the block itself was not found, so this is where its opening tag is written.",
   docstring: "The docstring literal this entry is rendered from \u2014 these are its first and last lines in the source.",
+  message: "The returned expression this text comes from \u2014 its own first and last lines in the gate's body. Braces mark values formatted in at run time; angle brackets a whole variable concatenated in.",
   literal: "The string literal that HOLDS this text \u2014 the text is a stretch inside it, so the citation is the literal's own first and last lines.",
   symbol: "The code that BUILDS this text, resolved by name on the syntax tree. The text itself is computed at run time, not written here.",
 };
@@ -345,17 +355,18 @@ const slug = name => (name || "anon").toLowerCase()
    even there the previous text is kept in `history` rather than dropped. */
 const docId = (spanKey, who) => spanKey + "__" + slug(who);
 
-async function askAuthor(force){
-  if(ME && !force) return ME;
-  const given = window.prompt(
-    "Your name, so your edits stay yours.\n\nIt is stored in this browser and " +
-    "stamped on what you propose. Self-declared, not verified — it separates " +
-    "people's work, it does not authenticate it.", ME || "");
-  if(given === null) return ME || "";
-  ME = given.trim();
+/* Asking for the name is an INLINE field, never window.prompt: this page runs
+   in a sandboxed frame where a modal may simply not open, and a control that
+   can silently do nothing is worse than no control. */
+function setAuthor(name){
+  ME = (name || "").trim();
   try { localStorage.setItem(AUTHOR_KEY, ME); } catch(_) {}
   return ME;
 }
+
+const authorField = () => `<label class="whofield">your name
+  <input type="text" data-name value="${esc(ME)}" placeholder="so your edits stay yours"
+    spellcheck="false"></label>`;
 
 async function initEdits(){
   try { DB = await claude?.use?.("db"); } catch(_) { DB = null; }
@@ -547,8 +558,6 @@ async function openEditor(key){
   const sec = SECTIONS.get(key);
   if(!slot || !sec || !sec.edit || !sec.edit.ok) return;
   if(slot.firstChild){ slot.innerHTML = ""; return; }      // toggle closed
-  if(!await askAuthor(false)) return;
-
   const id = docId(sec.edit.key, ME);
   const prior = EDITS.get(id);
   const others = forSpan(sec.edit.key).filter(e => e.author_slug !== slug(ME));
@@ -570,11 +579,16 @@ async function openEditor(key){
         </select>
       </label>
       <span class="src">${esc(srcOf(sec.source))}</span>
-      <span class="src">as <b>${esc(ME)}</b> <button class="editbtn" type="button" data-who>change</button></span>
+      ${authorField()}
     </div>
     ${sec.edit.mode === "docstring" ? `<p class="secnote">This is a docstring —
       what the model is told, or what the gate says about itself. Write it as it should
       read; re-indenting it into the source is the applier's job, not yours.</p>` : ""}
+    ${sec.edit.mode === "message" ? `<p class="secnote">This is what the gate hands back
+      to the agent. It is written inline in the gate's own <code>return</code>, not as a
+      named prompt constant, so the applier rewrites that expression. Keep the
+      <code>{…}</code> placeholders — they are code, and dropping one drops the number
+      or name it formats in.</p>` : ""}
     ${sec.edit.mode === "literal" ? `<p class="secnote">This text is a stretch INSIDE a
       larger string literal (${num(sec.edit.literal_chars)} characters, at
       ${esc(sec.edit.file)}:${sec.edit.line}\u2013${sec.edit.line_end}). It appears there
@@ -610,11 +624,16 @@ async function saveEdit(key){
   const proposed = slot.querySelector("[data-proposed]").value;
   const note = slot.querySelector("[data-note]").value.trim();
   const status = slot.querySelector("[data-status]");
+  const who = setAuthor(slot.querySelector("[data-name]").value);
+  if(!who){
+    status.textContent = "add your name first \u2014 it is what keeps your edits yours";
+    slot.querySelector("[data-name]").focus(); return;
+  }
   if(kind === "proposal" && proposed === sec.text && !note){
     status.textContent = "nothing changed"; return;
   }
   if(!DB){ status.textContent = "not saved \u2014 this view cannot write"; return; }
-  const id = docId(sec.edit.key, ME);
+  const id = docId(sec.edit.key, who);
   const prior = EDITS.get(id);
   const history = prior
     ? [{proposed: prior.proposed, note: prior.note, kind: prior.kind,
@@ -624,7 +643,7 @@ async function saveEdit(key){
   try {
     await DB.doc("edits/"+id).set({
       key: sec.edit.key, kind, status: "open",
-      author: ME, author_slug: slug(ME),
+      author: who, author_slug: slug(who),
       file: sec.edit.file, line: sec.edit.line, line_end: sec.edit.line_end,
       tag: sec.tag || null,
       base: sec.text,                 /* the text this edit was written against */
@@ -712,8 +731,7 @@ function renderEdits(){
       its own record, so no one overwrites anyone. Re-saving your own keeps the version
       it replaced. Withdrawing sets a state rather than deleting. Names are
       self-declared \u2014 they separate people's work, they do not authenticate it.
-      You are <b>${esc(ME || "unnamed")}</b>
-      <button class="editbtn" type="button" data-who>change</button></p>
+      ${authorField()}</p>
     ${ordered.length ? `<h2 class="editsh">Open \u00b7 ${open.length} on ${ordered.length} section${
         ordered.length>1?"s":""}</h2>` + ordered.map(group).join("")
       : `<p class="lede">No open edits. Open a role, expand a section, and choose
@@ -782,6 +800,34 @@ function renderRole(r){
 }
 
 /* ---------------- gates ---------------- */
+/* What the gate SAYS. A nudge or a refusal lands in the agent's context and
+   steers what it does next, so it is prompt — and it is the part of a gate a
+   reader most needs and, until now, could not see. Each is registered like any
+   other editable section, so the same editor and the same staging apply. */
+function gateMessages(g){
+  if(!g.messages || !g.messages.length) return `<p class="nomsg">This gate returns no
+    text of its own \u2014 what the agent experiences comes from the caller, or the gate
+    only changes what happens next.</p>`;
+  return `<div class="msgs">
+    <p class="msghead">What the agent is told \u00b7 ${g.messages.length} message${
+      g.messages.length>1?"s":""}</p>
+    ${g.messages.map((m,i)=>{
+      const key = "gatemsg-" + g.id + "-" + i;
+      SECTIONS.set(key, {text: m.text, tag: null, source: {
+        file: m.file, line: m.line, line_end: m.line_end, match: "message", span: true},
+        edit: m.edit});
+      return `<div class="msg">
+        <pre class="prompt">${esc(m.text)}</pre>
+        <div class="gatefoot">
+          <span class="src">${esc(m.file)}:${m.line}\u2013${m.line_end}</span>
+          <button class="editbtn" type="button" data-edit="${key}">edit this message</button>
+          <span data-editchip="${esc(m.edit.key)}">${editChip(m.edit.key)}</span>
+        </div>
+        <div class="editslot" id="ed-${key}"></div>
+      </div>`;}).join("")}
+  </div>`;
+}
+
 function gateCard(g, n){
   /* Gates reuse the section editor: SECTIONS is what the editor reads, so a
      gate registers there as the piece of text it actually owns — its
@@ -805,6 +851,7 @@ function gateCard(g, n){
       </div>
       <p class="gateeffect" title="This map's one-line summary of what the agent experiences. It is written in internal/tools/promptmap.py, not in the repository's prompt or gate code.">${esc(g.effect)}</p>
       ${g.doc ? `<p class="gatedoc" title="The gate's own docstring — what it says about itself, in the source.">${esc(g.doc)}</p>` : ""}
+      ${gateMessages(g)}
       <div class="gatefoot">
         <span class="src">${esc(g.file)}:${g.line}</span>
         <span class="chip">${esc(g.symbol)}</span>
@@ -965,8 +1012,7 @@ document.addEventListener("click", e=>{
           const slot = wd.closest(".editslot"); if(slot) slot.innerHTML = ""; return; }
   const rs = e.target.closest("[data-restore]");
   if(rs){ setStatus(rs.dataset.restore, "open"); return; }
-  const who = e.target.closest("[data-who]");
-  if(who){ askAuthor(true).then(()=>render()); return; }
+
   const c = e.target.closest("[data-copy]");
   if(c){
     const txt = document.getElementById("txt-"+c.dataset.copy).textContent;
@@ -974,6 +1020,10 @@ document.addEventListener("click", e=>{
       c.textContent = "copied"; setTimeout(()=>c.textContent="copy text", 1400);
     });
   }
+});
+
+document.addEventListener("change", e=>{
+  if(e.target.matches("[data-name]")) setAuthor(e.target.value);
 });
 
 $("#q").addEventListener("input", e=>{ query = e.target.value; render(); });

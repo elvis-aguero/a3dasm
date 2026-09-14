@@ -284,3 +284,25 @@ def test_a_gate_offers_its_docstring_and_nothing_else(promptmap):
         )
         assert ast.get_docstring(node) == gate["doc"], (
             f"{gate['symbol']}: the card shows text its cited docstring does not hold")
+
+
+def test_a_gate_message_is_what_its_cited_expression_renders(promptmap):
+    """A gate's nudge is prompt: it lands in the agent's context and steers it.
+
+    The map shows it, so the map must be able to prove it. Re-parse the cited
+    expression and render it the same way — it must come back identical, or the
+    page is showing text the source does not produce.
+    """
+    import ast
+
+    total = 0
+    for gate in promptmap.build_gates():
+        for message in gate["messages"]:
+            total += 1
+            # The segment is a multi-line expression lifted out of its
+            # parentheses, so give it its own before re-parsing.
+            expr = ast.parse("(" + message["source_expr"] + ")", mode="eval").body
+            assert promptmap._render_message(expr) == message["text"], (
+                f"{gate['symbol']}: the card shows a message its source does not render")
+            assert message["edit"]["ok"] and message["edit"]["mode"] == "message"
+    assert total >= 10, "the gates stopped saying anything to the agent — suspicious"
