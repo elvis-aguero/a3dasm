@@ -225,7 +225,7 @@ def resolve_symbol(module_rel: str, qualname: str) -> dict:
             "  The gate registry in internal/tools/promptmap.py is stale. Fix it\n"
             "  rather than presenting a map that cites code that no longer exists."
         )
-    return {
+    out = {
         "file": _rel(path),
         "line": node.lineno,
         "doc": ast.get_docstring(node) or "",
@@ -234,6 +234,12 @@ def resolve_symbol(module_rel: str, qualname: str) -> dict:
         "match": "symbol",
         "span": False,
     }
+    # The docstring literal's own span, when there is one — the editable part
+    # of a symbol, as distinct from the symbol's location.
+    if out["doc"]:
+        lit = node.body[0]
+        out["doc_line"], out["doc_line_end"] = lit.lineno, lit.end_lineno
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -892,6 +898,18 @@ def build_gates() -> list[dict]:
         # feedback.py is a step of Done()'s own sequence.
         in_done = spec["module"].endswith("routing/feedback.py") and leaf in chain
         entry["done_order"] = chain.index(leaf) + 1 if in_done else None
+        # A gate's docstring is the one part of it this page can offer to
+        # change: the gate's BEHAVIOUR is its code, and its `effect` line is
+        # this map's own summary, not text from the repo.
+        entry["edit"] = (
+            {"ok": True, "mode": "docstring",
+             "key": "{}:{}-{}".format(resolved["file"].replace("/", "~"),
+                                      resolved["doc_line"], resolved["doc_line_end"]),
+             "file": resolved["file"], "line": resolved["doc_line"],
+             "line_end": resolved["doc_line_end"]}
+            if resolved.get("doc_line")
+            else {"ok": False, "why": "This gate has no docstring to edit."}
+        )
         out.append(entry)
     out.sort(key=lambda g: (g["done_order"] is None, g["done_order"] or 0, g["title"]))
     return out

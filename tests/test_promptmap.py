@@ -242,3 +242,29 @@ def test_shared_text_says_who_else_reads_it(data):
     assert charter, "the charter is no longer an editable shared block"
     for edit in charter:
         assert edit["shared"]["also"], "a shared block that names no other reader"
+
+
+def test_a_gate_offers_its_docstring_and_nothing_else(promptmap):
+    """A gate card may be edited, but only its description.
+
+    What a gate DOES is its code, and the one-line effect on the card is this
+    map's own summary — neither is text a page can responsibly hand someone an
+    edit box over. So the editable span is the docstring literal, and it must
+    actually be that: read it back and Python must find the same text there.
+    """
+    import ast
+
+    for gate in promptmap.build_gates():
+        edit = gate["edit"]
+        if not edit["ok"]:
+            assert edit["why"], gate["symbol"]
+            continue
+        assert edit["mode"] == "docstring", gate["symbol"]
+        tree = ast.parse((_ROOT / edit["file"]).read_text(encoding="utf-8"))
+        node = next(
+            n for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and n.body and getattr(n.body[0], "lineno", None) == edit["line"]
+        )
+        assert ast.get_docstring(node) == gate["doc"], (
+            f"{gate['symbol']}: the card shows text its cited docstring does not hold")

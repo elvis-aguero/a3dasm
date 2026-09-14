@@ -777,6 +777,16 @@ function renderRole(r){
 
 /* ---------------- gates ---------------- */
 function gateCard(g, n){
+  /* Gates reuse the section editor: SECTIONS is what the editor reads, so a
+     gate registers there as the piece of text it actually owns — its
+     docstring. Its EFFECT line is this map's summary and its behaviour is its
+     code; neither is editable from a page, and the card says which is which. */
+  const key = "gate-" + g.id;
+  SECTIONS.set(key, {text: g.doc || "", tag: null, source: {
+    file: g.file, line: g.edit && g.edit.ok ? g.edit.line : g.line,
+    line_end: g.edit && g.edit.ok ? g.edit.line_end : undefined,
+    match: g.edit && g.edit.ok ? "docstring" : "symbol",
+    span: !!(g.edit && g.edit.ok)}, edit: g.edit});
   return `<article class="gate" data-kind="${esc(g.kind)}">
     <div class="gatenum">${n ?? "·"}</div>
     <div class="gatebody">
@@ -787,13 +797,18 @@ function gateCard(g, n){
         ${g.switch ? `<span class="chip k-soft">off via ${esc(g.switch)}</span>` : ""}
         ${g.escape ? `<span class="chip">escape · ${esc(g.escape)}</span>` : ""}
       </div>
-      <p class="gateeffect">${esc(g.effect)}</p>
-      ${g.doc ? `<p class="gatedoc">${esc(g.doc)}</p>` : ""}
+      <p class="gateeffect" title="This map's one-line summary of what the agent experiences. It is written in internal/tools/promptmap.py, not in the repository's prompt or gate code.">${esc(g.effect)}</p>
+      ${g.doc ? `<p class="gatedoc" title="The gate's own docstring — what it says about itself, in the source.">${esc(g.doc)}</p>` : ""}
       <div class="gatefoot">
         <span class="src">${esc(g.file)}:${g.line}</span>
         <span class="chip">${esc(g.symbol)}</span>
         ${g.policy ? `<span class="chip">policy · ${esc(g.policy[0])}::${esc(g.policy[1])}</span>` : ""}
+        ${g.edit && g.edit.ok
+          ? `<button class="editbtn" type="button" data-edit="${key}">edit this description</button>` : ""}
+        <span data-editchip="${g.edit && g.edit.key ? g.edit.key : ""}">${
+          g.edit && g.edit.key ? editChip(g.edit.key) : ""}</span>
       </div>
+      <div class="editslot" id="ed-${key}"></div>
     </div>
   </article>`;
 }
@@ -814,6 +829,11 @@ function renderGates(){
     <p class="lede">Every checkpoint between an agent's intention and its effect, with the
       symbol that implements it. A <em>hard</em> gate refuses; a <em>soft</em> one speaks and
       lets the agent proceed.</p>
+    <p class="lede" style="color:var(--ink-3)">A gate's description is editable here; a gate's
+      <b>behaviour</b> is not. What each one does is its code, and the italic line under the
+      title is this map's own summary rather than text from the repository. Proposing a better
+      description changes what a reader is told, never what a run does — if the description and
+      the code disagree, that is worth saying in the reason, and worth a code change.</p>
     <div class="facts" style="gap:6px">${counts}</div>
 
     <div class="sectionhead"><h2>The Done() sequence</h2>
