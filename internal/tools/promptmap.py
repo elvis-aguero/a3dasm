@@ -338,50 +338,61 @@ _BLOCK_SOURCE = {
 
 def preamble_sections(tpl: str, role: str, is_entry: bool,
                       prefer: list[Path]) -> list[dict]:
-    """Split a preamble template into literal spans and substituted blocks.
+    """The preamble as ONE readable block, with every part traced separately.
 
-    The runtime assembles this prompt with ``.format()``. Presenting the filled
-    result as one block cited to ``agent_prompts.py`` would put text that is
-    written — and decided — somewhere else under that file's name. So each
-    ``{resources}`` / ``{knowledge}`` field becomes its own row, carrying the
-    citation of the method that produces it and its own literal ``{field}``
-    token, which is what a reader greps for when they go looking.
+    The runtime assembles this prompt with ``.format()``, so it has two kinds
+    of text in it: literal template written in ``agent_prompts.py``, and whole
+    stanzas computed in ``agent_runtime.py`` and formatted in. Both facts
+    matter and they pull against each other — splitting the prompt into a row
+    per fragment cites everything correctly but leaves the reader assembling a
+    closing ``</run_paths>`` tag back onto the text it closes, while showing
+    one filled-in block reads properly and quietly puts ``agent_runtime.py``'s
+    words under ``agent_prompts.py``'s name.
+
+    So: one section, read top to bottom in order, carrying ``parts`` that say
+    which stretch of it came from where. The page renders it as a single
+    prompt with the computed stretches marked in place.
     """
     paths = {k: v for k, v in _PATH_STUB.items() if "{" + k + "}" in tpl}
-    parts = re.split(r"(\{(?:" + "|".join(_BLOCK_FIELDS) + r")\})", tpl)
-    out: list[dict] = []
+    chunks = re.split(r"(\{(?:" + "|".join(_BLOCK_FIELDS) + r")\})", tpl)
+    parts: list[dict] = []
 
-    for part in parts:
-        field = part[1:-1] if part[:1] == "{" and part[-1:] == "}" else None
+    for chunk in chunks:
+        field = chunk[1:-1] if chunk[:1] == "{" and chunk[-1:] == "}" else None
         if field in _BLOCK_FIELDS:
             module, qualname, note = _BLOCK_SOURCE[field]
             text = (_resources_text(role == "implementer") if field == "resources"
                     else _knowledge_text(role))
             sym = resolve_symbol(module, qualname)
-            out.append({
-                "tag": None,
-                "label": "{" + field + "}",
+            parts.append({
+                "field": "{" + field + "}",
                 "note": note,
-                "chars": len(text),
-                "text": text or f"(empty for {role} — nothing is injected here)",
+                "text": text or f"({field} is empty for {role} — nothing is injected)",
+                "empty": not text,
                 "source": {"file": sym["file"], "line": sym["line"],
                            "match": "symbol", "span": False},
-                "generated": True,
             })
             continue
-        literal = part.format(**paths) if paths else part
-        if not literal.strip():
+        if not chunk:
             continue
-        out.append({
-            "tag": None,
-            "chars": len(literal),
-            "text": literal,
-            "source": locate(part, prefer),
-            "substituted": bool(paths) and any(
-                "{" + k + "}" in part for k in paths
-            ),
+        parts.append({
+            "text": chunk.format(**paths) if paths else chunk,
+            "source": locate(chunk, prefer),
         })
-    return out
+
+    text = "".join(part["text"] for part in parts)
+    opening = re.match(r"<([a-z_0-9]+)>\n", tpl)
+    return [{
+        "tag": opening.group(1) if opening else None,
+        "chars": len(text),
+        "text": text,
+        "parts": parts,
+        "source": assign_span(
+            "prompts/agent_prompts.py",
+            "RUN_PATHS_PREAMBLE_TEMPLATE" if is_entry else "WORKSPACE_PREAMBLE_TEMPLATE",
+        ),
+        "substituted": bool(paths),
+    }]
 
 
 _TAG_RE = re.compile(r"(?m)^<([a-z_0-9]+)>\n(.*?)\n</\1>", re.DOTALL)
@@ -488,9 +499,10 @@ def build_roles(shared: list[dict]) -> list[dict]:
         layers.append({
             "kind": "preamble",
             "label": tpl_name,
-            "note": "Prepended by the runtime. Path values are substituted per run and "
-                    "shown here as placeholders; the two rows with a {field} label are "
-                    "whole stanzas built elsewhere and cited to the code that builds them.",
+            "note": "Prepended by the runtime, in the order shown. Paths are substituted "
+                    "per run and stand in as placeholders; the two highlighted stretches "
+                    "are whole stanzas computed elsewhere, each cited to the code that "
+                    "builds it rather than to the template that formats it in.",
             "assembled_at": locate("preamble = " + tpl_name),
             "definition": preamble_src[tpl_name],
             "chars": sum(sec["chars"] for sec in sections),

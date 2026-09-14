@@ -11,6 +11,7 @@
   --hard:#a8323a; --hard-soft:#f7e6e7;
   --soft:#8f5c12; --soft-soft:#f8eedd;
   --proc:#41607c; --proc-soft:#e6edf3;
+  --fmt:#6b4a96; --fmt-soft:#e8ddf7;
   --adv:#4a6b4c; --adv-soft:#e7efe7;
   --mark:#fdecb6;
   --r:3px;
@@ -26,6 +27,7 @@
   --hard:#e08a90; --hard-soft:#33191c;
   --soft:#d6a44f; --soft-soft:#302512;
   --proc:#8fadc7; --proc-soft:#1b2733;
+  --fmt:#b79ce0; --fmt-soft:#251d36;
   --adv:#92b894; --adv-soft:#1a251b;
   --mark:#5a4a12;
 }}
@@ -37,6 +39,7 @@
   --hard:#e08a90; --hard-soft:#33191c;
   --soft:#d6a44f; --soft-soft:#302512;
   --proc:#8fadc7; --proc-soft:#1b2733;
+  --fmt:#b79ce0; --fmt-soft:#251d36;
   --adv:#92b894; --adv-soft:#1a251b;
   --mark:#5a4a12;
 }
@@ -137,6 +140,15 @@ h2{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
 .row[data-open="true"] .chev{transform:rotate(90deg)}
 .rowbody{border-top:1px dashed var(--line);background:var(--sunk);padding:12px 13px}
 .rowmeta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:10px;align-items:center}
+.prompt mark.sub{background:var(--fmt-soft);color:inherit;border-radius:2px;
+  box-shadow:inset 2px 0 0 var(--fmt);padding:1px 3px 1px 7px;margin-left:-7px;
+  -webkit-box-decoration-break:clone;box-decoration-break:clone}
+.legend{margin:0 0 12px;display:grid;gap:8px}
+.legrow{display:grid;grid-template-columns:auto auto auto 1fr;gap:4px 10px;align-items:baseline;
+  font-size:12px;border-left:2px solid var(--fmt);padding-left:10px;background:var(--fmt-soft);
+  padding:7px 10px;border-radius:0 var(--r) var(--r) 0}
+.legrow p{grid-column:1/-1;margin:2px 0 0;color:var(--ink-3);line-height:1.55;max-width:78ch}
+@media(max-width:820px){.legrow{grid-template-columns:1fr}}
 .secnote{font-size:12px;line-height:1.55;color:var(--ink-3);max-width:74ch;margin:0 0 10px}
 pre.prompt{margin:0;font-family:var(--mono);font-size:11.5px;line-height:1.62;
   white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);
@@ -152,6 +164,7 @@ mark{background:var(--mark);color:var(--ink);border-radius:2px;padding:0 1px}
 .chip.k-procedural{color:var(--proc);background:var(--proc-soft);border-color:transparent}
 .chip.k-advisory{color:var(--adv);background:var(--adv-soft);border-color:transparent}
 .chip.k-accent{color:var(--accent-ink);background:var(--accent-soft);border-color:transparent}
+.chip.k-fmt{color:var(--fmt);background:transparent;border-color:var(--fmt)}
 .copy{font:inherit;font-family:var(--mono);font-size:10.5px;padding:2px 8px;cursor:pointer;
   border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink-2)}
 .copy:hover{border-color:var(--accent);color:var(--accent)}
@@ -302,13 +315,34 @@ function sourceLink(s){
   return `<span class="src" title="${esc(MATCH_NOTE[s.match]||"")}">${esc(srcOf(s))}</span>${kind}`;
 }
 
+/* A prompt assembled by .format() is ONE piece of text to the model, so the
+   page shows it as one — but the stretches the runtime computes and formats in
+   are written in a different file from the template around them, and a map that
+   hides that is the map that misattributes them. They are marked in place. */
+function promptBody(sec){
+  if(!sec.parts) return esc(sec.text);
+  return sec.parts.map(p => p.field
+    ? `<mark class="sub" title="${esc(p.field)} — built by ${esc(srcOf(p.source))}">${esc(p.text)}</mark>`
+    : esc(p.text)).join("");
+}
+
+function partLegend(sec){
+  const fields = (sec.parts||[]).filter(p=>p.field);
+  if(!fields.length) return "";
+  return `<div class="legend">${fields.map(p=>`<div class="legrow">
+      <code>${esc(p.field)}</code>
+      <span class="src">${esc(srcOf(p.source))}</span>
+      <span class="chip k-fmt">${p.empty ? "empty for this role" : "built at run time"}</span>
+      <p>${esc(p.note)}</p>
+    </div>`).join("")}</div>`;
+}
+
 function sectionRow(sec, key){
   const preview = sec.text.trim().split("\n")[0].slice(0,90);
   return `<div class="row" data-open="false">
     <button class="rowbtn" type="button" data-toggle="${key}">
       <svg class="chev" width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M2 1l4 3.5L2 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span class="rowtag">${sec.tag ? `&lt;${esc(sec.tag)}&gt;`
-        : sec.label ? `<b>${esc(sec.label)}</b>` : `<i>${esc(preview)}</i>`}</span>
+      <span class="rowtag">${sec.tag ? `&lt;${esc(sec.tag)}&gt;` : `<i>${esc(preview)}</i>`}</span>
       <span class="rowspacer"></span>
       <span class="rowsrc">${esc(srcOf(sec.source))}</span>
       <span class="rowchars">${num(sec.chars)}</span>
@@ -321,8 +355,8 @@ function sectionRow(sec, key){
         ${sec.generated ? `<span class="chip k-accent">built at run time, not written here</span>` : ""}
         <button class="copy" type="button" data-copy="${key}">copy text</button>
       </div>
-      ${sec.note ? `<p class="secnote">${esc(sec.note)}</p>` : ""}
-      <pre class="prompt" id="txt-${key}">${esc(sec.text)}</pre>
+      ${partLegend(sec)}
+      <pre class="prompt" id="txt-${key}">${promptBody(sec)}</pre>
     </div>
   </div>`;
 }

@@ -157,11 +157,24 @@ def test_text_built_elsewhere_is_cited_to_the_code_that_builds_it(data):
     """The two ``.format()`` fields in the preambles are whole stanzas written
     in ``agent_runtime.py``. Folding them into the template's own citation is
     how a resource stanza ends up attributed to ``agent_prompts.py``, where
-    nobody searching for it will ever find it."""
+    nobody searching for it will ever find it. The preamble stays ONE readable
+    block, so the attribution lives in its parts."""
     for role in data["roles"]:
         preamble = role["layers"][0]
-        labelled = {s.get("label"): s for s in preamble["sections"] if s.get("label")}
-        assert set(labelled) == {"{resources}", "{knowledge}"}, role["id"]
-        for label, section in labelled.items():
-            assert section["source"]["file"].endswith("runtime/agent_runtime.py"), label
-            assert section["generated"] is True, label
+        assert len(preamble["sections"]) == 1, (
+            f"{role['id']}: the preamble is one prompt and must read as one block")
+        parts = preamble["sections"][0]["parts"]
+        fields = {part["field"]: part for part in parts if part.get("field")}
+        assert set(fields) == {"{resources}", "{knowledge}"}, role["id"]
+        for field, part in fields.items():
+            assert part["source"]["file"].endswith("runtime/agent_runtime.py"), field
+
+
+def test_the_preamble_parts_reassemble_into_the_preamble(data):
+    """Whatever the map says about where each stretch comes from, the stretches
+    in order ARE the prompt — a reader may assume concatenation, because that
+    is what ``.format()`` does."""
+    for role in data["roles"]:
+        section = role["layers"][0]["sections"][0]
+        assert "".join(p["text"] for p in section["parts"]) == section["text"]
+        assert section["chars"] == len(section["text"])
