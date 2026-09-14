@@ -196,6 +196,44 @@ def assign_span(module_rel: str, name: str) -> dict:
     )
 
 
+def containing_literal(text: str, prefer: list[Path] | None = None) -> dict | None:
+    """The string literal that HOLDS *text*, and where that literal is written.
+
+    Some prompt text has no verbatim span of its own: it is a slice of a bigger
+    literal (a ``<tag>`` section of a system prompt), or the source spells it
+    across lines the joined string does not have (implicit concatenation, a
+    ``\\`` continuation). Python's own parser resolves all of that — by the time
+    it is an ``ast.Constant`` the value is the text the model sees — so the
+    literal that contains the text is findable even when the text itself is not.
+
+    That is enough to CHANGE the text: replace this stretch inside the literal's
+    value and re-emit the literal over its own line span. It is a different
+    promise from a verbatim span — the whole literal is rewritten, not a slice
+    of a file — so it is a different mode, and the page says which one it is
+    offering. Requires the text to appear exactly ONCE in the literal: twice and
+    an edit would have to guess which occurrence was meant.
+    """
+    text = text.strip("\n")
+    if len(text) < 24:
+        return None
+    prefer = list(prefer or [])
+    for path in prefer + [p for p in _py_files() if p not in prefer]:
+        best: ast.Constant | None = None
+        for node in ast.walk(ast.parse(_read(path))):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+                continue
+            if node.value.count(text) != 1:
+                continue
+            # The tightest literal that still holds it — a nested f-string part
+            # beats the whole module-level prompt it sits in.
+            if best is None or len(node.value) < len(best.value):
+                best = node
+        if best is not None:
+            return {"file": _rel(path), "line": best.lineno,
+                    "line_end": best.end_lineno, "chars": len(best.value)}
+    return None
+
+
 def resolve_symbol(module_rel: str, qualname: str) -> dict:
     """Resolve ``module_rel::qualname`` to file, line and live docstring.
 
@@ -470,13 +508,18 @@ def shared_blocks() -> list[dict]:
 #: Why a section cannot be edited from the page. A citation that is not a
 #: verbatim span is not a patch target: the page would be offering to rewrite
 #: text the generator cannot put back without guessing.
+_COMPOSED = (
+    "No single string in the source holds this text: it is concatenated from "
+    "several literals — sometimes with a shared block spliced between them — so "
+    "there is nowhere to write one edit back to. The citation points at where "
+    "its longest matched line sits. Its PIECES are editable where they are "
+    "written; a shared block like the falsification charter has its own entry."
+)
+
 _NOT_EDITABLE = {
-    "lines": "The source breaks this literal across lines, so an edit here has "
-             "no single span to write back to. Edit the file directly.",
-    "line": "Only one line of this block could be matched in the source, so "
-            "there is no span to write an edit back to.",
-    "tag": "Only this block's opening tag could be located, so there is no "
-           "span to write an edit back to.",
+    "lines": _COMPOSED,
+    "line": _COMPOSED,
+    "tag": _COMPOSED,
     "symbol": "This text is computed at run time by the cited code. Editing "
               "what it produced would be editing a shadow — change the code.",
 }
@@ -548,12 +591,22 @@ def catalog_sections(tool_names: list[str]) -> list[dict]:
         "— these exact names are the ones you call; anything not listed here is "
         "not available):"
     )
+    catalog_py = [PKG / "prompts" / "tool_catalog.py"]
+    held = containing_literal(header, catalog_py)
     sections = [{
         "tag": "tools", "label": None, "chars": len(header), "text": header,
-        "source": resolve_symbol("prompts/tool_catalog.py", "render_tool_catalog"),
-        "edit": {"ok": False, "why": "The catalog's own framing sentence, built by "
-                                     "render_tool_catalog rather than written as a "
-                                     "prompt. Edit prompts/tool_catalog.py."},
+        "source": ({"file": held["file"], "line": held["line"],
+                    "line_end": held["line_end"], "match": "literal", "span": True}
+                   if held else
+                   resolve_symbol("prompts/tool_catalog.py", "render_tool_catalog")),
+        "edit": ({"ok": True, "mode": "literal",
+                  "key": "{}:{}-{}".format(held["file"].replace("/", "~"),
+                                           held["line"], held["line_end"]),
+                  "file": held["file"], "line": held["line"],
+                  "line_end": held["line_end"], "literal_chars": held["chars"]}
+                 if held else
+                 {"ok": False, "why": "The catalog's framing sentence could not be "
+                                      "located as a literal in tool_catalog.py."}),
     }]
 
     for name in sorted(tool_names):
@@ -646,9 +699,22 @@ def annotate_edits(roles: list[dict]) -> None:
                                 "also": others,
                             }
                 else:
-                    section["edit"] = {"ok": False, "why": _NOT_EDITABLE.get(
-                        source.get("match"), "This block could not be located "
-                        "as a verbatim span of any file.")}
+                    prefer = ([PKG / source["file"].split("_src/", 1)[1]]
+                              if source.get("file") else [])
+                    held = containing_literal(section["text"], prefer)
+                    if held:
+                        section["edit"] = {
+                            "ok": True, "mode": "literal",
+                            "key": "{}:{}-{}".format(held["file"].replace("/", "~"),
+                                                     held["line"], held["line_end"]),
+                            "file": held["file"], "line": held["line"],
+                            "line_end": held["line_end"],
+                            "literal_chars": held["chars"],
+                        }
+                    else:
+                        section["edit"] = {"ok": False, "why": _NOT_EDITABLE.get(
+                            source.get("match"), "This block could not be located "
+                            "as a verbatim span of any file.")}
 
 
 def build_roles(shared: list[dict]) -> list[dict]:

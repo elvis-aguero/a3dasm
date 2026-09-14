@@ -311,6 +311,7 @@ const MATCH_NOTE = {
   line:   "An ANCHOR, not a span: only one line of this block could be matched verbatim, and this is where that line sits.",
   tag:    "An ANCHOR: the block itself was not found, so this is where its opening tag is written.",
   docstring: "The docstring literal this entry is rendered from \u2014 these are its first and last lines in the source.",
+  literal: "The string literal that HOLDS this text \u2014 the text is a stretch inside it, so the citation is the literal's own first and last lines.",
   symbol: "The code that BUILDS this text, resolved by name on the syntax tree. The text itself is computed at run time, not written here.",
 };
 
@@ -571,9 +572,14 @@ async function openEditor(key){
       <span class="src">${esc(srcOf(sec.source))}</span>
       <span class="src">as <b>${esc(ME)}</b> <button class="editbtn" type="button" data-who>change</button></span>
     </div>
-    ${sec.edit.mode === "docstring" ? `<p class="secnote">This is a tool's docstring —
-      what the model is told the tool does. Write it as the agent should read it;
-      re-indenting it into the source is the applier's job, not yours.</p>` : ""}
+    ${sec.edit.mode === "docstring" ? `<p class="secnote">This is a docstring —
+      what the model is told, or what the gate says about itself. Write it as it should
+      read; re-indenting it into the source is the applier's job, not yours.</p>` : ""}
+    ${sec.edit.mode === "literal" ? `<p class="secnote">This text is a stretch INSIDE a
+      larger string literal (${num(sec.edit.literal_chars)} characters, at
+      ${esc(sec.edit.file)}:${sec.edit.line}\u2013${sec.edit.line_end}). It appears there
+      exactly once, so your edit replaces exactly this stretch and the applier re-emits the
+      literal around it \u2014 nothing else in it changes.</p>` : ""}
     <textarea data-proposed spellcheck="false">${esc(prior && prior.proposed ? prior.proposed : sec.text)}</textarea>
     <input type="text" data-note placeholder="why \u2014 the reason this change is right (optional, but it is what I read first)"
       value="${prior ? esc(prior.note || "") : ""}">

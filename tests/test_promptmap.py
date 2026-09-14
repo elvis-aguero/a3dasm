@@ -135,7 +135,8 @@ def test_a_citation_never_claims_a_span_it_did_not_verify(data):
     """
     for where, source in _sources(data):
         assert source["match"] in {
-            "exact", "ast", "lines", "line", "tag", "symbol", "docstring"}, where
+            "exact", "ast", "lines", "line", "tag", "symbol", "docstring",
+            "literal"}, where
         if source.get("span"):
             assert source["line_end"] >= source["line"], where
         else:
@@ -202,6 +203,21 @@ def test_an_editable_section_is_exactly_the_lines_it_cites(data):
                 edit = section["edit"]
                 if not edit["ok"]:
                     assert edit["why"], f"{role['id']}: not-editable with no reason"
+                    continue
+                if edit.get("mode") == "literal":
+                    # A different promise, just as checkable: the text is a
+                    # stretch INSIDE the cited literal, appearing exactly once,
+                    # so an edit replaces that stretch and nothing else.
+                    import ast as _ast
+                    src = (_ROOT / edit["file"]).read_text(encoding="utf-8")
+                    node = next(
+                        n for n in _ast.walk(_ast.parse(src))
+                        if isinstance(n, _ast.Constant) and isinstance(n.value, str)
+                        and n.lineno == edit["line"] and n.end_lineno == edit["line_end"]
+                    )
+                    assert node.value.count(section["text"].strip("\n")) == 1, (
+                        f"{role['id']}/{section['tag']}: the cited literal does not "
+                        f"hold this text exactly once, so an edit would have to guess")
                     continue
                 if edit.get("mode") == "docstring":
                     # A docstring span is the LITERAL — quotes and indentation
