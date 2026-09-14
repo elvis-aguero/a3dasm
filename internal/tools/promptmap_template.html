@@ -181,6 +181,10 @@ h2{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
 .editcard h3{margin:0 0 4px;font-size:13.5px;font-family:var(--mono);font-weight:600}
 .editsh{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);
   margin:22px 0 10px;font-weight:600}
+.egroup{margin:0 0 20px}
+.egroup h3{margin:0 0 8px;font-size:13px;font-family:var(--mono);font-weight:600;
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.editcard.stale{border-color:var(--soft)}
 .editcard .meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 0 8px}
 .editcard .why{font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6;max-width:78ch}
 .chip.k-open{color:var(--soft);border-color:var(--soft);background:transparent}
@@ -306,6 +310,7 @@ const MATCH_NOTE = {
   lines:  "The source breaks this literal across lines (a \\ continuation, or two literals joined), so it cannot be found as one string. These are the first and last of its lines that were matched verbatim.",
   line:   "An ANCHOR, not a span: only one line of this block could be matched verbatim, and this is where that line sits.",
   tag:    "An ANCHOR: the block itself was not found, so this is where its opening tag is written.",
+  docstring: "The docstring literal this entry is rendered from \u2014 these are its first and last lines in the source.",
   symbol: "The code that BUILDS this text, resolved by name on the syntax tree. The text itself is computed at run time, not written here.",
 };
 
@@ -320,7 +325,36 @@ let query = "";
    is also why only a section whose citation is a verbatim span may be edited:
    anything weaker has no span to write the edit back to. */
 let DB = null;
-const EDITS = new Map();
+const EDITS = new Map();          /* doc id -> stored edit */
+
+/* WHO. The user capability is not available to this page, so there is no
+   verified viewer identity to key edits on. A self-declared name is honest
+   about that and enough to keep two people's work apart; it is a label, not
+   an audit trail, and the staging view says so. */
+const AUTHOR_KEY = "promptmap.author";
+let ME = "";
+try { ME = localStorage.getItem(AUTHOR_KEY) || ""; } catch(_) { ME = ""; }
+
+const slug = name => (name || "anon").toLowerCase()
+  .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "anon";
+
+/* One document per (span, person). Two people proposing a change to the same
+   prompt write to DIFFERENT documents, so neither can overwrite the other —
+   the store's last-writer-wins applies only WITHIN one person's own edit, and
+   even there the previous text is kept in `history` rather than dropped. */
+const docId = (spanKey, who) => spanKey + "__" + slug(who);
+
+async function askAuthor(force){
+  if(ME && !force) return ME;
+  const given = window.prompt(
+    "Your name, so your edits stay yours.\n\nIt is stored in this browser and " +
+    "stamped on what you propose. Self-declared, not verified — it separates " +
+    "people's work, it does not authenticate it.", ME || "");
+  if(given === null) return ME || "";
+  ME = given.trim();
+  try { localStorage.setItem(AUTHOR_KEY, ME); } catch(_) {}
+  return ME;
+}
 
 async function initEdits(){
   try { DB = await claude?.use?.("db"); } catch(_) { DB = null; }
@@ -337,25 +371,50 @@ async function initEdits(){
   }, () => {});
 }
 
-const openEdits = () => [...EDITS.values()].filter(e => e.status !== "applied");
+const live = () => [...EDITS.values()].filter(e => e.status === "open");
+const forSpan = key => live().filter(e => e.key === key);
 
 function syncEditCount(){
   const b = document.querySelector('[data-view="edits"]');
-  if(b) b.querySelector("em").textContent = num(openEdits().length);
+  if(b) b.querySelector("em").textContent = num(live().length);
 }
 
 function editChip(key){
-  const e = EDITS.get(key);
-  if(!e) return "";
-  const cls = e.status === "applied" ? "k-applied" : (e.kind === "note" ? "k-note" : "k-open");
-  const label = e.status === "applied" ? "applied" : (e.kind === "note" ? "note" : "edit pending");
-  return `<span class="chip ${cls}">${label}</span>`;
+  if(!key) return "";
+  const mine = forSpan(key);
+  if(!mine.length) return "";
+  const others = mine.filter(e => e.author_slug !== slug(ME)).length;
+  const label = mine.length === 1 ? "1 proposal"
+    : `${mine.length} proposals` + (others ? " \u00b7 not all yours" : "");
+  return `<span class="chip k-open">${label}</span>`;
+}
+
+/* Has the source moved under an edit since it was written? The map is
+   regenerated from the repo, so the CURRENT text of that span is right here in
+   DATA — an edit whose base no longer matches it is the merge conflict, and
+   the staging view shows both sides rather than letting an apply guess. */
+const SPAN_TEXT = new Map();
+function indexSpans(){
+  DATA.roles.forEach(r => r.layers.forEach(l => (l.sections || []).forEach(sec => {
+    if(sec.edit && sec.edit.ok) SPAN_TEXT.set(sec.edit.key, sec.text);
+  })));
+}
+
+function staleness(e){
+  if(!SPAN_TEXT.has(e.key)) return {kind:"gone",
+    why:"This section is no longer in the map under that span — the prompt was "
+        + "moved, renamed, or removed since the edit was written."};
+  const now = SPAN_TEXT.get(e.key);
+  if(now !== e.base) return {kind:"moved", now,
+    why:"The source changed after this edit was written. Applying it blind would "
+        + "undo that change, so it needs a merge."};
+  return null;
 }
 
 /* A line diff, longest-common-subsequence, collapsing long runs of context.
    Small enough to read, which matters more here than being optimal. */
 function lineDiff(a, b){
-  const A = a.split("\n"), B = b.split("\n");
+  const A = String(a).split("\n"), B = String(b).split("\n");
   const n = A.length, m = B.length;
   const L = Array.from({length:n+1}, () => new Uint32Array(m+1));
   for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--)
@@ -368,15 +427,14 @@ function lineDiff(a, b){
   }
   while(i<n) out.push(["del",A[i++]]);
   while(j<m) out.push(["add",B[j++]]);
-  // collapse runs of >6 unchanged lines to 3 either side
-  const keep = out.map((_,k)=>false);
+  const keep = out.map(()=>false);
   out.forEach((r,k)=>{ if(r[0]!=="ctx") for(let d=-3;d<=3;d++) if(out[k+d]) keep[k+d]=true; });
   const res=[]; let skipped=0;
   out.forEach((r,k)=>{
-    if(keep[k]){ if(skipped){ res.push(["gap",`… ${skipped} unchanged line${skipped>1?"s":""}`]); skipped=0; } res.push(r); }
+    if(keep[k]){ if(skipped){ res.push(["gap",`\u2026 ${skipped} unchanged line${skipped>1?"s":""}`]); skipped=0; } res.push(r); }
     else skipped++;
   });
-  if(skipped) res.push(["gap",`… ${skipped} unchanged line${skipped>1?"s":""}`]);
+  if(skipped) res.push(["gap",`\u2026 ${skipped} unchanged line${skipped>1?"s":""}`]);
   return res;
 }
 
@@ -455,7 +513,8 @@ function sectionRow(sec, key){
   return `<div class="row" data-open="false">
     <button class="rowbtn" type="button" data-toggle="${key}">
       <svg class="chev" width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M2 1l4 3.5L2 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span class="rowtag">${sec.tag ? `&lt;${esc(sec.tag)}&gt;` : `<i>${esc(preview)}</i>`}</span>
+      <span class="rowtag">${sec.tag ? `&lt;${esc(sec.tag)}&gt;`
+        : sec.label ? esc(sec.label) : `<i>${esc(preview)}</i>`}</span>
       <span class="rowspacer"></span>
       <span class="rowsrc">${esc(srcOf(sec.source))}</span>
       <span class="rowchars">${num(sec.chars)}</span>
@@ -482,33 +541,46 @@ function sectionRow(sec, key){
 }
 
 /* ---------------- the editor ---------------- */
-function openEditor(key){
+async function openEditor(key){
   const slot = document.getElementById("ed-"+key);
   const sec = SECTIONS.get(key);
   if(!slot || !sec || !sec.edit || !sec.edit.ok) return;
   if(slot.firstChild){ slot.innerHTML = ""; return; }      // toggle closed
-  const prior = EDITS.get(sec.edit.key);
+  if(!await askAuthor(false)) return;
+
+  const id = docId(sec.edit.key, ME);
+  const prior = EDITS.get(id);
+  const others = forSpan(sec.edit.key).filter(e => e.author_slug !== slug(ME));
   const shared = sec.edit.shared;
+
   slot.innerHTML = `<div class="editor">
     ${shared ? `<p class="warnshared"><b>Shared text.</b> ${esc(shared.name)} is injected
       verbatim into ${esc(shared.also.join(", "))} as well. An edit here changes what
       ${shared.also.length > 1 ? "those agents see" : "that agent sees"} too.</p>` : ""}
+    ${others.length ? `<p class="warnshared"><b>${others.length} other proposal${
+      others.length>1?"s":""} on this section</b> \u2014 from ${
+      esc(others.map(e=>e.author||"someone").join(", "))}. Yours is kept separately;
+      neither overwrites the other, and both are shown side by side in My edits.</p>` : ""}
     <div class="erow">
       <label>this is a
         <select data-kind>
           <option value="proposal"${prior && prior.kind==="proposal" ? " selected":""}>proposed change to the prompt</option>
-          <option value="note"${prior && prior.kind==="note" ? " selected":""}>note only — do not change the code</option>
+          <option value="note"${prior && prior.kind==="note" ? " selected":""}>note only \u2014 do not change the code</option>
         </select>
       </label>
       <span class="src">${esc(srcOf(sec.source))}</span>
+      <span class="src">as <b>${esc(ME)}</b> <button class="editbtn" type="button" data-who>change</button></span>
     </div>
+    ${sec.edit.mode === "docstring" ? `<p class="secnote">This is a tool's docstring —
+      what the model is told the tool does. Write it as the agent should read it;
+      re-indenting it into the source is the applier's job, not yours.</p>` : ""}
     <textarea data-proposed spellcheck="false">${esc(prior && prior.proposed ? prior.proposed : sec.text)}</textarea>
-    <input type="text" data-note placeholder="why — the reason this change is right (optional, but it is what I read first)"
+    <input type="text" data-note placeholder="why \u2014 the reason this change is right (optional, but it is what I read first)"
       value="${prior ? esc(prior.note || "") : ""}">
     <div class="erow">
       <button class="editbtn save" type="button" data-save="${key}">save</button>
       <button class="editbtn" type="button" data-cancel="${key}">cancel</button>
-      ${prior ? `<button class="editbtn danger" type="button" data-drop="${sec.edit.key}">discard this edit</button>` : ""}
+      ${prior ? `<button class="editbtn danger" type="button" data-withdraw="${esc(id)}">withdraw mine</button>` : ""}
       <span data-status></span>
     </div>
   </div>`;
@@ -516,10 +588,14 @@ function openEditor(key){
   const fit = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight+4, 640)+"px"; };
   ta.addEventListener("input", fit); fit(); ta.focus();
   slot.querySelector("[data-kind]").addEventListener("change", e => {
-    ta.parentElement.querySelector("[data-proposed]").hidden = e.target.value === "note";
+    ta.hidden = e.target.value === "note";
   });
   if((prior && prior.kind) === "note") ta.hidden = true;
 }
+
+/* Saving never drops text. A person's own re-save keeps what it replaced in
+   `history`, so even the one overwrite the store permits is recoverable. */
+const HISTORY_CAP = 6;
 
 async function saveEdit(key){
   const slot = document.getElementById("ed-"+key);
@@ -531,16 +607,24 @@ async function saveEdit(key){
   if(kind === "proposal" && proposed === sec.text && !note){
     status.textContent = "nothing changed"; return;
   }
-  if(!DB){ status.textContent = "not saved — this view cannot write"; return; }
-  status.textContent = "saving…";
+  if(!DB){ status.textContent = "not saved \u2014 this view cannot write"; return; }
+  const id = docId(sec.edit.key, ME);
+  const prior = EDITS.get(id);
+  const history = prior
+    ? [{proposed: prior.proposed, note: prior.note, kind: prior.kind,
+        saved_at: prior.saved_at}, ...(prior.history || [])].slice(0, HISTORY_CAP)
+    : [];
+  status.textContent = "saving\u2026";
   try {
-    await DB.doc("edits/"+sec.edit.key).set({
+    await DB.doc("edits/"+id).set({
       key: sec.edit.key, kind, status: "open",
+      author: ME, author_slug: slug(ME),
       file: sec.edit.file, line: sec.edit.line, line_end: sec.edit.line_end,
-      tag: sec.tag || null, original: sec.text,
+      tag: sec.tag || null,
+      base: sec.text,                 /* the text this edit was written against */
       proposed: kind === "note" ? "" : proposed,
       note, saved_at: new Date().toISOString(),
-      commit: DATA.commit,
+      base_commit: DATA.commit, history,
     });
     slot.innerHTML = "";
   } catch(err){
@@ -548,40 +632,90 @@ async function saveEdit(key){
   }
 }
 
+/* Withdrawing is a STATE, not a delete: the document stays, so a withdrawal
+   can be undone and nothing a person wrote leaves the store by accident. */
+async function setStatus(id, status){
+  if(!DB) return;
+  try { await DB.doc("edits/"+id).update({status}); } catch(_) {}
+}
+
 /* ---------------- edits view ---------------- */
 function renderEdits(){
-  const all = [...EDITS.values()].sort((a,b)=> (a.file+a.line).localeCompare(b.file+b.line));
-  const open = all.filter(e => e.status !== "applied");
-  const done = all.filter(e => e.status === "applied");
-
-  const card = e => `<div class="editcard">
-    <h3>${e.tag ? "&lt;"+esc(e.tag)+"&gt; " : ""}<span class="src">${esc(e.file)}:${e.line}\u2013${e.line_end}</span></h3>
-    <div class="meta">
-      <span class="chip ${e.status==="applied" ? "k-applied" : e.kind==="note" ? "k-note" : "k-open"}">${
-        e.status==="applied" ? "applied \u00b7 "+esc(e.applied_commit||"") : e.kind==="note" ? "note only" : "proposed change"}</span>
-      <span class="src">saved ${esc((e.saved_at||"").slice(0,16).replace("T"," "))}</span>
-      ${e.commit && e.commit !== DATA.commit
-        ? `<span class="chip k-soft" title="This edit was written against an older generation of the map.">against ${esc(e.commit)}</span>` : ""}
-      ${e.status!=="applied" ? `<button class="editbtn danger" type="button" data-drop="${esc(e.key)}">discard</button>` : ""}
-    </div>
-    ${e.note ? `<p class="why">${esc(e.note)}</p>` : `<p class="why" style="color:var(--ink-3)">(no reason given)</p>`}
-    ${e.kind==="note" ? "" : renderDiff(e.original||"", e.proposed||"")}
-  </div>`;
-
   if(!DB) return `<h1>My edits</h1>
     <p class="lede">This view cannot reach the artifact's store, so edits cannot be
     saved or read here. Open the artifact from your own Claude account.</p>`;
 
+  const all = [...EDITS.entries()].map(([id, e]) => ({id, ...e}));
+  const open = all.filter(e => e.status === "open");
+  const applied = all.filter(e => e.status === "applied");
+  const gone = all.filter(e => e.status === "withdrawn");
+
+  const groups = new Map();
+  open.forEach(e => { if(!groups.has(e.key)) groups.set(e.key, []); groups.get(e.key).push(e); });
+  const ordered = [...groups.entries()].sort((a,b) =>
+    (a[1][0].file + String(a[1][0].line).padStart(6,"0")).localeCompare(
+     b[1][0].file + String(b[1][0].line).padStart(6,"0")));
+
+  const card = (e, withDiff) => {
+    const stale = e.status === "open" ? staleness(e) : null;
+    return `<div class="editcard${stale ? " stale" : ""}">
+    <div class="meta">
+      <span class="chip ${e.status==="applied" ? "k-applied" : e.kind==="note" ? "k-note" : "k-open"}">${
+        e.status==="applied" ? "applied \u00b7 "+esc(e.applied_commit||"") :
+        e.status==="withdrawn" ? "withdrawn" :
+        e.kind==="note" ? "note only" : "proposed change"}</span>
+      <span class="src"><b>${esc(e.author || "anonymous")}</b></span>
+      <span class="src">${esc((e.saved_at||"").slice(0,16).replace("T"," "))}</span>
+      ${e.history && e.history.length
+        ? `<span class="chip" title="Earlier versions of this person's own edit are kept in the store and are not lost.">${e.history.length} earlier version${e.history.length>1?"s":""} kept</span>` : ""}
+      ${e.status==="open" ? `<button class="editbtn danger" type="button" data-withdraw="${esc(e.id)}">withdraw</button>` : ""}
+      ${e.status==="withdrawn" ? `<button class="editbtn" type="button" data-restore="${esc(e.id)}">restore</button>` : ""}
+    </div>
+    ${stale ? `<p class="warnshared"><b>Needs a merge.</b> ${esc(stale.why)}</p>` : ""}
+    ${e.note ? `<p class="why">${esc(e.note)}</p>`
+             : `<p class="why" style="color:var(--ink-3)">(no reason given)</p>`}
+    ${withDiff && e.kind !== "note" ? renderDiff(e.base||"", e.proposed||"") : ""}
+    ${stale && stale.kind === "moved"
+      ? `<p class="why" style="margin-top:8px"><b>What changed underneath, since this edit:</b></p>
+         ${renderDiff(e.base||"", stale.now||"")}` : ""}
+  </div>`;
+  };
+
+  const group = ([key, list]) => {
+    const head = list[0];
+    const differ = list.length > 1 &&
+      new Set(list.map(e => e.proposed)).size > 1;
+    return `<section class="egroup">
+      <h3>${head.tag ? "&lt;"+esc(head.tag)+"&gt; " : ""}<span class="src">${
+        esc(head.file)}:${head.line}\u2013${head.line_end}</span>
+        ${list.length > 1 ? `<span class="chip k-soft">${list.length} people</span>` : ""}</h3>
+      ${differ ? `<p class="warnshared"><b>These proposals differ.</b> Both are kept.
+        Whoever applies them has to choose, or merge them by hand \u2014 nothing here
+        picks a winner.</p>` : ""}
+      ${list.map(e => card(e, true)).join("")}
+    </section>`;
+  };
+
   return `<p class="eyebrow">Staging</p><h1>My edits</h1>
     <p class="lede">Nothing here has changed the repository. Each entry is a proposal
-      parked beside the prompt it belongs to, kept in this artifact's own store — it
+      parked beside the prompt it belongs to, in this artifact's own store, and it
       survives every republish of the page. Tell the agent that maintains this repo to
-      look at your edits, and it will apply them to the source, run the suite, and mark
-      them applied below.</p>
-    ${open.length ? `<h2 class="editsh">Open \u00b7 ${open.length}</h2>` + open.map(card).join("")
+      look at the edits and it will apply them to the source, run the suite, and mark
+      them applied.</p>
+    <p class="lede" style="color:var(--ink-3)">Each person's proposal on a section is
+      its own record, so no one overwrites anyone. Re-saving your own keeps the version
+      it replaced. Withdrawing sets a state rather than deleting. Names are
+      self-declared \u2014 they separate people's work, they do not authenticate it.
+      You are <b>${esc(ME || "unnamed")}</b>
+      <button class="editbtn" type="button" data-who>change</button></p>
+    ${ordered.length ? `<h2 class="editsh">Open \u00b7 ${open.length} on ${ordered.length} section${
+        ordered.length>1?"s":""}</h2>` + ordered.map(group).join("")
       : `<p class="lede">No open edits. Open a role, expand a section, and choose
          <b>propose an edit</b>.</p>`}
-    ${done.length ? `<h2 class="editsh">Applied \u00b7 ${done.length}</h2>` + done.map(card).join("") : ""}`;
+    ${applied.length ? `<h2 class="editsh">Applied \u00b7 ${applied.length}</h2>`
+        + applied.map(e => card(e, false)).join("") : ""}
+    ${gone.length ? `<h2 class="editsh">Withdrawn \u00b7 ${gone.length}</h2>`
+        + gone.map(e => card(e, false)).join("") : ""}`;
 }
 
 /* ---------------- role view ---------------- */
@@ -602,7 +736,7 @@ function renderRole(r){
 
   const layers = r.layers.map((l,li)=>{
     let body;
-    if(l.kind==="catalog"){
+    if(l.kind==="catalog" && !l.sections.length){
       body = `<div class="rows"><div class="tools">${
         l.tools.map(t=>`<span class="chip">${esc(t)}</span>`).join("")}</div></div>`;
     } else {
@@ -800,9 +934,13 @@ document.addEventListener("click", e=>{
   if(sv){ saveEdit(sv.dataset.save); return; }
   const cx = e.target.closest("[data-cancel]");
   if(cx){ document.getElementById("ed-"+cx.dataset.cancel).innerHTML = ""; return; }
-  const dp = e.target.closest("[data-drop]");
-  if(dp){ DB && DB.doc("edits/"+dp.dataset.drop).delete().catch(()=>{}); 
-          const slot = dp.closest(".editslot"); if(slot) slot.innerHTML = ""; return; }
+  const wd = e.target.closest("[data-withdraw]");
+  if(wd){ setStatus(wd.dataset.withdraw, "withdrawn");
+          const slot = wd.closest(".editslot"); if(slot) slot.innerHTML = ""; return; }
+  const rs = e.target.closest("[data-restore]");
+  if(rs){ setStatus(rs.dataset.restore, "open"); return; }
+  const who = e.target.closest("[data-who]");
+  if(who){ askAuthor(true).then(()=>render()); return; }
   const c = e.target.closest("[data-copy]");
   if(c){
     const txt = document.getElementById("txt-"+c.dataset.copy).textContent;
@@ -818,6 +956,7 @@ document.addEventListener("keydown", e=>{
   if(e.key==="Escape" && e.target.id==="q"){ e.target.value=""; query=""; render(); }
 });
 
+indexSpans();
 buildRail();
 render();
 /* The page is complete and readable before this resolves; editing lights up

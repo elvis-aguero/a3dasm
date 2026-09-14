@@ -476,6 +476,123 @@ _NOT_EDITABLE = {
 }
 
 
+_TOOL_NAME = re.compile(r"[A-Z][A-Za-z0-9]+$")
+
+
+def tool_docs() -> dict[str, dict]:
+    """Every PascalCase tool definition in the package, with its docstring span.
+
+    ``agent.tools`` on the graph spec is a list of NAMES — the closures are
+    bound per node at dispatch, so there is no live object here to read a
+    ``__doc__`` off. The text an agent sees is nonetheless written down: each
+    tool is a PascalCase method, and ``render_tool_catalog`` renders exactly
+    ``ast.get_docstring``'s cleaned form of it plus any ``@tool_examples``. So
+    the catalog can be reproduced from the syntax tree, and each entry cited to
+    the docstring literal it is rendered from.
+
+    A name defined in more than one place is recorded as ambiguous rather than
+    guessed at: the map would otherwise cite one of two candidate docstrings
+    with no way for a reader to know it had a choice.
+    """
+    found: dict[str, list[dict]] = {}
+    for path in _py_files():
+        tree = ast.parse(_read(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not _TOOL_NAME.match(node.name):
+                continue
+            doc = ast.get_docstring(node)
+            if not doc:
+                continue
+            examples: list[str] = []
+            for dec in node.decorator_list:
+                if (isinstance(dec, ast.Call)
+                        and getattr(dec.func, "id", getattr(dec.func, "attr", "")) == "tool_examples"):
+                    examples = [a.value for a in dec.args if isinstance(a, ast.Constant)]
+            lit = node.body[0]
+            found.setdefault(node.name, []).append({
+                "doc": doc, "examples": examples, "file": _rel(path),
+                "line": lit.lineno, "line_end": lit.end_lineno,
+                "def_line": node.lineno,
+            })
+    out: dict[str, dict] = {}
+    for name, hits in found.items():
+        out[name] = dict(hits[0], ambiguous=[
+            f"{h['file']}:{h['def_line']}" for h in hits] if len(hits) > 1 else [])
+    return out
+
+
+#: The two tools whose docstring is rebuilt per node at dispatch (``with_doc``
+#: in nodes/tools/routing/_binding.py), so what the agent reads is not what the
+#: source says — Delegate embeds its node's connected targets, AskForFeedback
+#: the connected critic's description.
+_PER_NODE_DOC = ("Delegate", "AskForFeedback")
+
+
+def catalog_sections(tool_names: list[str]) -> list[dict]:
+    """The ``<tools>`` catalog as readable, citable sections — one per tool.
+
+    Mirrors ``render_tool_catalog``'s own formatting so the text here is the
+    text the model reads, and cites each entry to the docstring it comes from.
+    """
+    docs = tool_docs()
+    header = (
+        "Your available tools, generated from the live tool set (AUTHORITATIVE "
+        "— these exact names are the ones you call; anything not listed here is "
+        "not available):"
+    )
+    sections = [{
+        "tag": "tools", "label": None, "chars": len(header), "text": header,
+        "source": resolve_symbol("prompts/tool_catalog.py", "render_tool_catalog"),
+        "edit": {"ok": False, "why": "The catalog's own framing sentence, built by "
+                                     "render_tool_catalog rather than written as a "
+                                     "prompt. Edit prompts/tool_catalog.py."},
+    }]
+
+    for name in sorted(tool_names):
+        spec = docs.get(name)
+        if spec is None:
+            sections.append({
+                "tag": None, "label": name, "chars": 0,
+                "text": "(no definition in this repository — this tool is provided "
+                        "by the backend SDK, and its description comes with it)",
+                "source": None, "external": True,
+                "edit": {"ok": False, "why": "Defined by the backend SDK, not in "
+                                             "this repository."},
+            })
+            continue
+        body = f"### {name}\n{spec['doc']}"
+        if spec["examples"]:
+            body += "\nExamples:\n" + "\n".join(f"  - {e}" for e in spec["examples"])
+        source = {"file": spec["file"], "line": spec["line"],
+                  "line_end": spec["line_end"], "match": "docstring", "span": True}
+        if spec["ambiguous"]:
+            edit = {"ok": False, "why": "This name is defined more than once — "
+                                        + " and ".join(spec["ambiguous"])
+                                        + " — and which one binds depends on the node, "
+                                          "so the map will not guess which docstring "
+                                          "this agent is actually reading."}
+        elif name in _PER_NODE_DOC:
+            edit = {"ok": False, "why": "This tool's description is rebuilt for each "
+                                        "node at dispatch — it embeds that node's own "
+                                        "connections — so what the agent reads is not "
+                                        "what the source says. Edit the builder in "
+                                        "nodes/tools/routing/, not this text."}
+        else:
+            edit = {
+                "ok": True, "mode": "docstring",
+                "key": "{}:{}-{}".format(spec["file"].replace("/", "~"),
+                                         spec["line"], spec["line_end"]),
+                "file": spec["file"], "line": spec["line"],
+                "line_end": spec["line_end"],
+            }
+        sections.append({"tag": None, "label": name, "chars": len(body),
+                         "text": body, "source": source, "edit": edit,
+                         "doc": spec["doc"]})
+    return sections
+
+
 def annotate_edits(roles: list[dict]) -> None:
     """Mark which sections the page may offer to edit, and why not otherwise.
 
@@ -497,6 +614,8 @@ def annotate_edits(roles: list[dict]) -> None:
     for role in roles:
         for layer in role["layers"]:
             for section in layer.get("sections", []):
+                if "edit" in section:      # the catalog decides its own
+                    continue
                 source = section.get("source") or {}
                 if section.get("parts"):
                     section["edit"] = {"ok": False, "why":
@@ -623,14 +742,14 @@ def build_roles(shared: list[dict]) -> list[dict]:
             "label": "<tools> catalog",
             "note": "Rendered at dispatch from the LIVE closure dict, so it can never "
                     "name a tool the agent does not have. Each entry is the tool's own "
-                    "docstring. The closures are bound per run (nodes/tools/routing/), "
-                    "so the exact text is run-scoped — the tool names below are the "
-                    "declared set.",
+                    "docstring, read off the source it is written in. The closures "
+                    "bind per node at dispatch, so a tool whose description is built "
+                    "there rather than written down says so instead of pretending.",
             "definition": resolve_symbol("prompts/tool_catalog.py", "render_tool_catalog"),
             "assembled_at": locate("system_prompt=system_prompt_with_catalog("),
             "chars": None,
             "tools": sorted(tools),
-            "sections": [],
+            "sections": catalog_sections(sorted(tools)),
         })
 
         roles.append({

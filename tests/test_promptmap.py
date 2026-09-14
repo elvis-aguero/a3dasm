@@ -70,7 +70,11 @@ def test_every_prompt_section_resolves_to_a_real_line(data):
             for section in layer["sections"]:
                 source = section.get("source")
                 if not source:
-                    unresolved.append(f"{role['id']}/{layer['kind']}/{section['tag']}")
+                    # A tool the backend SDK supplies has no definition HERE; the
+                    # map says so rather than inventing a citation for it.
+                    if not section.get("external"):
+                        unresolved.append(
+                            f"{role['id']}/{layer['kind']}/{section['tag']}")
                     continue
                 path = _ROOT / source["file"]
                 assert path.exists(), source["file"]
@@ -130,7 +134,8 @@ def test_a_citation_never_claims_a_span_it_did_not_verify(data):
     end line at all.
     """
     for where, source in _sources(data):
-        assert source["match"] in {"exact", "ast", "lines", "line", "tag", "symbol"}, where
+        assert source["match"] in {
+            "exact", "ast", "lines", "line", "tag", "symbol", "docstring"}, where
         if source.get("span"):
             assert source["line_end"] >= source["line"], where
         else:
@@ -197,6 +202,21 @@ def test_an_editable_section_is_exactly_the_lines_it_cites(data):
                 edit = section["edit"]
                 if not edit["ok"]:
                     assert edit["why"], f"{role['id']}: not-editable with no reason"
+                    continue
+                if edit.get("mode") == "docstring":
+                    # A docstring span is the LITERAL — quotes and indentation
+                    # included — so the promise is different but just as checkable:
+                    # the text shown must be what Python reads out of it.
+                    import ast as _ast
+                    src = (_ROOT / edit["file"]).read_text(encoding="utf-8")
+                    node = next(
+                        n for n in _ast.walk(_ast.parse(src))
+                        if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+                        and n.body and getattr(n.body[0], "lineno", None) == edit["line"]
+                    )
+                    assert _ast.get_docstring(node) == section["doc"], (
+                        f"{role['id']}/{section['label']}: the catalog shows text the "
+                        f"cited docstring does not contain")
                     continue
                 lines = (_ROOT / edit["file"]).read_text(encoding="utf-8").splitlines()
                 span = "\n".join(lines[edit["line"] - 1:edit["line_end"]])
