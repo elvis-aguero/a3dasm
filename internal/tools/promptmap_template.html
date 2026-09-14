@@ -194,6 +194,18 @@ h2{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
 .msg{margin:0 0 12px}
 .msg .prompt{margin:0 0 6px;font-size:11.5px}
 .nomsg{font-size:12px;color:var(--ink-3);margin:10px 0 0;font-style:italic}
+.prompt.suggesting{background:var(--surface)}
+.prompt del{background:var(--hard-soft);color:var(--hard);text-decoration:line-through;
+  text-decoration-thickness:1px;border-radius:2px;padding:0 1px}
+.prompt ins{background:var(--adv-soft);color:var(--adv);text-decoration:underline;
+  text-decoration-thickness:1px;border-radius:2px;padding:0 1px}
+.suggbar{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 0 8px;
+  padding:7px 10px;background:var(--surface-2);border-left:2px solid var(--accent);
+  border-radius:0 var(--r) var(--r) 0;font-size:12px}
+.suggbar .why{color:var(--ink-2);font-style:italic}
+.chip.sugg{cursor:pointer;font-family:var(--mono)}
+.chip.sugg:hover{border-color:var(--accent);color:var(--accent)}
+.chip.sugg.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .editcard .meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 0 8px}
 .editcard .why{font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6;max-width:78ch}
 .chip.k-open{color:var(--soft);border-color:var(--soft);background:transparent}
@@ -378,7 +390,7 @@ async function initEdits(){
     syncEditCount();
     if(view.kind === "edits") render();
     document.querySelectorAll("[data-editchip]").forEach(el => {
-      el.innerHTML = editChip(el.dataset.editchip);
+      el.innerHTML = editChip(el.dataset.editchip, el.dataset.row || "");
     });
   }, () => {});
 }
@@ -391,14 +403,64 @@ function syncEditCount(){
   if(b) b.querySelector("em").textContent = num(live().length);
 }
 
-function editChip(key){
+/* Which proposal, if any, is being shown ON the prompt: span key -> index into
+   that span's proposals. Showing is per span and per reader — a view, not a
+   state anyone else sees. */
+const SHOWING = new Map();
+
+function editChip(key, rowKey){
   if(!key) return "";
   const mine = forSpan(key);
   if(!mine.length) return "";
-  const others = mine.filter(e => e.author_slug !== slug(ME)).length;
-  const label = mine.length === 1 ? "1 proposal"
-    : `${mine.length} proposals` + (others ? " \u00b7 not all yours" : "");
-  return `<span class="chip k-open">${label}</span>`;
+  const shown = SHOWING.has(key);
+  const label = mine.length === 1 ? "1 proposal" : `${mine.length} proposals`;
+  return `<button class="chip k-open sugg${shown ? " on" : ""}" type="button"
+    data-suggest="${esc(key)}" data-row="${esc(rowKey || "")}"
+    title="${shown ? "Back to the text as the repository has it"
+                   : "Show the proposal on the prompt, struck through and underlined"}"
+    >${label} \u00b7 ${shown ? "hide" : "show"}</button>`;
+}
+
+/* Paint (or unpaint) one section's prompt with the proposal showing. */
+function paintSuggestion(spanKey, rowKey){
+  const pre = document.getElementById("txt-" + rowKey);
+  const sec = SECTIONS.get(rowKey);
+  if(!pre || !sec) return;
+  const list = forSpan(spanKey).filter(e => e.kind !== "note");
+  const idx = SHOWING.get(spanKey);
+  if(idx === undefined || !list.length){
+    pre.classList.remove("suggesting");
+    pre.innerHTML = promptBody(sec);
+  } else {
+    const e = list[Math.min(idx, list.length - 1)];
+    pre.classList.add("suggesting");
+    pre.innerHTML = suggestionHTML(e.base || sec.text, e.proposed || "");
+  }
+  const bar = document.getElementById("sg-" + rowKey);
+  if(bar) bar.innerHTML = suggestionBar(spanKey, rowKey);
+  document.querySelectorAll(`[data-editchip="${CSS.escape(spanKey)}"]`).forEach(el => {
+    el.innerHTML = editChip(spanKey, el.dataset.row || "");
+  });
+}
+
+/* Who is suggesting, why, and — when more than one person has — which of them
+   you are looking at. */
+function suggestionBar(spanKey, rowKey){
+  const idx = SHOWING.get(spanKey);
+  if(idx === undefined) return "";
+  const list = forSpan(spanKey).filter(e => e.kind !== "note");
+  if(!list.length) return "";
+  const e = list[Math.min(idx, list.length - 1)];
+  return `<div class="suggbar">
+    <span class="chip k-open">suggestion</span>
+    <span class="src">by <b>${esc(e.author || "anonymous")}</b></span>
+    ${e.note ? `<span class="why">${esc(e.note)}</span>` : ""}
+    ${list.length > 1 ? list.map((o,i) => `<button class="editbtn${
+        i === Math.min(idx, list.length-1) ? " save" : ""}" type="button"
+        data-suggest="${esc(spanKey)}" data-row="${esc(rowKey)}" data-idx="${i}"
+      >${esc(o.author || "anon")}</button>`).join("") : ""}
+    <span class="src">nothing is applied until it is applied to the source</span>
+  </div>`;
 }
 
 /* Has the source moved under an edit since it was written? The map is
@@ -448,6 +510,58 @@ function lineDiff(a, b){
   });
   if(skipped) res.push(["gap",`\u2026 ${skipped} unchanged line${skipped>1?"s":""}`]);
   return res;
+}
+
+/* A word-level diff, for showing a proposal ON the prompt rather than beside
+   it. Run only over the stretches the line diff already found changed, so a
+   twelve-thousand-character prompt costs a comparison of the sentence someone
+   actually touched. */
+function wordDiff(a, b){
+  const cut = t => t.split(/(\s+)/).filter(x => x !== "");
+  const A = cut(a), B = cut(b), n = A.length, m = B.length;
+  const L = Array.from({length:n+1}, () => new Uint32Array(m+1));
+  for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--)
+    L[i][j] = A[i]===B[j] ? L[i+1][j+1]+1 : Math.max(L[i+1][j], L[i][j+1]);
+  const out=[]; let i=0,j=0;
+  const push=(k,t)=>{ const last=out[out.length-1];
+    if(last && last[0]===k) last[1]+=t; else out.push([k,t]); };
+  while(i<n && j<m){
+    if(A[i]===B[j]){ push("ctx",A[i]); i++; j++; }
+    else if(L[i+1][j] >= L[i][j+1]) push("del",A[i++]);
+    else push("add",B[j++]);
+  }
+  while(i<n) push("del",A[i++]);
+  while(j<m) push("add",B[j++]);
+  return out;
+}
+
+/* The suggestion rendering: the prompt as it stands, with what the proposal
+   takes out struck through and what it puts in underlined. The source text is
+   never replaced by the proposal — both are on the page at once, which is the
+   whole point of a suggestion as against an edit. */
+function suggestionHTML(base, proposed){
+  const runs = lineDiff(base, proposed);
+  const out = [];
+  for(let i=0;i<runs.length;i++){
+    const [kind, text] = runs[i];
+    if(kind === "ctx"){ out.push(esc(text) + "\n"); continue; }
+    if(kind === "gap"){ out.push(esc(text) + "\n"); continue; }
+    if(kind === "del"){
+      // Gather the del-run and any add-run right after it, and compare them
+      // word by word — a reworded sentence should read as a reworded
+      // sentence, not as one line removed and another added.
+      const dels = []; while(runs[i] && runs[i][0]==="del") dels.push(runs[i++][1]);
+      const adds = []; while(runs[i] && runs[i][0]==="add") adds.push(runs[i++][1]);
+      i--;
+      if(!adds.length){ out.push(`<del>${esc(dels.join("\n"))}</del>\n`); continue; }
+      out.push(wordDiff(dels.join("\n"), adds.join("\n")).map(([k,t]) =>
+        k === "ctx" ? esc(t) : k === "del" ? `<del>${esc(t)}</del>` : `<ins>${esc(t)}</ins>`
+      ).join("") + "\n");
+      continue;
+    }
+    out.push(`<ins>${esc(text)}</ins>\n`);
+  }
+  return out.join("");
 }
 
 const renderDiff = (a,b) => `<div class="diff">${
@@ -540,9 +654,10 @@ function sectionRow(sec, key){
         <button class="copy" type="button" data-copy="${key}">copy text</button>
         ${sec.edit && sec.edit.ok
           ? `<button class="editbtn" type="button" data-edit="${key}">propose an edit</button>` : ""}
-        <span data-editchip="${sec.edit && sec.edit.key ? sec.edit.key : ""}">${
-          sec.edit && sec.edit.key ? editChip(sec.edit.key) : ""}</span>
+        <span data-editchip="${sec.edit && sec.edit.key ? sec.edit.key : ""}" data-row="${key}">${
+          sec.edit && sec.edit.key ? editChip(sec.edit.key, key) : ""}</span>
       </div>
+      <div class="suggslot" id="sg-${key}"></div>
       ${sec.edit && !sec.edit.ok
         ? `<p class="noedit"><b>Not editable from this page.</b> ${esc(sec.edit.why)}</p>` : ""}
       <div class="editslot" id="ed-${key}"></div>
@@ -817,12 +932,13 @@ function gateMessages(g){
         file: m.file, line: m.line, line_end: m.line_end, match: "message", span: true},
         edit: m.edit});
       return `<div class="msg">
-        <pre class="prompt">${esc(m.text)}</pre>
+        <pre class="prompt" id="txt-${key}">${esc(m.text)}</pre>
         <div class="gatefoot">
           <span class="src">${esc(m.file)}:${m.line}\u2013${m.line_end}</span>
           <button class="editbtn" type="button" data-edit="${key}">edit this message</button>
-          <span data-editchip="${esc(m.edit.key)}">${editChip(m.edit.key)}</span>
+          <span data-editchip="${esc(m.edit.key)}" data-row="${key}">${editChip(m.edit.key, key)}</span>
         </div>
+        <div class="suggslot" id="sg-${key}"></div>
         <div class="editslot" id="ed-${key}"></div>
       </div>`;}).join("")}
   </div>`;
@@ -858,8 +974,8 @@ function gateCard(g, n){
         ${g.policy ? `<span class="chip">policy · ${esc(g.policy[0])}::${esc(g.policy[1])}</span>` : ""}
         ${g.edit && g.edit.ok
           ? `<button class="editbtn" type="button" data-edit="${key}">edit this description</button>` : ""}
-        <span data-editchip="${g.edit && g.edit.key ? g.edit.key : ""}">${
-          g.edit && g.edit.key ? editChip(g.edit.key) : ""}</span>
+        <span data-editchip="${g.edit && g.edit.key ? g.edit.key : ""}" data-row="${key}">${
+          g.edit && g.edit.key ? editChip(g.edit.key, key) : ""}</span>
       </div>
       <div class="editslot" id="ed-${key}"></div>
     </div>
@@ -999,6 +1115,15 @@ document.addEventListener("click", e=>{
     const open = row.dataset.open === "true";
     row.dataset.open = open ? "false" : "true";
     row.querySelector(".rowbody").hidden = open;
+    return;
+  }
+  const sg = e.target.closest("[data-suggest]");
+  if(sg){
+    const span = sg.dataset.suggest, row = sg.dataset.row;
+    if(sg.dataset.idx !== undefined) SHOWING.set(span, Number(sg.dataset.idx));
+    else if(SHOWING.has(span)) SHOWING.delete(span);
+    else SHOWING.set(span, 0);
+    paintSuggestion(span, row);
     return;
   }
   const ed = e.target.closest("[data-edit]");
