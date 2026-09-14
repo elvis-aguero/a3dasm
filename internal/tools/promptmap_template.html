@@ -150,6 +150,42 @@ h2{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
 .legrow p{grid-column:1/-1;margin:2px 0 0;color:var(--ink-3);line-height:1.55;max-width:78ch}
 @media(max-width:820px){.legrow{grid-template-columns:1fr}}
 .secnote{font-size:12px;line-height:1.55;color:var(--ink-3);max-width:74ch;margin:0 0 10px}
+.editbtn{font:inherit;font-size:11px;font-family:var(--mono);color:var(--accent-ink);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:2px 8px;cursor:pointer}
+.editbtn:hover{border-color:var(--accent);color:var(--accent)}
+.editor{margin:0 0 10px;display:grid;gap:8px}
+.editor textarea{font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--ink);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:10px;width:100%;min-height:220px;resize:vertical;box-sizing:border-box}
+.editor input[type=text]{font:inherit;font-size:12.5px;color:var(--ink);background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r);padding:7px 9px;width:100%;box-sizing:border-box}
+.editor .erow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;color:var(--ink-3)}
+.editor select{font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--line);
+  border-radius:var(--r);background:var(--surface);color:var(--ink)}
+.editor .save{background:var(--accent);color:#fff;border-color:var(--accent)}
+.editor .danger{color:var(--hard);border-color:var(--hard)}
+.noedit{font-size:12px;color:var(--ink-3);max-width:74ch;margin:0 0 10px;
+  border-left:2px solid var(--line);padding-left:10px;line-height:1.55}
+.warnshared{font-size:12px;color:var(--soft);border-left:2px solid var(--soft);
+  background:var(--soft-soft);padding:7px 10px;border-radius:0 var(--r) var(--r) 0;margin:0 0 8px}
+.diff{font-family:var(--mono);font-size:11.5px;line-height:1.6;background:var(--surface);
+  border:1px solid var(--line-soft);border-radius:var(--r);overflow-x:auto;margin:8px 0 0}
+.diff div{padding:0 10px;white-space:pre-wrap;word-break:break-word}
+.diff .del{background:var(--hard-soft);color:var(--hard)}
+.diff .add{background:var(--adv-soft);color:var(--adv)}
+.diff .ctx{color:var(--ink-3)}
+.diff .gap{color:var(--ink-3);background:var(--surface-2);font-style:italic}
+.editcard{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);
+  padding:14px 16px;margin:0 0 14px}
+.editcard h3{margin:0 0 4px;font-size:13.5px;font-family:var(--mono);font-weight:600}
+.editsh{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);
+  margin:22px 0 10px;font-weight:600}
+.editcard .meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 0 8px}
+.editcard .why{font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.6;max-width:78ch}
+.chip.k-open{color:var(--soft);border-color:var(--soft);background:transparent}
+.chip.k-applied{color:var(--adv);border-color:var(--adv);background:transparent}
+.chip.k-note{color:var(--proc);border-color:var(--proc);background:transparent}
 pre.prompt{margin:0;font-family:var(--mono);font-size:11.5px;line-height:1.62;
   white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);
   max-height:460px;overflow-y:auto;padding-right:6px}
@@ -276,6 +312,79 @@ const MATCH_NOTE = {
 let view = {kind:"role", id:DATA.roles[0].id};
 let query = "";
 
+/* ---------------- edits ----------------
+   The page is a map of what the repo SAYS, so an edit never rewrites the text
+   shown in a section — that would make the map disagree with the source it
+   cites. An edit is a proposal parked beside the section, in the artifact's own
+   store, for the agent that maintains this repo to read back and apply. Which
+   is also why only a section whose citation is a verbatim span may be edited:
+   anything weaker has no span to write the edit back to. */
+let DB = null;
+const EDITS = new Map();
+
+async function initEdits(){
+  try { DB = await claude?.use?.("db"); } catch(_) { DB = null; }
+  if(!DB) return;                       // read-only view, or db unavailable
+  document.body.dataset.edits = "on";
+  DB.collection("edits").onSnapshot(snap => {
+    EDITS.clear();
+    snap.docs.forEach(d => { const v = d.data(); if(v) EDITS.set(d.id, v); });
+    syncEditCount();
+    if(view.kind === "edits") render();
+    document.querySelectorAll("[data-editchip]").forEach(el => {
+      el.innerHTML = editChip(el.dataset.editchip);
+    });
+  }, () => {});
+}
+
+const openEdits = () => [...EDITS.values()].filter(e => e.status !== "applied");
+
+function syncEditCount(){
+  const b = document.querySelector('[data-view="edits"]');
+  if(b) b.querySelector("em").textContent = num(openEdits().length);
+}
+
+function editChip(key){
+  const e = EDITS.get(key);
+  if(!e) return "";
+  const cls = e.status === "applied" ? "k-applied" : (e.kind === "note" ? "k-note" : "k-open");
+  const label = e.status === "applied" ? "applied" : (e.kind === "note" ? "note" : "edit pending");
+  return `<span class="chip ${cls}">${label}</span>`;
+}
+
+/* A line diff, longest-common-subsequence, collapsing long runs of context.
+   Small enough to read, which matters more here than being optimal. */
+function lineDiff(a, b){
+  const A = a.split("\n"), B = b.split("\n");
+  const n = A.length, m = B.length;
+  const L = Array.from({length:n+1}, () => new Uint32Array(m+1));
+  for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--)
+    L[i][j] = A[i]===B[j] ? L[i+1][j+1]+1 : Math.max(L[i+1][j], L[i][j+1]);
+  const out=[]; let i=0,j=0;
+  while(i<n && j<m){
+    if(A[i]===B[j]){ out.push(["ctx",A[i]]); i++; j++; }
+    else if(L[i+1][j] >= L[i][j+1]) out.push(["del",A[i++]]);
+    else out.push(["add",B[j++]]);
+  }
+  while(i<n) out.push(["del",A[i++]]);
+  while(j<m) out.push(["add",B[j++]]);
+  // collapse runs of >6 unchanged lines to 3 either side
+  const keep = out.map((_,k)=>false);
+  out.forEach((r,k)=>{ if(r[0]!=="ctx") for(let d=-3;d<=3;d++) if(out[k+d]) keep[k+d]=true; });
+  const res=[]; let skipped=0;
+  out.forEach((r,k)=>{
+    if(keep[k]){ if(skipped){ res.push(["gap",`… ${skipped} unchanged line${skipped>1?"s":""}`]); skipped=0; } res.push(r); }
+    else skipped++;
+  });
+  if(skipped) res.push(["gap",`… ${skipped} unchanged line${skipped>1?"s":""}`]);
+  return res;
+}
+
+const renderDiff = (a,b) => `<div class="diff">${
+  lineDiff(a,b).map(([k,t])=>`<div class="${k}">${esc(
+    k==="del" ? "- "+t : k==="add" ? "+ "+t : k==="gap" ? t : "  "+t)}</div>`).join("")}</div>`;
+
+
 /* ---------------- rail ---------------- */
 function buildRail(){
   const roles = $("#rail-roles");
@@ -288,7 +397,8 @@ function buildRail(){
   });
   const views = $("#rail-views");
   [["gates","Gates",DATA.gates.length],["config","Config knobs",DATA.switches.length],
-   ["shared","Shared blocks",DATA.shared.length]].forEach(([k,label,n])=>{
+   ["shared","Shared blocks",DATA.shared.length],
+   ["edits","My edits",0]].forEach(([k,label,n])=>{
     const b=document.createElement("button");
     b.className="railbtn"; b.type="button"; b.dataset.view=k;
     b.innerHTML=`<span>${label}</span><em>${n}</em>`;
@@ -337,7 +447,10 @@ function partLegend(sec){
     </div>`).join("")}</div>`;
 }
 
+const SECTIONS = new Map();   /* row key -> the section object it renders */
+
 function sectionRow(sec, key){
+  SECTIONS.set(key, sec);
   const preview = sec.text.trim().split("\n")[0].slice(0,90);
   return `<div class="row" data-open="false">
     <button class="rowbtn" type="button" data-toggle="${key}">
@@ -354,11 +467,121 @@ function sectionRow(sec, key){
         ${sec.substituted ? `<span class="chip" title="The angle-bracketed paths below stand in for values the runtime formats in per run. They are this map's placeholders, not prompt text — the source writes them as {study_dir} and the like.">paths substituted per run</span>` : ""}
         ${sec.generated ? `<span class="chip k-accent">built at run time, not written here</span>` : ""}
         <button class="copy" type="button" data-copy="${key}">copy text</button>
+        ${sec.edit && sec.edit.ok
+          ? `<button class="editbtn" type="button" data-edit="${key}">propose an edit</button>` : ""}
+        <span data-editchip="${sec.edit && sec.edit.key ? sec.edit.key : ""}">${
+          sec.edit && sec.edit.key ? editChip(sec.edit.key) : ""}</span>
       </div>
+      ${sec.edit && !sec.edit.ok
+        ? `<p class="noedit"><b>Not editable from this page.</b> ${esc(sec.edit.why)}</p>` : ""}
+      <div class="editslot" id="ed-${key}"></div>
       ${partLegend(sec)}
       <pre class="prompt" id="txt-${key}">${promptBody(sec)}</pre>
     </div>
   </div>`;
+}
+
+/* ---------------- the editor ---------------- */
+function openEditor(key){
+  const slot = document.getElementById("ed-"+key);
+  const sec = SECTIONS.get(key);
+  if(!slot || !sec || !sec.edit || !sec.edit.ok) return;
+  if(slot.firstChild){ slot.innerHTML = ""; return; }      // toggle closed
+  const prior = EDITS.get(sec.edit.key);
+  const shared = sec.edit.shared;
+  slot.innerHTML = `<div class="editor">
+    ${shared ? `<p class="warnshared"><b>Shared text.</b> ${esc(shared.name)} is injected
+      verbatim into ${esc(shared.also.join(", "))} as well. An edit here changes what
+      ${shared.also.length > 1 ? "those agents see" : "that agent sees"} too.</p>` : ""}
+    <div class="erow">
+      <label>this is a
+        <select data-kind>
+          <option value="proposal"${prior && prior.kind==="proposal" ? " selected":""}>proposed change to the prompt</option>
+          <option value="note"${prior && prior.kind==="note" ? " selected":""}>note only — do not change the code</option>
+        </select>
+      </label>
+      <span class="src">${esc(srcOf(sec.source))}</span>
+    </div>
+    <textarea data-proposed spellcheck="false">${esc(prior && prior.proposed ? prior.proposed : sec.text)}</textarea>
+    <input type="text" data-note placeholder="why — the reason this change is right (optional, but it is what I read first)"
+      value="${prior ? esc(prior.note || "") : ""}">
+    <div class="erow">
+      <button class="editbtn save" type="button" data-save="${key}">save</button>
+      <button class="editbtn" type="button" data-cancel="${key}">cancel</button>
+      ${prior ? `<button class="editbtn danger" type="button" data-drop="${sec.edit.key}">discard this edit</button>` : ""}
+      <span data-status></span>
+    </div>
+  </div>`;
+  const ta = slot.querySelector("[data-proposed]");
+  const fit = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight+4, 640)+"px"; };
+  ta.addEventListener("input", fit); fit(); ta.focus();
+  slot.querySelector("[data-kind]").addEventListener("change", e => {
+    ta.parentElement.querySelector("[data-proposed]").hidden = e.target.value === "note";
+  });
+  if((prior && prior.kind) === "note") ta.hidden = true;
+}
+
+async function saveEdit(key){
+  const slot = document.getElementById("ed-"+key);
+  const sec  = SECTIONS.get(key);
+  const kind = slot.querySelector("[data-kind]").value;
+  const proposed = slot.querySelector("[data-proposed]").value;
+  const note = slot.querySelector("[data-note]").value.trim();
+  const status = slot.querySelector("[data-status]");
+  if(kind === "proposal" && proposed === sec.text && !note){
+    status.textContent = "nothing changed"; return;
+  }
+  if(!DB){ status.textContent = "not saved — this view cannot write"; return; }
+  status.textContent = "saving…";
+  try {
+    await DB.doc("edits/"+sec.edit.key).set({
+      key: sec.edit.key, kind, status: "open",
+      file: sec.edit.file, line: sec.edit.line, line_end: sec.edit.line_end,
+      tag: sec.tag || null, original: sec.text,
+      proposed: kind === "note" ? "" : proposed,
+      note, saved_at: new Date().toISOString(),
+      commit: DATA.commit,
+    });
+    slot.innerHTML = "";
+  } catch(err){
+    status.textContent = "could not save: " + (err && err.code ? err.code : "error");
+  }
+}
+
+/* ---------------- edits view ---------------- */
+function renderEdits(){
+  const all = [...EDITS.values()].sort((a,b)=> (a.file+a.line).localeCompare(b.file+b.line));
+  const open = all.filter(e => e.status !== "applied");
+  const done = all.filter(e => e.status === "applied");
+
+  const card = e => `<div class="editcard">
+    <h3>${e.tag ? "&lt;"+esc(e.tag)+"&gt; " : ""}<span class="src">${esc(e.file)}:${e.line}\u2013${e.line_end}</span></h3>
+    <div class="meta">
+      <span class="chip ${e.status==="applied" ? "k-applied" : e.kind==="note" ? "k-note" : "k-open"}">${
+        e.status==="applied" ? "applied \u00b7 "+esc(e.applied_commit||"") : e.kind==="note" ? "note only" : "proposed change"}</span>
+      <span class="src">saved ${esc((e.saved_at||"").slice(0,16).replace("T"," "))}</span>
+      ${e.commit && e.commit !== DATA.commit
+        ? `<span class="chip k-soft" title="This edit was written against an older generation of the map.">against ${esc(e.commit)}</span>` : ""}
+      ${e.status!=="applied" ? `<button class="editbtn danger" type="button" data-drop="${esc(e.key)}">discard</button>` : ""}
+    </div>
+    ${e.note ? `<p class="why">${esc(e.note)}</p>` : `<p class="why" style="color:var(--ink-3)">(no reason given)</p>`}
+    ${e.kind==="note" ? "" : renderDiff(e.original||"", e.proposed||"")}
+  </div>`;
+
+  if(!DB) return `<h1>My edits</h1>
+    <p class="lede">This view cannot reach the artifact's store, so edits cannot be
+    saved or read here. Open the artifact from your own Claude account.</p>`;
+
+  return `<p class="eyebrow">Staging</p><h1>My edits</h1>
+    <p class="lede">Nothing here has changed the repository. Each entry is a proposal
+      parked beside the prompt it belongs to, kept in this artifact's own store — it
+      survives every republish of the page. Tell the agent that maintains this repo to
+      look at your edits, and it will apply them to the source, run the suite, and mark
+      them applied below.</p>
+    ${open.length ? `<h2 class="editsh">Open \u00b7 ${open.length}</h2>` + open.map(card).join("")
+      : `<p class="lede">No open edits. Open a role, expand a section, and choose
+         <b>propose an edit</b>.</p>`}
+    ${done.length ? `<h2 class="editsh">Applied \u00b7 ${done.length}</h2>` + done.map(card).join("") : ""}`;
 }
 
 /* ---------------- role view ---------------- */
@@ -556,6 +779,7 @@ function render(){
   else if(view.kind==="role"){ main.innerHTML = renderRole(DATA.roles.find(r=>r.id===view.id)); }
   else if(view.kind==="gates"){ main.innerHTML = renderGates(); }
   else if(view.kind==="config"){ main.innerHTML = renderConfig(); }
+  else if(view.kind==="edits"){ main.innerHTML = renderEdits(); }
   else { main.innerHTML = renderShared(); }
   syncRail();
   main.scrollTop = 0;
@@ -570,6 +794,15 @@ document.addEventListener("click", e=>{
     row.querySelector(".rowbody").hidden = open;
     return;
   }
+  const ed = e.target.closest("[data-edit]");
+  if(ed){ openEditor(ed.dataset.edit); return; }
+  const sv = e.target.closest("[data-save]");
+  if(sv){ saveEdit(sv.dataset.save); return; }
+  const cx = e.target.closest("[data-cancel]");
+  if(cx){ document.getElementById("ed-"+cx.dataset.cancel).innerHTML = ""; return; }
+  const dp = e.target.closest("[data-drop]");
+  if(dp){ DB && DB.doc("edits/"+dp.dataset.drop).delete().catch(()=>{}); 
+          const slot = dp.closest(".editslot"); if(slot) slot.innerHTML = ""; return; }
   const c = e.target.closest("[data-copy]");
   if(c){
     const txt = document.getElementById("txt-"+c.dataset.copy).textContent;
@@ -587,4 +820,7 @@ document.addEventListener("keydown", e=>{
 
 buildRail();
 render();
+/* The page is complete and readable before this resolves; editing lights up
+   when — and only when — the viewer's runtime grants the store. */
+initEdits();
 </script>

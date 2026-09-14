@@ -461,6 +461,71 @@ def shared_blocks() -> list[dict]:
     return out
 
 
+#: Why a section cannot be edited from the page. A citation that is not a
+#: verbatim span is not a patch target: the page would be offering to rewrite
+#: text the generator cannot put back without guessing.
+_NOT_EDITABLE = {
+    "lines": "The source breaks this literal across lines, so an edit here has "
+             "no single span to write back to. Edit the file directly.",
+    "line": "Only one line of this block could be matched in the source, so "
+            "there is no span to write an edit back to.",
+    "tag": "Only this block's opening tag could be located, so there is no "
+           "span to write an edit back to.",
+    "symbol": "This text is computed at run time by the cited code. Editing "
+              "what it produced would be editing a shadow — change the code.",
+}
+
+
+def annotate_edits(roles: list[dict]) -> None:
+    """Mark which sections the page may offer to edit, and why not otherwise.
+
+    The map already knows: a citation it resolved as ``exact`` or ``ast`` IS a
+    verbatim span of one file, so an edit to it can be written back by exact
+    replacement. Everything else was located by a weaker probe, and offering an
+    edit box over text with no span to write it to would be the same failure as
+    a citation that overstates itself — the page would look precise and be
+    guessing. So editability is derived from the citation, never asserted.
+    """
+    # How many roles carry each injected block — editing one edits them all.
+    reach: dict[str, set[str]] = {}
+    for role in roles:
+        for layer in role["layers"]:
+            for section in layer.get("sections", []):
+                if section.get("injects"):
+                    reach.setdefault(section["injects"]["name"], set()).add(role["id"])
+
+    for role in roles:
+        for layer in role["layers"]:
+            for section in layer.get("sections", []):
+                source = section.get("source") or {}
+                if section.get("parts"):
+                    section["edit"] = {"ok": False, "why":
+                        "Assembled by .format() from a template plus stanzas "
+                        "built elsewhere — the pieces have different homes. "
+                        "Edit prompts/agent_prompts.py directly."}
+                elif source.get("match") in ("exact", "ast"):
+                    section["edit"] = {
+                        "ok": True,
+                        "key": "{}:{}-{}".format(
+                            source["file"].replace("/", "~"),
+                            source["line"], source["line_end"]),
+                        "file": source["file"],
+                        "line": source["line"],
+                        "line_end": source["line_end"],
+                    }
+                    if section.get("injects"):
+                        others = sorted(reach[section["injects"]["name"]] - {role["id"]})
+                        if others:
+                            section["edit"]["shared"] = {
+                                "name": section["injects"]["name"],
+                                "also": others,
+                            }
+                else:
+                    section["edit"] = {"ok": False, "why": _NOT_EDITABLE.get(
+                        source.get("match"), "This block could not be located "
+                        "as a verbatim span of any file.")}
+
+
 def build_roles(shared: list[dict]) -> list[dict]:
     from a3dasm._src.agents import _graphs
     from a3dasm._src.evaluation.notebook_exec import notebook_deliverable_spec
@@ -583,6 +648,7 @@ def build_roles(shared: list[dict]) -> list[dict]:
                 if lay["kind"] != "system" and lay["chars"]
             ),
         })
+    annotate_edits(roles)
     return roles
 
 

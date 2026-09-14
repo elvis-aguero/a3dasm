@@ -178,3 +178,47 @@ def test_the_preamble_parts_reassemble_into_the_preamble(data):
         section = role["layers"][0]["sections"][0]
         assert "".join(p["text"] for p in section["parts"]) == section["text"]
         assert section["chars"] == len(section["text"])
+
+
+def test_an_editable_section_is_exactly_the_lines_it_cites(data):
+    """The page offers to edit a section only when the map can write the edit
+    back. That promise is only safe if the cited lines ARE the section: read
+    ``file`` from ``line`` to ``line_end`` and you must get the text back,
+    character for character, or applying an edit would corrupt the source.
+
+    Sections the map located by a weaker probe are marked not-editable with a
+    reason instead — the same discipline as the citations themselves: never
+    offer precision the generator cannot actually deliver.
+    """
+    seen: set[str] = set()
+    for role in data["roles"]:
+        for layer in role["layers"]:
+            for section in layer["sections"]:
+                edit = section["edit"]
+                if not edit["ok"]:
+                    assert edit["why"], f"{role['id']}: not-editable with no reason"
+                    continue
+                lines = (_ROOT / edit["file"]).read_text(encoding="utf-8").splitlines()
+                span = "\n".join(lines[edit["line"] - 1:edit["line_end"]])
+                assert span == section["text"].strip("\n"), (
+                    f"{role['id']}/{section['tag']}: {edit['file']}:{edit['line']}-"
+                    f"{edit['line_end']} is not the text the page would let you edit")
+                seen.add(edit["key"])
+    assert seen, "no section is editable — the page has nothing to offer"
+
+
+def test_shared_text_says_who_else_reads_it(data):
+    """The charter is one block injected into several roles. Editing it from one
+    role's page changes what the others see, so the page must say so before the
+    edit, not after it lands."""
+    charter = [
+        section["edit"]
+        for role in data["roles"]
+        for layer in role["layers"]
+        for section in layer["sections"]
+        if section.get("injects", {}).get("name") == "FALSIFICATION_CHARTER"
+        and section["edit"]["ok"]
+    ]
+    assert charter, "the charter is no longer an editable shared block"
+    for edit in charter:
+        assert edit["shared"]["also"], "a shared block that names no other reader"
