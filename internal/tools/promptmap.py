@@ -77,56 +77,123 @@ def _py_files() -> list[Path]:
 
 
 def locate(snippet: str, prefer: list[Path] | None = None) -> dict | None:
-    """Find *snippet* verbatim in the source tree; return file + line span.
+    """Find *snippet* in the source tree; return the truest span it can prove.
 
-    Prompts are triple-quoted literals, so the assembled text appears
-    byte-for-byte in the file that defines it — an exact search is both the
-    simplest and the most honest citation available (no offset arithmetic
-    over an AST node whose literal may have been concatenated). Falls back
-    to matching the snippet's distinctive head when the tail was produced by
-    concatenation across two literals.
+    Three probes, in descending order of what each may honestly claim:
+
+    ``exact``
+        The whole block is one verbatim run of characters in one file.
+        ``line_end`` is its real end and ``span`` is true.
+    ``lines``
+        The block is a literal the source breaks across lines — a ``\\``
+        continuation, or two literals concatenated — so no single search
+        finds it, but its individual lines are still verbatim. The span runs
+        from the first to the last of those lines, matched in order.
+        ``span`` is true; the range is real, though the source lines between
+        its ends may include the joins the prompt itself does not show.
+    ``line``
+        Only one distinctive line could be found. That is an ANCHOR, not a
+        span: ``line_end`` is absent and ``span`` is false.
+
+    A probe never reports a range it did not verify. The first version of
+    this function searched a fixed 240-character head and then reported that
+    head's line count as the block's end, which understated every template
+    longer than seven lines while still labelling the citation ``exact``.
     """
     snippet = snippet.strip("\n")
     if not snippet:
         return None
-    candidates = list(prefer or []) + [p for p in _py_files() if p not in (prefer or [])]
+    prefer = list(prefer or [])
+    candidates = prefer + [p for p in _py_files() if p not in prefer]
 
-    # Longest single line, as a last resort: a prompt built by concatenating
-    # "...\n" fragments (notebook_deliverable_spec) never matches as a block,
-    # but each of its LINES is still a verbatim literal in the source. So is a
-    # section whose text contains an escape the source spells as two characters
-    # (``\n`` inside <on_error>), which defeats a whole-block search.
-    longest = max(
-        (ln for ln in snippet.splitlines() if "\\" not in ln),
-        key=len, default="",
-    ).strip()
+    # A short snippet (a bare ``<tag>`` line) is not distinctive enough to
+    # search the whole tree with — it may only be trusted inside the module
+    # the caller already knows the prompt lives in.
+    exact_in = candidates if len(snippet) >= 24 else prefer
+    for path in exact_in:
+        src = _read(path)
+        idx = src.find(snippet)
+        if idx != -1:
+            start = _line_of(src, idx)
+            return {
+                "file": _rel(path), "line": start,
+                "line_end": start + snippet.count("\n"),
+                "match": "exact", "span": True,
+            }
 
-    probes = [(snippet, "exact"), (snippet[:240], "head")]
-    if len(longest) >= 30:
-        probes.append((longest, "line"))
+    # Lines free of the escapes a source literal spells as two characters
+    # (``\n`` inside <on_error>). A line must be distinctive enough not to
+    # match by luck: 24 characters across the tree, but only 8 inside a file
+    # the caller already named, where a short line like ``<workspace>`` is
+    # the block's real first line and dropping it would understate the span.
+    lines_ = [ln.strip() for ln in snippet.splitlines()]
+    lines_ = [ln for ln in lines_ if ln and "\\" not in ln]
+    if not lines_:
+        return None
 
-    for probe, how in probes:
-        if len(probe) < 24:
+    for path in candidates:
+        src = _read(path)
+        floor = 8 if path in prefer else 24
+        clean = [ln for ln in lines_ if len(ln) >= floor]
+        if not clean:
             continue
-        for path in candidates:
-            src = _read(path)
-            idx = src.find(probe)
+        hits: list[int] = []
+        cursor = 0
+        for ln in clean:
+            idx = src.find(ln, cursor)
             if idx == -1:
                 continue
-            start = _line_of(src, idx)
-            if how == "exact":
-                end = start + snippet.count("\n")
-            elif how == "head":
-                end = start + probe.count("\n")
-            else:
-                end = start
+            hits.append(_line_of(src, idx))
+            cursor = idx + len(ln)
+        # Half the lines, in order, is enough to call it this block and not a
+        # coincidence; fewer and the file is more likely to merely share a
+        # sentence with it.
+        if len(hits) >= 2 and len(hits) * 2 >= len(clean):
             return {
-                "file": _rel(path),
-                "line": start,
-                "line_end": end,
-                "match": how,
+                "file": _rel(path), "line": hits[0], "line_end": hits[-1],
+                "match": "lines", "span": True,
+                # True when some lines could not be matched — the literal runs
+                # at least this far, and may run further through the joins.
+                "partial": len(hits) < len(clean),
+            }
+
+    longest = max((ln for ln in lines_ if len(ln) >= 24), key=len, default="")
+    if not longest:
+        return None
+    for path in candidates:
+        src = _read(path)
+        idx = src.find(longest)
+        if idx != -1:
+            return {
+                "file": _rel(path), "line": _line_of(src, idx),
+                "match": "line", "span": False,
             }
     return None
+
+
+def assign_span(module_rel: str, name: str) -> dict:
+    """The exact source span of a module-level string constant.
+
+    A citation read off the AST cannot be understated: ``lineno``/``end_lineno``
+    bound the whole literal however the source breaks it up. ``locate`` has to
+    work from the text alone — this works from the syntax, so it is the right
+    citation for anything the map can name.
+    """
+    path = PKG / module_rel
+    tree = ast.parse(_read(path))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ):
+            return {
+                "file": _rel(path), "line": node.lineno,
+                "line_end": node.end_lineno, "match": "ast", "span": True,
+            }
+    raise SystemExit(
+        f"promptmap: constant vanished: {module_rel}::{name}\n"
+        "  Fix the generator rather than shipping a map that cites code that\n"
+        "  no longer exists."
+    )
 
 
 def resolve_symbol(module_rel: str, qualname: str) -> dict:
@@ -163,6 +230,9 @@ def resolve_symbol(module_rel: str, qualname: str) -> dict:
         "line": node.lineno,
         "doc": ast.get_docstring(node) or "",
         "signature": qualname,
+        # An anchor: where the code is written, not a span of prompt text.
+        "match": "symbol",
+        "span": False,
     }
 
 
@@ -192,8 +262,10 @@ def done_chain() -> list[str]:
 # prompt assembly, mirroring agent_runtime.py
 # --------------------------------------------------------------------------
 
-#: Placeholder values for the run-scoped paths the runtime substitutes. Marked
-#: as substituted in the UI so nobody mistakes them for literal prompt text.
+#: Stand-ins for the run-scoped PATHS the runtime substitutes. These are
+#: inline values, not blocks — they sit inside a line of the template, so the
+#: map keeps them inline and flags the section as substituted rather than
+#: shattering a 26-line template into fragments around each one.
 _PATH_STUB = {
     "study_dir": "<study_dir>",
     "run_dir": "<study_dir>/runs/<run_id>",
@@ -201,9 +273,116 @@ _PATH_STUB = {
     "notes_dir": "<study_dir>/runs/<run_id>/debug/strategizer_notes",
     "experiment_data_dir": "<study_dir>/runs/<run_id>/experiment_data",
     "workspace_dir": "<study_dir>/runs/<run_id>/debug/delegations",
-    "resources": "<resource stanza — resolved per run from the host/SLURM allocation>",
-    "knowledge": "<handbook menu — resolved per role from knowledge/kb.py>",
 }
+
+#: The two ``.format()`` fields that are whole BLOCKS of prompt text produced
+#: by other code. They get their own rows in the map, cited to the method that
+#: builds them — never folded into the template's own citation, which is what
+#: made an earlier version of this map attribute a resource stanza written in
+#: ``runtime/agent_runtime.py`` to ``prompts/agent_prompts.py``.
+_BLOCK_FIELDS = ("resources", "knowledge")
+
+#: Volatile facts in the resource stanza: real per run, and per HOST at build
+#: time. Normalised so the committed map is deterministic and so no reviewer
+#: reads the build machine's core count as a constant in the prompt.
+_VOLATILE = (
+    (re.compile(r"~\d+ CPU cores"), "~<cores> CPU cores"),
+    (re.compile(r"RAM cap [^ ]+(?: GB)? per"), "RAM cap <ram_cap> per"),
+    (re.compile(r"disk free [^.]+\."), "disk free <disk_free>."),
+)
+
+
+def _resources_text(for_worker: bool) -> str:
+    """The resource stanza, obtained by CALLING the code that emits it."""
+    from a3dasm._src.runtime.agent_runtime import AgenticRun
+
+    class _Stub:
+        _mem_cap_bytes = None
+        study_dir = str(REPO)
+
+    text = AgenticRun._resource_stanza(_Stub(), None, for_worker=for_worker)
+    for pattern, repl in _VOLATILE:
+        text = pattern.sub(repl, text)
+    return text
+
+
+def _knowledge_text(role: str) -> str:
+    """The handbook menu for *role*, obtained by CALLING the live KnowledgeBase."""
+    from a3dasm._src.runtime.agent_runtime import AgenticRun
+
+    class _Stub:
+        _kb = None
+
+    return AgenticRun._kb_menu(_Stub(), role)
+
+
+#: Where each block field comes from: the method that builds it, and what the
+#: reader needs to know about how much of it is fixed.
+_BLOCK_SOURCE = {
+    "resources": (
+        "runtime/agent_runtime.py", "AgenticRun._resource_stanza",
+        "Built per delegation from the host/SLURM allocation. The wording below "
+        "is the live method's own output; its cores/RAM/disk figures are "
+        "normalised to placeholders because they differ per run and per host. "
+        "The second paragraph appears for the implementer only.",
+    ),
+    "knowledge": (
+        "runtime/agent_runtime.py", "AgenticRun._kb_menu",
+        "The handbook MENU, filtered to this role's audience, so the agent always "
+        "sees what it can pull with ConsultHandbook instead of having to guess a "
+        "chapter exists. The chapter titles below come from the knowledge base, "
+        "not from Python source — edit them in knowledge/kb.py and its chapters.",
+    ),
+}
+
+
+def preamble_sections(tpl: str, role: str, is_entry: bool,
+                      prefer: list[Path]) -> list[dict]:
+    """Split a preamble template into literal spans and substituted blocks.
+
+    The runtime assembles this prompt with ``.format()``. Presenting the filled
+    result as one block cited to ``agent_prompts.py`` would put text that is
+    written — and decided — somewhere else under that file's name. So each
+    ``{resources}`` / ``{knowledge}`` field becomes its own row, carrying the
+    citation of the method that produces it and its own literal ``{field}``
+    token, which is what a reader greps for when they go looking.
+    """
+    paths = {k: v for k, v in _PATH_STUB.items() if "{" + k + "}" in tpl}
+    parts = re.split(r"(\{(?:" + "|".join(_BLOCK_FIELDS) + r")\})", tpl)
+    out: list[dict] = []
+
+    for part in parts:
+        field = part[1:-1] if part[:1] == "{" and part[-1:] == "}" else None
+        if field in _BLOCK_FIELDS:
+            module, qualname, note = _BLOCK_SOURCE[field]
+            text = (_resources_text(role == "implementer") if field == "resources"
+                    else _knowledge_text(role))
+            sym = resolve_symbol(module, qualname)
+            out.append({
+                "tag": None,
+                "label": "{" + field + "}",
+                "note": note,
+                "chars": len(text),
+                "text": text or f"(empty for {role} — nothing is injected here)",
+                "source": {"file": sym["file"], "line": sym["line"],
+                           "match": "symbol", "span": False},
+                "generated": True,
+            })
+            continue
+        literal = part.format(**paths) if paths else part
+        if not literal.strip():
+            continue
+        out.append({
+            "tag": None,
+            "chars": len(literal),
+            "text": literal,
+            "source": locate(part, prefer),
+            "substituted": bool(paths) and any(
+                "{" + k + "}" in part for k in paths
+            ),
+        })
+    return out
+
 
 _TAG_RE = re.compile(r"(?m)^<([a-z_0-9]+)>\n(.*?)\n</\1>", re.DOTALL)
 
@@ -228,6 +407,8 @@ def split_sections(prompt: str, prefer: list[Path]) -> list[dict]:
             src = locate(f"<{tag}>\n", prefer)
             if src:
                 src["match"] = "tag"
+                src["span"] = False
+                src.pop("line_end", None)
         sections.append({
             "tag": tag,
             "chars": len(body),
@@ -283,9 +464,10 @@ def build_roles(shared: list[dict]) -> list[dict]:
     for edge in graph.edges:
         out_edges.setdefault(edge.source, []).append(edge.target)
 
+    prompts_py = [PKG / "prompts" / "agent_prompts.py"]
     preamble_src = {
-        "RUN_PATHS_PREAMBLE_TEMPLATE": locate(RUN_PATHS_PREAMBLE_TEMPLATE[:240]),
-        "WORKSPACE_PREAMBLE_TEMPLATE": locate(WORKSPACE_PREAMBLE_TEMPLATE[:240]),
+        name: assign_span("prompts/agent_prompts.py", name)
+        for name in ("RUN_PATHS_PREAMBLE_TEMPLATE", "WORKSPACE_PREAMBLE_TEMPLATE")
     }
 
     roles = []
@@ -296,25 +478,23 @@ def build_roles(shared: list[dict]) -> list[dict]:
 
         layers = []
 
-        # Layer 1 — the run-scoped preamble prepended in agent_runtime.py.
+        # Layer 1 — the run-scoped preamble prepended in agent_runtime.py. It
+        # is NOT one block: the template is literal text from agent_prompts.py
+        # with two whole stanzas formatted into it from agent_runtime.py, so
+        # the map splits it and cites each piece where it is actually written.
         tpl = RUN_PATHS_PREAMBLE_TEMPLATE if is_entry else WORKSPACE_PREAMBLE_TEMPLATE
         tpl_name = "RUN_PATHS_PREAMBLE_TEMPLATE" if is_entry else "WORKSPACE_PREAMBLE_TEMPLATE"
-        rendered = tpl.format(**{
-            k: v for k, v in _PATH_STUB.items()
-            if "{" + k + "}" in tpl
-        })
+        sections = preamble_sections(tpl, name, is_entry, prompts_py)
         layers.append({
             "kind": "preamble",
             "label": tpl_name,
-            "note": "Prepended by the runtime. Braced values are substituted per run; "
-                    "shown here as placeholders.",
+            "note": "Prepended by the runtime. Path values are substituted per run and "
+                    "shown here as placeholders; the two rows with a {field} label are "
+                    "whole stanzas built elsewhere and cited to the code that builds them.",
             "assembled_at": locate("preamble = " + tpl_name),
             "definition": preamble_src[tpl_name],
-            "chars": len(rendered),
-            "sections": [{
-                "tag": None, "chars": len(rendered), "text": rendered,
-                "source": preamble_src[tpl_name], "substituted": True,
-            }],
+            "chars": sum(sec["chars"] for sec in sections),
+            "sections": sections,
         })
 
         # Layer 2 — the agent's own system prompt.
@@ -333,7 +513,9 @@ def build_roles(shared: list[dict]) -> list[dict]:
             "kind": "system",
             "label": f"{type(agent).__name__}.system_prompt",
             "note": "The role's own instructions, inlined in its agent module.",
-            "definition": {"file": _rel(mod_path), "line": _class_line(mod_path, type(agent).__name__)},
+            "definition": {"file": _rel(mod_path),
+                           "line": _class_line(mod_path, type(agent).__name__),
+                           "match": "symbol", "span": False},
             "chars": len(sp),
             "sections": sections,
         })

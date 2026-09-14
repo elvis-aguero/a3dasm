@@ -44,7 +44,7 @@ Entry points: `AgenticRun(...).execute()` in-process, `python -m a3dasm
 
 | # | Layer | Defined in | Notes |
 |---|-------|-----------|-------|
-| 1 | Run-paths preamble (entry) / workspace preamble (workers) | `prompts/agent_prompts.py` (`RUN_PATHS_PREAMBLE_TEMPLATE`, `WORKSPACE_PREAMBLE_TEMPLATE`) | Paths, resource stanza, handbook menu — substituted per run |
+| 1 | Run-paths preamble (entry) / workspace preamble (workers) | `prompts/agent_prompts.py` (`RUN_PATHS_PREAMBLE_TEMPLATE`, `WORKSPACE_PREAMBLE_TEMPLATE`) — but the `{resources}` and `{knowledge}` stanzas formatted into them are built in `runtime/agent_runtime.py` (`_resource_stanza`, `_kb_menu`), not written in the template | Paths substituted per run; the two stanzas are computed per delegation and per role |
 | 2 | The role's own system prompt | `agents/<role>.py`, inlined at module top | The bulk of the text |
 | 3 | Notebook deliverable contract | `evaluation/notebook_exec.py::notebook_deliverable_spec` | Only `strategizer` / `implementer` / `critic`, and only while the `pipeline_deliverable` knob is true |
 | 4 | `<tools>` catalog | `prompts/tool_catalog.py::render_tool_catalog` | **Generated** from the live closure dict — each entry is the tool's own docstring, so it cannot name a tool the agent lacks |

@@ -104,3 +104,64 @@ def test_entry_node_carries_the_run_paths_preamble(data):
     for worker in workers:
         labels = [layer["label"] for layer in worker["layers"]]
         assert "WORKSPACE_PREAMBLE_TEMPLATE" in labels, worker["id"]
+
+
+def _sources(data):
+    for role in data["roles"]:
+        for layer in role["layers"]:
+            for key in ("definition", "assembled_at"):
+                if layer.get(key):
+                    yield f"{role['id']}/{layer['kind']}/{key}", layer[key]
+            for section in layer["sections"]:
+                if section.get("source"):
+                    yield f"{role['id']}/{layer['kind']}/{section['tag']}", section["source"]
+
+
+def test_a_citation_never_claims_a_span_it_did_not_verify(data):
+    """The map may under-resolve; it may not overstate.
+
+    An earlier generator searched a fixed 240-character head of each template
+    and then reported that head's line count as the block's end — labelled
+    ``exact``. Every template longer than seven lines was cited short while
+    looking precise, which is the one failure mode a provenance map cannot
+    have. A span is now only reported by a probe that matched the whole text
+    (``exact``), read the syntax tree (``ast``), or matched line by line and
+    says which end is which (``lines``); anything else is an anchor with no
+    end line at all.
+    """
+    for where, source in _sources(data):
+        assert source["match"] in {"exact", "ast", "lines", "line", "tag", "symbol"}, where
+        if source.get("span"):
+            assert source["line_end"] >= source["line"], where
+        else:
+            assert "line_end" not in source, f"{where} reports an unverified end line"
+
+
+def test_an_exact_citation_spans_exactly_the_text_it_cites(data):
+    """``exact`` means the block is verbatim at those lines — so the line
+    count of the cited text and of the cited span must agree."""
+    for role in data["roles"]:
+        for layer in role["layers"]:
+            for section in layer["sections"]:
+                source = section.get("source") or {}
+                if source.get("match") != "exact":
+                    continue
+                span = source["line_end"] - source["line"]
+                assert span == section["text"].strip("\n").count("\n"), (
+                    f"{role['id']}/{section['tag']}: cited {source['file']}:"
+                    f"{source['line']}-{source['line_end']} for a "
+                    f"{section['text'].count(chr(10)) + 1}-line block")
+
+
+def test_text_built_elsewhere_is_cited_to_the_code_that_builds_it(data):
+    """The two ``.format()`` fields in the preambles are whole stanzas written
+    in ``agent_runtime.py``. Folding them into the template's own citation is
+    how a resource stanza ends up attributed to ``agent_prompts.py``, where
+    nobody searching for it will ever find it."""
+    for role in data["roles"]:
+        preamble = role["layers"][0]
+        labelled = {s.get("label"): s for s in preamble["sections"] if s.get("label")}
+        assert set(labelled) == {"{resources}", "{knowledge}"}, role["id"]
+        for label, section in labelled.items():
+            assert section["source"]["file"].endswith("runtime/agent_runtime.py"), label
+            assert section["generated"] is True, label

@@ -137,6 +137,7 @@ h2{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
 .row[data-open="true"] .chev{transform:rotate(90deg)}
 .rowbody{border-top:1px dashed var(--line);background:var(--sunk);padding:12px 13px}
 .rowmeta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:10px;align-items:center}
+.secnote{font-size:12px;line-height:1.55;color:var(--ink-3);max-width:74ch;margin:0 0 10px}
 pre.prompt{margin:0;font-family:var(--mono);font-size:11.5px;line-height:1.62;
   white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);
   max-height:460px;overflow-y:auto;padding-right:6px}
@@ -245,7 +246,19 @@ const LAYER_NAME  = {preamble:"runtime preamble", system:"role instructions",
 const $ = (s,r=document)=>r.querySelector(s);
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const num = n => n.toLocaleString("en-US");
-const srcOf = s => s ? `${s.file}:${s.line}` : "—";
+const srcOf = s => !s ? "—"
+  : (s.span && s.line_end > s.line ? `${s.file}:${s.line}\u2013${s.line_end}` : `${s.file}:${s.line}`);
+
+/* What each citation is allowed to claim. The map never shows a line range it
+   did not verify, so the kind of match is part of the citation, not a detail. */
+const MATCH_NOTE = {
+  exact:  "This whole block is one verbatim run of characters at these lines.",
+  ast:    "Span read off the syntax tree \u2014 the constant's real first and last line.",
+  lines:  "The source breaks this literal across lines (a \\ continuation, or two literals joined), so it cannot be found as one string. These are the first and last of its lines that were matched verbatim.",
+  line:   "An ANCHOR, not a span: only one line of this block could be matched verbatim, and this is where that line sits.",
+  tag:    "An ANCHOR: the block itself was not found, so this is where its opening tag is written.",
+  symbol: "The code that BUILDS this text, resolved by name on the syntax tree. The text itself is computed at run time, not written here.",
+};
 
 let view = {kind:"role", id:DATA.roles[0].id};
 let query = "";
@@ -283,9 +296,10 @@ function syncRail(){
 /* ---------------- pieces ---------------- */
 function sourceLink(s){
   if(!s) return `<span class="src">unresolved</span>`;
-  const approx = s.match && s.match!=="exact"
-    ? ` <span class="chip" title="Located by ${s.match} match — the block is assembled from pieces, so this is the line the text starts at.">≈ ${s.match}</span>` : "";
-  return `<span class="src">${esc(srcOf(s))}</span>${approx}`;
+  const exact = s.match==="exact" || s.match==="ast";
+  const kind = exact ? "" :
+    ` <span class="chip" title="${esc(MATCH_NOTE[s.match]||"")}">${s.span ? "\u2248" : "\u2193"} ${esc(s.match)}${s.partial ? " · partial" : ""}</span>`;
+  return `<span class="src" title="${esc(MATCH_NOTE[s.match]||"")}">${esc(srcOf(s))}</span>${kind}`;
 }
 
 function sectionRow(sec, key){
@@ -293,7 +307,8 @@ function sectionRow(sec, key){
   return `<div class="row" data-open="false">
     <button class="rowbtn" type="button" data-toggle="${key}">
       <svg class="chev" width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M2 1l4 3.5L2 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span class="rowtag">${sec.tag ? `&lt;${esc(sec.tag)}&gt;` : `<i>${esc(preview)}</i>`}</span>
+      <span class="rowtag">${sec.tag ? `&lt;${esc(sec.tag)}&gt;`
+        : sec.label ? `<b>${esc(sec.label)}</b>` : `<i>${esc(preview)}</i>`}</span>
       <span class="rowspacer"></span>
       <span class="rowsrc">${esc(srcOf(sec.source))}</span>
       <span class="rowchars">${num(sec.chars)}</span>
@@ -302,10 +317,11 @@ function sectionRow(sec, key){
       <div class="rowmeta">
         ${sourceLink(sec.source)}
         ${sec.injects ? `<span class="chip k-accent">injected verbatim · ${esc(sec.injects.name)} @ ${esc(sec.injects.file)}:${sec.injects.line}</span>` : ""}
-        ${sec.substituted ? `<span class="chip">values substituted per run</span>` : ""}
-        ${sec.generated ? `<span class="chip">assembled by function</span>` : ""}
+        ${sec.substituted ? `<span class="chip" title="The angle-bracketed paths below stand in for values the runtime formats in per run. They are this map's placeholders, not prompt text — the source writes them as {study_dir} and the like.">paths substituted per run</span>` : ""}
+        ${sec.generated ? `<span class="chip k-accent">built at run time, not written here</span>` : ""}
         <button class="copy" type="button" data-copy="${key}">copy text</button>
       </div>
+      ${sec.note ? `<p class="secnote">${esc(sec.note)}</p>` : ""}
       <pre class="prompt" id="txt-${key}">${esc(sec.text)}</pre>
     </div>
   </div>`;
