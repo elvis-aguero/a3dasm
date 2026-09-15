@@ -21,6 +21,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from ....runtime import terminal
 from ...parsing import _parse_verdict
 from ._binding import with_doc
 
@@ -163,6 +164,11 @@ class FeedbackTools:
         node._done_warned = False
         node._route["kind"] = "done"
         node._route["summary"] = node._final_summary
+        # Carry the outcome recorded by whichever branch sent us here (critic
+        # PASS, 3-strike, or a failed reproduction). The retrospective round is
+        # a courier, not a judge — it must not invent an outcome of its own.
+        node._route.update(getattr(node, "_terminal", {}))
+        node._route["termination"] = terminal.DONE
         return prefix + "Run complete."
 
     def _milestone_gate(self, summary: str, prefix: str) -> str | None:
@@ -321,6 +327,9 @@ class FeedbackTools:
             "hard failure, not a gated or ungated conclusion.\n\n"
             "### Last gate error\n" + _repro + "\n\n---\n\n"
         )
+        # Hard failure, and the critic was deliberately never spent on a
+        # deliverable that does not reproduce — so reviewed stays False.
+        node._terminal = {"outcome": terminal.FAILED, "reviewed": False}
         return prefix + self._enter_retrospective_round(banner + summary)
 
     def _enter_retrospective_round(self, final_summary: str) -> str:
@@ -348,6 +357,13 @@ class FeedbackTools:
         node._done_warned = False
         node._route["kind"] = "done"
         node._route["summary"] = summary
+        # Closed deliberately, but nothing reviewed it: there was no gate to
+        # pass, so this is UNGATED, not GATED. It used to read GATED because
+        # the outcome was inferred from the absence of a banner — which made
+        # "remove the critic" look like a perfect success rate.
+        node._route["outcome"] = terminal.UNGATED
+        node._route["termination"] = terminal.DONE
+        node._route["reviewed"] = False
         return prefix + "Run complete."
 
     def _critic_gate(self, summary: str, prefix: str) -> str:
@@ -375,6 +391,9 @@ class FeedbackTools:
             node._revise_count = 0
             node._awaiting_retro = True
             node._final_summary = summary
+            # The ONE path that earns GATED: a critic gate ran and passed it.
+            node._terminal = {
+                "outcome": terminal.GATED, "reviewed": True}
             return prefix + _EXIT_INTERVIEW
 
         # Non-PASS: reset the two-shot and count the revision internally.
@@ -397,6 +416,10 @@ class FeedbackTools:
                 + critique_text.strip() + "\n\n---\n\n"
             )
             node._revise_count = 0
+            # A critic DID review it and its objections stand: reviewed, not
+            # passed.
+            node._terminal = {
+                "outcome": terminal.UNGATED, "reviewed": True}
             return prefix + self._enter_retrospective_round(banner + summary)
         return (
             prefix +

@@ -1,6 +1,7 @@
 """Tests for durable checkpoint + resume in AgenticRun."""
 from pathlib import Path
 
+from a3dasm._src.runtime import terminal
 from a3dasm._src.runtime.agent_runtime import AgenticRun
 
 
@@ -240,13 +241,20 @@ class _FakeSnapshot:
 
 def _run_to_close(study, status_extra=None):
     """Execute a fresh run whose stub reports terminal state, closing it
-    with the given run_status.json contents (status defaults to GATED via
-    the real _gate_outcome computation off last_report text)."""
+    with the given run_status.json contents.
+
+    The stub returns the terminal triple a real graph's close path records
+    (runtime.terminal): a deliberate, critic-PASSed close. It used to return
+    only last_report and rely on the outcome being grepped back out of it."""
     run = AgenticRun(study_dir=study, interactive=False)
 
     class _Stub:
         def invoke(self, state, config=None):
-            return {"last_report": "done", "evals_used": 0}
+            return {
+                "last_report": "done", "evals_used": 0,
+                "outcome": terminal.GATED,
+                "termination": terminal.DONE, "reviewed": True,
+            }
 
     run._graph = _Stub()
     run.execute()

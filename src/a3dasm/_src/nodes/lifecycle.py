@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..runtime import terminal
 from ._constants import backstop_enabled, run_backstop_multiple
 
 if TYPE_CHECKING:
@@ -18,6 +19,7 @@ class LifecycleMixin:
         state: Any,
         *,
         reason: str,
+        termination: str,
         status: str = "halted",
         extra_update: dict | None = None,
     ):
@@ -29,6 +31,12 @@ class LifecycleMixin:
         durable SqliteSaver checkpoint + the persisted ``thread_id`` are what
         make the run resumable via ``AgenticRun(resume_from=...)`` — no new
         serialized state is introduced here.
+
+        ``termination`` names WHICH unrecoverable condition fired. It is
+        carried on the state so the close path records it verbatim instead of
+        inferring an outcome from the HALTED banner — which matched none of the
+        old banner patterns and so read as GATED, logging every backstop kill
+        as a validated success.
         """
         import json as _json
 
@@ -55,6 +63,9 @@ class LifecycleMixin:
                             "reason": reason,
                             "resumable": True,
                             "thread_id": thread_id,
+                            "outcome": terminal.UNGATED,
+                            "termination": termination,
+                            "reviewed": False,
                         },
                         indent=2,
                     ),
@@ -77,6 +88,9 @@ class LifecycleMixin:
             "last_report": banner + (prior_text or "(no prior report)"),
             "token_totals": dict(self._token_totals),
             "error_counts": dict(self._error_counts),
+            "outcome": terminal.UNGATED,
+            "termination": termination,
+            "reviewed": False,
         }
         if extra_update:
             update.update(extra_update)
@@ -129,6 +143,7 @@ class LifecycleMixin:
                         f"USD budget exhausted "
                         f"(${_spent:.4f} / ${_budget_usd:.4f})"
                     ),
+                    termination=terminal.BACKSTOP_USD,
                     extra_update=_halt_tallies(),
                 )
 
@@ -160,6 +175,7 @@ class LifecycleMixin:
                     reason=(
                         f"repeated errors: {_t} failed {_n}x consecutively"
                     ),
+                    termination=terminal.REPEATED_ERRORS,
                     extra_update=_halt_tallies(),
                 )
 
@@ -187,6 +203,7 @@ class LifecycleMixin:
                         f"time backstop: {int(_backstop_mult)}x budget "
                         f"exceeded ({_elapsed_now:.0f}s / {budget:.0f}s)"
                     ),
+                    termination=terminal.BACKSTOP_TIME,
                     extra_update=_halt_tallies(),
                 )
 

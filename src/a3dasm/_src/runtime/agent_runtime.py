@@ -23,7 +23,7 @@ from ..prompts.agent_prompts import (
     RUN_PATHS_PREAMBLE_TEMPLATE,
     WORKSPACE_PREAMBLE_TEMPLATE,
 )
-from . import settings
+from . import settings, terminal
 from .graph_builder import build_graph
 from .graph_state import AgenticState, Delegation, Report, StudyConfig, Task
 from .run_setup import (
@@ -77,22 +77,6 @@ def resolve_node_identity(
     never disagree with the thing it describes.
     """
     return (agent.model or default_model, agent.backend or default_backend)
-
-
-def _gate_outcome_from(report: str) -> str:
-    """The run's TRUE terminal state, read off the final report's banner.
-
-    The orchestrating node prepends a "⚠ UNGATED RUN" / FAILED banner to
-    last_report when the run closed without an accepted (critic-PASS) Done().
-    A notebook-deliverable study has no solution.md for the ledger to read this
-    from, so without deriving it here every stamped notebook reads as GATED —
-    masking 3-strike and failed closes. (audit 20260622)
-    """
-    if ("⛔" in report) or ("FAILED RUN" in report):
-        return "FAILED"
-    if ("⚠ UNGATED RUN" in report) or ("NOT validated" in report):
-        return "UNGATED"
-    return "GATED"
 
 
 @dataclass
@@ -759,6 +743,8 @@ class AgenticRun:
                         ctx.debug_dir, status="crashed",
                         reason=f"{type(_exc).__name__}: {_exc}"[:500],
                         resumable=True, thread_id=ctx.thread_id,
+                        outcome=terminal.UNGATED,
+                        termination=terminal.CRASHED, reviewed=False,
                         # A crashed run's duration is exactly what the next
                         # resume needs to charge, so record it here too.
                         wall_s=round(time.time() - ctx.start_time, 1),
@@ -813,13 +799,21 @@ class AgenticRun:
         except (OSError, json.JSONDecodeError):
             pass
         _resume_ps_changed = ctx.live_problem_sha256 != ctx.problem_sha256
-        if (
-            _prior_status.get("status") == "GATED"
-            and not _resume_ps_changed
-        ):
+        # "Is there anything left to do?" is a question about HOW the run
+        # stopped, not about what its conclusions are worth. It keyed on
+        # status == "GATED" because that was the only terminal fact recorded;
+        # a deliberately-closed but unreviewed run (no critic in the graph) is
+        # equally finished. Run dirs written before `termination` existed fall
+        # back to the old key so an older run can still be resumed.
+        _finished = not _prior_status.get("stop_reason") and (
+            _prior_status["termination"] == terminal.DONE
+            if "termination" in _prior_status
+            else _prior_status.get("status") == "GATED"
+        )
+        if _finished and not _resume_ps_changed:
             raise AgenticRunError(
                 f"resume_from={ctx.run_dir} closed cleanly "
-                "(GATED, an accepted Done()) and "
+                "(an accepted Done()) and "
                 "PROBLEM_STATEMENT.md is unchanged since — "
                 "there is nothing new for this run to do. "
                 "Resume is for a run that was interrupted or "
@@ -834,9 +828,9 @@ class AgenticRun:
                 f"({_prior_status['stop_reason']}), not by "
                 "its own choice"
             )
-        elif _prior_status.get("status", "GATED") != "GATED":
+        elif not _finished:
             _reason_bits.append(
-                f"it closed {_prior_status['status']} "
+                f"it closed {_prior_status.get('status', 'UNGATED')} "
                 "without an accepted Done()"
             )
         if _resume_ps_changed:
@@ -898,7 +892,17 @@ class AgenticRun:
             log.warning("telemetry merge failed", exc_info=True)
 
         report = result.get("last_report") or ""
-        gate_outcome = _gate_outcome_from(report)
+        # The terminal triple comes from the state, recorded by whichever path
+        # ended the run. It is NOT re-derived from the report's banner: that
+        # grep defaulted to GATED, so a backstop halt (whose banner matches no
+        # pattern) and a critic-less close (which emits no banner at all) both
+        # logged as validated successes. resolve() fails safe to UNGATED and
+        # refuses GATED for a halt or an unreviewed run.
+        gate_outcome, termination, reviewed = terminal.resolve(
+            result.get("outcome"),
+            result.get("termination"),
+            result.get("reviewed"),
+        )
         stop_reason = self._warn_if_externally_stopped(report, ctx)
         evals = self._ledgered_eval_count(ctx, result)
         tokens = result.get("token_totals") or {}
@@ -922,6 +926,12 @@ class AgenticRun:
             ctx.debug_dir, status=gate_outcome, model=self._model,
             evals_used=evals, timestamp=now_ts, run=str(ctx.run_dir),
             thread_id=ctx.thread_id, stop_reason=stop_reason,
+            # HOW the run stopped, kept separate from what its conclusions are
+            # worth: a run can terminate `done` and still be UNGATED (no critic
+            # reviewed it), and a halted run may carry real science. `reviewed`
+            # distinguishes "the critic passed it" from "no critic looked",
+            # which an ablation removing the critic has to be able to tell.
+            termination=termination, reviewed=reviewed,
             # The §1 KPI table asks for wall clock and this file is what it
             # reads first; without it every consumer re-derives the duration
             # from file mtimes and gets a different answer.

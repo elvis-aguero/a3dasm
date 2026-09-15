@@ -22,7 +22,14 @@ from pathlib import Path
 
 LEDGER = Path(__file__).resolve().parent / "run_ledger.csv"
 COLUMNS = [
-    "commit", "study", "run_id", "outcome", "critic_consults", "delegations",
+    # `outcome` is what the conclusions are worth; `termination` is HOW the run
+    # stopped; `reviewed` is whether a critic gate actually ran. Three facts,
+    # not one: a run can terminate `done` and still be UNGATED (no critic
+    # reviewed it), and a halted run may carry real science. Analysis MUST read
+    # `termination` before comparing outcomes — a killed run is censored, not
+    # failed. Blank in rows predating runtime.terminal.
+    "commit", "study", "run_id", "outcome", "termination", "reviewed",
+    "critic_consults", "delegations",
     "ledger_rows", "mean_wall_ms", "input_tokens", "output_tokens",
     "cost_usd", "time_used", "milestones_done", "milestones_skipped",
     "milestones_pending", "diagnostics",
@@ -56,8 +63,13 @@ def extract(run_dir: Path) -> dict:
     nb = run_dir.parent.parent / "pipeline.ipynb"
     if status_f.exists():
         try:
-            row["outcome"] = json.loads(status_f.read_text()).get(
-                "status", "halted")
+            _status = json.loads(status_f.read_text())
+            row["outcome"] = _status.get("status", "halted")
+            # Recorded by the run itself (runtime.terminal), never re-derived
+            # here. Absent for runs that predate it.
+            row["termination"] = _status.get("termination", "")
+            _rev = _status.get("reviewed")
+            row["reviewed"] = "" if _rev is None else str(bool(_rev)).lower()
         except Exception:
             row["outcome"] = "halted?"
     elif sol.exists() and (

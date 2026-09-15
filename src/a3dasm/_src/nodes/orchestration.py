@@ -882,6 +882,8 @@ class OrchestrationMixin:
         from langgraph.graph import END
         from langgraph.types import Command
 
+        from ..runtime import terminal
+
         # total_new: only delegations created THIS turn (seq delta vs the
         # snapshot taken at turn start), not Done entries from prior turns.
         with self._registry_lock:
@@ -898,6 +900,17 @@ class OrchestrationMixin:
         # all. The ledger across all namespaces is authoritative → run_status.
         _evals_persist = self._ledgered_eval_total(
             state.get("evals_used", 0) + evals_new)
+        # The terminal triple, decided here rather than inferred from the
+        # banner later. An un-accepted close never reached a gate, and a close
+        # missing deliverables was never validated against them — both are
+        # UNGATED regardless of what the route recorded. terminal.resolve
+        # fails safe (unrecorded → UNGATED) and refuses GATED without a review.
+        _outcome, _termination, _reviewed = terminal.resolve(
+            self._route.get("outcome")
+            if accepted and not missing else terminal.UNGATED,
+            self._route.get("termination") if accepted else terminal.NO_CLOSE,
+            self._route.get("reviewed"),
+        )
         return Command(
             goto=END,
             update={
@@ -908,6 +921,9 @@ class OrchestrationMixin:
                 "evals_used": _evals_persist,
                 "token_totals": dict(self._token_totals),
                 "error_counts": dict(self._error_counts),
+                "outcome": _outcome,
+                "termination": _termination,
+                "reviewed": _reviewed,
             },
         )
 
@@ -917,6 +933,8 @@ class OrchestrationMixin:
         A FAILED-reproduction close carries its own ⛔ banner in the route
         summary and IS accepted=done, so it is not re-banner'd here.
         """
+        from ..runtime import terminal
+
         if accepted and not missing:
             return summary
         flags = []
@@ -928,12 +946,7 @@ class OrchestrationMixin:
             )
         if missing:
             flags.append(f"required deliverables missing: {missing}")
-        return (
-            "## ⚠ UNGATED RUN\n\n"
-            "This run is NOT validated: " + "; ".join(flags) +
-            ".\nTreat all conclusions below as unaudited.\n\n---\n\n"
-            + summary
-        )
+        return terminal.ungated_banner(flags) + summary
 
     def _flush_ghost_delegations(self) -> None:
         """Close out delegations whose threads die with the interpreter.

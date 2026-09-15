@@ -36,6 +36,13 @@ class AgenticState(MessagesState):
     # Set by AgenticRun.execute() so nodes and workers can locate the
     # shared store without re-deriving it from run_dir.
     experiment_data_dir: str | None
+    # Structured terminal state, recorded where the decision is MADE and
+    # carried out as data — never re-derived by grepping the final report's
+    # banner, which is how a backstop halt used to read as a validated
+    # success. Vocabulary + fail-safe resolution live in runtime.terminal.
+    outcome: str | None       # GATED | UNGATED | FAILED
+    termination: str | None   # done | backstop_time | crashed | …
+    reviewed: bool | None     # a critic gate actually ran
 
 
 # ---------------------------------------------------------------------------
