@@ -31,7 +31,9 @@ COLUMNS = [
     "commit", "study", "run_id", "outcome", "termination", "reviewed",
     "critic_consults", "delegations",
     "ledger_rows", "mean_wall_ms", "input_tokens", "output_tokens",
-    "cost_usd", "time_used", "milestones_done", "milestones_skipped",
+    "cache_read_tokens", "cache_creation_tokens",
+    "cost_usd", "time_used", "wall_s",
+    "milestones_done", "milestones_skipped",
     "milestones_pending", "diagnostics",
 ]
 
@@ -133,13 +135,54 @@ def extract(run_dir: Path) -> dict:
               and r.get("_source") != "precomputed_pool"]
         row["mean_wall_ms"] = round(sum(wm) / len(wm), 3) if wm else ""
 
-    # tokens / cost / wall from solution.md or pipeline.ipynb metadata
+    # Tokens / cost / wall come from the telemetry summary — the subsystem
+    # that exists for exactly this ("where did the budget go; does the
+    # machinery improve outcomes", infra/telemetry.py). It is written per LLM
+    # call regardless of deliverable shape, so it is present for runs the
+    # deliverable-derived path below cannot see at all: a study with
+    # `pipeline_deliverable: false` has no notebook and no solution.md, and so
+    # used to record NO cost data whatsoever (BACKLOG #31). It also carries the
+    # two cache token fields the deliverable never reported — the ones a
+    # prompt-section change actually moves.
+    _tel = debug / "telemetry" / "summary.json"
+    if _tel.exists():
+        try:
+            _tot = json.loads(_tel.read_text()).get("totals") or {}
+            row["input_tokens"] = _tot.get("input_tokens", "")
+            row["output_tokens"] = _tot.get("output_tokens", "")
+            row["cache_read_tokens"] = _tot.get("cache_read_input_tokens", "")
+            row["cache_creation_tokens"] = _tot.get(
+                "cache_creation_input_tokens", "")
+            # None (no backend reported a price) stays BLANK, not 0 — an
+            # unpriced run is unmeasured, not free.
+            _cost = _tot.get("total_cost_usd")
+            row["cost_usd"] = "" if _cost is None else _cost
+        except Exception:
+            pass
+
+    # wall_s: the run's own duration, recorded at close. Preferred over the
+    # telemetry first-call-to-last-call span, which excludes setup and the
+    # final write.
+    if status_f.exists():
+        try:
+            row["wall_s"] = json.loads(status_f.read_text()).get("wall_s", "")
+        except Exception:
+            pass
+
+    # Legacy/secondary: tokens, cost and the HH:MM:SS duration as stamped into
+    # the deliverable. Kept because it is the only source for runs predating
+    # telemetry, and it owns `time_used`. It must not overwrite a telemetry
+    # value that is already present.
+    def _keep(key, value):
+        if value and not row.get(key):
+            row[key] = value
+
     if sol.exists():
         t = sol.read_text()
-        row["input_tokens"] = _solution_field(t, "input_tokens").replace(",", "")
-        row["output_tokens"] = _solution_field(
-            t, "output_tokens").replace(",", "")
-        row["cost_usd"] = _solution_field(t, "estimated_cost").lstrip("$")
+        _keep("input_tokens", _solution_field(t, "input_tokens").replace(",", ""))
+        _keep("output_tokens",
+              _solution_field(t, "output_tokens").replace(",", ""))
+        _keep("cost_usd", _solution_field(t, "estimated_cost").lstrip("$"))
         row["time_used"] = _solution_field(t, "time_used")
     elif nb.exists():
         try:
@@ -149,9 +192,12 @@ def extract(run_dir: Path) -> dict:
             for _c in reversed(_nb.cells):
                 if _c.cell_type == "markdown" and "## Token usage" in _c.source:
                     _t = _c.source
-                    row["input_tokens"] = _solution_field(_t, "input_tokens").replace(",", "")
-                    row["output_tokens"] = _solution_field(_t, "output_tokens").replace(",", "")
-                    row["cost_usd"] = _solution_field(_t, "estimated_cost").lstrip("$")
+                    _keep("input_tokens",
+                          _solution_field(_t, "input_tokens").replace(",", ""))
+                    _keep("output_tokens",
+                          _solution_field(_t, "output_tokens").replace(",", ""))
+                    _keep("cost_usd",
+                          _solution_field(_t, "estimated_cost").lstrip("$"))
                     row["time_used"] = _solution_field(_t, "time_used")
                     break
         except Exception:

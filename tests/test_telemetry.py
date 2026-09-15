@@ -119,7 +119,10 @@ def test_merge_reads_multiple_pid_files(tmp_path):
 def test_merge_with_no_files_is_empty_not_crash(tmp_path):
     summary = Telemetry.merge(tmp_path / "debug")
     assert summary["totals"]["calls"] == 0
-    assert summary["totals"]["total_cost_usd"] == 0.0
+    # Nothing was measured, so the cost is UNKNOWN. This asserted 0.0 while
+    # merge summed unpriced calls as zero — the same conflation of "free" with
+    # "not measured" that made every open-weight run look costless.
+    assert summary["totals"]["total_cost_usd"] is None
     assert summary["by_role"] == {}
 
 
@@ -230,3 +233,49 @@ def test_record_call_never_raises_into_caller(tmp_path, monkeypatch):
     # must not raise
     tel.record_call(role="r", model="m", phase="p", delegation_id=None,
                     usage=_usage(1, 1))
+
+
+# ---------------------------------------------------------------------------
+# An unpriced run is UNMEASURED, not free
+#
+# record_call never fakes a cost (ollama and every self-hosted backend return
+# None), but merge summed those Nones as 0.0 — so a whole run on an
+# open-weight model reported total_cost_usd: 0.0, indistinguishable from a run
+# that genuinely cost nothing. An ablation comparing arms on cost has to tell
+# "free" from "not measured".
+# ---------------------------------------------------------------------------
+
+def test_a_run_with_no_priced_call_reports_unknown_cost_not_zero(tmp_path):
+    debug = tmp_path / "debug"
+    tel = Telemetry(debug)
+    for role in ("strategizer", "critic"):
+        tel.record_call(role=role, model="qwen-local", phase="t",
+                        delegation_id=None, usage=_usage(100, 50, cost=None))
+
+    summary = Telemetry.merge(debug)
+
+    assert summary["totals"]["calls"] == 2
+    assert summary["totals"]["cost_calls"] == 0
+    assert summary["totals"]["total_cost_usd"] is None, (
+        "unpriced must be None (unknown), never 0.0 (free)")
+    # tokens are still fully measured — only the price is unavailable
+    assert summary["totals"]["input_tokens"] == 200
+    assert summary["by_role"]["critic"]["total_cost_usd"] is None
+
+
+def test_a_partly_priced_run_reports_what_was_priced(tmp_path):
+    """Mixed backends: the cost is real but covers only some calls, and
+    cost_calls says how many — so a total is never mistaken for complete."""
+    debug = tmp_path / "debug"
+    tel = Telemetry(debug)
+    tel.record_call(role="strategizer", model="claude-x", phase="t",
+                    delegation_id=None, usage=_usage(10, 5, cost=0.02))
+    tel.record_call(role="critic", model="qwen-local", phase="t",
+                    delegation_id=None, usage=_usage(10, 5, cost=None))
+
+    summary = Telemetry.merge(debug)
+
+    assert summary["totals"]["calls"] == 2
+    assert summary["totals"]["cost_calls"] == 1
+    assert abs(summary["totals"]["total_cost_usd"] - 0.02) < 1e-9
+    assert summary["by_model"]["qwen-local"]["total_cost_usd"] is None

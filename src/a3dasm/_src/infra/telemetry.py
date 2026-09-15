@@ -114,6 +114,10 @@ class Telemetry:
         def _bucket() -> dict:
             return {
                 "calls": 0,
+                # How many of those calls reported a cost at all. Open-weight
+                # and self-hosted backends report none, so a bucket can have
+                # calls > 0 and cost_calls == 0 — see _finish.
+                "cost_calls": 0,
                 "input_tokens": 0,
                 "output_tokens": 0,
                 "cache_read_input_tokens": 0,
@@ -127,7 +131,22 @@ class Telemetry:
                 b[f] += int(r.get(f, 0) or 0)
             cost = r.get("total_cost_usd")
             if cost is not None:
+                b["cost_calls"] += 1
                 b["total_cost_usd"] += cost
+
+        def _finish(b: dict) -> dict:
+            """Unpriced calls leave the cost UNKNOWN, not zero.
+
+            ``record_call`` is careful never to fake a cost (ollama and every
+            self-hosted backend return None), but summing Nones as 0.0 undid
+            that here: a whole run on an open-weight model reported
+            ``total_cost_usd: 0.0``, indistinguishable from a run that
+            genuinely cost nothing. An ablation comparing arms on cost has to
+            be able to tell "free" from "not measured".
+            """
+            if b["cost_calls"] == 0:
+                b["total_cost_usd"] = None
+            return b
 
         totals = _bucket()
         by_role: dict = {}
@@ -149,10 +168,10 @@ class Telemetry:
         totals["wall_time_s"] = (max(tss) - min(tss)) if len(tss) >= 2 else 0.0
 
         summary = {
-            "totals": totals,
-            "by_role": by_role,
-            "by_phase": by_phase,
-            "by_model": by_model,
+            "totals": _finish(totals),
+            "by_role": {k: _finish(v) for k, v in by_role.items()},
+            "by_phase": {k: _finish(v) for k, v in by_phase.items()},
+            "by_model": {k: _finish(v) for k, v in by_model.items()},
         }
         try:
             tdir.mkdir(parents=True, exist_ok=True)
